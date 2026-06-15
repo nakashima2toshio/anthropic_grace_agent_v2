@@ -1,0 +1,12 @@
+{
+  "dataset_type": "cc_news_2per_gemini_chunks",
+  "dataset_name": "cc_news_2per_gemini_chunks",
+  "generated_at": "20260530_152546",
+  "total_qa_pairs": 85,
+  "coverage_rate": 1.0,
+  "files": {
+    "qa_json": "qa_output/pipeline/qa_pairs_cc_news_2per_gemini_chunks_20260530_152546.json",
+    "qa_csv": "qa_output/pipeline/qa_pairs_cc_news_2per_gemini_chunks_20260530_152546.csv",
+    "coverage": "qa_output/pipeline/coverage_cc_news_2per_gemini_chunks_20260530_152546.json"
+  }
+}

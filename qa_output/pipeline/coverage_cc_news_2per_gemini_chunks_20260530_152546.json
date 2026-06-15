@@ -1,0 +1,162 @@
+{
+  "coverage_rate": 1.0,
+  "covered_chunks": 45,
+  "total_chunks": 45,
+  "uncovered_chunks": [],
+  "max_similarities": [
+    0.8779476266322107,
+    0.843863139110684,
+    0.8621757772833192,
+    0.8859732160406307,
+    0.861323185560233,
+    0.8536532294319414,
+    0.8812572020673755,
+    0.8492516752807976,
+    0.7693403470761295,
+    0.7946745291545311,
+    0.9078637798715014,
+    0.8854514955763182,
+    0.8909225380855733,
+    0.7567561519780588,
+    0.8298009912435322,
+    0.870845934479172,
+    0.8618319483612925,
+    0.83873174526516,
+    0.8941966312831691,
+    0.842655578558921,
+    0.8707561796279513,
+    0.7917585599215603,
+    0.8654711947809485,
+    0.8565924803502145,
+    0.8164450265212643,
+    0.8591129569470386,
+    0.8981857902380576,
+    0.9041601150765791,
+    0.8518194339018357,
+    0.82806273847995,
+    0.8686427901351594,
+    0.9153726182789569,
+    0.9013970215292596,
+    0.878058203185601,
+    0.8664533653561888,
+    0.7980826474373097,
+    0.8446763436221222,
+    0.8761360206515533,
+    0.8704614863055858,
+    0.8623009573345697,
+    0.7644943964851715,
+    0.8666070887885505,
+    0.8188253260638156,
+    0.8619263386262519,
+    0.8783452785516445
+  ],
+  "threshold": 0.7,
+  "multi_threshold": {
+    "strict": {
+      "threshold": 0.8,
+      "covered_chunks": 39,
+      "coverage_rate": 0.8666666666666667,
+      "uncovered_count": 6,
+      "uncovered_chunks": [
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_8",
+          "similarity": 0.7693403470761295,
+          "gap": 0.030659652923870517
+        },
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_9",
+          "similarity": 0.7946745291545311,
+          "gap": 0.005325470845468971
+        },
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_13",
+          "similarity": 0.7567561519780588,
+          "gap": 0.043243848021941256
+        },
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_21",
+          "similarity": 0.7917585599215603,
+          "gap": 0.008241440078439743
+        },
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_35",
+          "similarity": 0.7980826474373097,
+          "gap": 0.001917352562690322
+        },
+        {
+          "chunk_id": "cc_news_2per_gemini_chunk_40",
+          "similarity": 0.7644943964851715,
+          "gap": 0.035505603514828565
+        }
+      ]
+    },
+    "standard": {
+      "threshold": 0.7,
+      "covered_chunks": 45,
+      "coverage_rate": 1.0,
+      "uncovered_count": 0,
+      "uncovered_chunks": []
+    },
+    "lenient": {
+      "threshold": 0.6,
+      "covered_chunks": 45,
+      "coverage_rate": 1.0,
+      "uncovered_count": 0,
+      "uncovered_chunks": []
+    }
+  },
+  "chunk_analysis": {
+    "by_length": {
+      "long": {
+        "count": 12,
+        "covered": 12,
+        "avg_similarity": 0.8579117177078165,
+        "coverage_rate": 1.0
+      },
+      "medium": {
+        "count": 12,
+        "covered": 12,
+        "avg_similarity": 0.8618013274263641,
+        "coverage_rate": 1.0
+      },
+      "short": {
+        "count": 21,
+        "covered": 21,
+        "avg_similarity": 0.8493383113775013,
+        "coverage_rate": 1.0
+      }
+    },
+    "by_position": {
+      "beginning": {
+        "count": 15,
+        "covered": 15,
+        "avg_similarity": 0.8500169922928558,
+        "coverage_rate": 1.0
+      },
+      "middle": {
+        "count": 16,
+        "covered": 16,
+        "avg_similarity": 0.857454318995517,
+        "coverage_rate": 1.0
+      },
+      "end": {
+        "count": 14,
+        "covered": 14,
+        "avg_similarity": 0.8573669351583274,
+        "coverage_rate": 1.0
+      }
+    },
+    "summary": {
+      "total_chunks": 45,
+      "total_qa_pairs": 85,
+      "threshold_used": 0.7,
+      "insights": []
+    }
+  },
+  "dataset_type": "cc_news_2per_gemini_chunks",
+  "optimal_thresholds": {
+    "strict": 0.8,
+    "standard": 0.7,
+    "lenient": 0.6
+  }
+}
