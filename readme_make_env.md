@@ -1,6 +1,8 @@
-# Agent RAG (Gemini) 環境構築手順書
+# Agent RAG (Anthropic) 環境構築手順書
 
 **開発マシン:** MacBook Air M2 / 24GB メモリ / macOS
+
+**最終更新:** 2026-06-12
 
 ---
 
@@ -10,24 +12,23 @@
 
 ```mermaid
 graph TD
-    User((ユーザー<br>ブラウザ)) -->|http://localhost:8500| Streamlit[Streamlit アプリケーション<br>agent_rag.py<br>Port: 8500]
+    User(("ユーザー<br>ブラウザ")) -->|"http://localhost:8501"| Streamlit["Streamlit アプリケーション<br>agent_rag.py<br>Port: 8501"]
 
-    Streamlit -->|Q&A生成/Embedding| Gemini(Gemini API<br>クラウド)
-    Streamlit -->|ベクトル検索| Qdrant[(Qdrant<br>Port: 6333<br>Docker)]
-    Streamlit -.->|タスク登録| Redis[(Redis<br>Port: 6379<br>Docker)]
+    Streamlit -->|"Q&A生成 / AI応答"| Anthropic["Anthropic API<br>Claude Sonnet<br>クラウド"]
+    Streamlit -->|"Embedding生成"| Gemini["Gemini API<br>gemini-embedding-001<br>クラウド"]
+    Streamlit -->|"ベクトル検索"| Qdrant[("Qdrant<br>Port: 6333<br>Docker")]
+    Streamlit -.->|"タスク登録"| Redis[("Redis<br>Port: 6379<br>Docker")]
 
-    subgraph Background Jobs
-        Celery[[Celery Workers<br>並列処理]]
-        Celery -->|タスク取得/結果保存| Redis
-        Celery -->|Q&A生成| Gemini
+    subgraph BG["Background Jobs"]
+        Celery["Celery Workers<br>並列処理"]
+        Celery -->|"タスク取得/結果保存"| Redis
+        Celery -->|"Q&A生成"| Anthropic
+        Celery -->|"Embedding生成"| Gemini
     end
-
-    style User fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Streamlit fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Gemini fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Qdrant fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Redis fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Celery fill:#000,stroke:#fff,stroke-width:2px,color:#fff
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class User,Streamlit,Anthropic,Gemini,Qdrant,Redis,Celery default
+style BG fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.1 Homebrew（未インストールの場合）
@@ -36,21 +37,37 @@ graph TD
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 1.2 Python 3.11+
+### 1.2 Python 3.13
+
+本プロジェクトは `pyproject.toml` で `requires-python = ">=3.13,<3.14"` を指定しています。
+Python 3.13 系を用意してください（パッケージ管理は後述の uv が自動で解決します）。
 
 ```bash
-brew install python@3.11
+brew install python@3.13
 ```
 
 または pyenv を利用:
 
 ```bash
 brew install pyenv
-pyenv install 3.11.9
-pyenv local 3.11.9
+pyenv install 3.13.5
+pyenv local 3.13.5
 ```
 
-### 1.3 Docker Desktop for Mac
+### 1.3 uv（Python パッケージマネージャ）
+
+本プロジェクトは **uv**（`pyproject.toml` + `uv.lock`）で依存関係を管理します。
+
+```bash
+# 公式インストーラ
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc   # または source ~/.zshrc
+
+# Homebrew でも可
+brew install uv
+```
+
+### 1.4 Docker Desktop for Mac
 
 [Docker Desktop](https://www.docker.com/products/docker-desktop/) をインストール。
 Apple Silicon (M2) 版を選択すること。
@@ -64,7 +81,7 @@ Apple Silicon (M2) 版を選択すること。
 | Memory   | 8 GB   |
 | Swap     | 1 GB   |
 
-### 1.4 Redis（Celery ブローカー用）
+### 1.5 Redis（Celery ブローカー用）
 
 Docker 経由で起動するため個別インストールは不要。
 ローカルで直接使いたい場合:
@@ -74,14 +91,15 @@ brew install redis
 brew services start redis
 ```
 
-### 1.5 MeCab（オプション: キーワード抽出用）
+### 1.6 MeCab（オプション: キーワード抽出用）
 
 ```bash
 brew install mecab mecab-ipadic
-pip install mecab-python3
 ```
 
-> MeCab がなくてもアプリは動作します（キーワード抽出機能が無効になるのみ）。
+`mecab-python3` は `pyproject.toml` の依存に含まれており、`uv sync` で自動インストールされます。
+
+> MeCab 本体がなくてもアプリは動作します（キーワード抽出機能が無効になるのみ）。
 
 ---
 
@@ -90,70 +108,72 @@ pip install mecab-python3
 ### 2.1 リポジトリのクローン
 
 ```bash
-git clone https://github.com/nakashima2toshio/gemini_agent_rag.git
-cd gemini_agent_rag
+git clone https://github.com/nakashima2toshio/anthropic_grace_agent.git
+cd anthropic_grace_agent
 ```
 
-### 2.2 Python 仮想環境の作成
+### 2.2 依存関係のインストール（uv）
+
+uv は仮想環境の作成と依存解決をまとめて行います。`uv.lock` に固定された
+バージョンで再現性のある環境を構築します。
 
 ```bash
-python3 -m venv .venv
+# .venv を自動作成し、uv.lock どおりに依存をインストール
+uv sync
+
+# 仮想環境を有効化したい場合（任意。uv run を使えば不要）
 source .venv/bin/activate
 ```
 
-### 2.3 Python ライブラリのインストール
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
+> `requirements.txt` も同梱されています。uv を使わない場合は
+> `uv pip install -r requirements.txt` または通常の `pip install -r requirements.txt`
+> でも構築できますが、バージョン固定の観点から **uv sync を推奨** します。
 
 ---
 
-## 3. requirements.txt
+## 3. 依存パッケージ（主要）
 
-以下の内容で `requirements.txt` を作成してください。
+依存は `pyproject.toml` に定義され、`uv.lock` でバージョン固定されています。
+主要パッケージは以下のとおりです。
 
 ```txt
 # === Web UI ===
-streamlit>=1.35.0
+streamlit==1.48.1
+fastapi==0.115.6
+gradio==5.44.1
 
-# === Gemini API ===
-google-generativeai>=0.8.0
+# === Anthropic API (LLM: チャンク分割 / Q&A生成 / Agent応答) ===
+anthropic>=0.40.0
+
+# === Gemini API (Embedding: Qdrant登録・検索用) ===
+google-genai>=1.74.0
 
 # === ベクトルDB (Qdrant) ===
-qdrant-client>=1.9.0
-
-# === Embedding / NLP ===
-sentence-transformers>=3.0.0
-transformers>=4.40.0
-torch>=2.2.0
-
-# === Rerank（オプション） ===
-cohere>=5.0.0
+qdrant-client==1.15.1
 
 # === 非同期タスク (Celery + Redis) ===
-celery>=5.4.0
-redis>=5.0.0
-flower>=2.0.0
+celery==5.5.3
+redis==6.2.0
+flower==2.0.1
 
 # === データセット ===
-datasets>=2.19.0       # HuggingFace datasets
+datasets==4.4.1
 
 # === ユーティリティ ===
-python-dotenv>=1.0.0
-pandas>=2.2.0
-numpy>=1.26.0
-requests>=2.31.0
-tqdm>=4.66.0
+python-dotenv==1.1.1
+pandas==2.3.1
+numpy==2.3.2
+requests==2.32.5
+tqdm==4.67.1
+tiktoken==0.12.0
+pydantic==2.11.7
 
 # === MeCab（オプション: キーワード抽出） ===
-# mecab-python3>=1.0.9
-# unidic-lite>=1.0.8
+mecab-python3>=1.0.12
 ```
 
-> **注意:** `torch` は Apple Silicon (MPS) 対応版が自動インストールされます。
-> GPU メモリが限られるため、Embedding はデフォルトで CPU 実行でも十分です。
+> **注意:** Embedding は Gemini API（クラウド）経由で生成するため、ローカル GPU は不要です。
+> `gemini-embedding-001`（3072次元）を使用します。
 
 ---
 
@@ -161,7 +181,7 @@ tqdm>=4.66.0
 
 ### 4.1 docker-compose.yml
 
-プロジェクトルートに配置済みの `docker-compose.yml` を使用します:
+Compose ファイルは **`docker-compose/docker-compose.yml`** に配置済みです:
 
 ```yaml
 services:
@@ -203,20 +223,20 @@ networks:
 
 ```bash
 # 起動（バックグラウンド）
-docker compose up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 
 # 状態確認
-docker compose ps
+docker compose -f docker-compose/docker-compose.yml ps
 
 # ログ確認
-docker compose logs -f qdrant
-docker compose logs -f redis
+docker compose -f docker-compose/docker-compose.yml logs -f qdrant
+docker compose -f docker-compose/docker-compose.yml logs -f redis
 
 # 停止
-docker compose down
+docker compose -f docker-compose/docker-compose.yml down
 
 # 停止 + データ削除
-docker compose down -v
+docker compose -f docker-compose/docker-compose.yml down -v
 ```
 
 ### 4.3 動作確認
@@ -226,7 +246,7 @@ docker compose down -v
 curl http://localhost:6333/health
 
 # Redis 接続確認
-docker compose exec redis redis-cli ping
+docker compose -f docker-compose/docker-compose.yml exec redis redis-cli ping
 # → PONG が返れば OK
 ```
 
@@ -278,7 +298,10 @@ http://localhost:5555
 プロジェクトルートに `.env` を作成:
 
 ```bash
-# === Gemini API ===
+# === Anthropic API (LLM: チャンク分割 / Q&A生成 / Agent応答) ===
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# === Gemini API (Embedding: Qdrant登録・検索用) ===
 GEMINI_API_KEY=your_gemini_api_key_here
 GOOGLE_API_KEY=your_gemini_api_key_here
 
@@ -294,13 +317,15 @@ CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
 ```
 
+> LLM は `ANTHROPIC_API_KEY`、Embedding は `GEMINI_API_KEY` / `GOOGLE_API_KEY`（同じ Gemini キーを両方に設定）を使用します。
+
 ### 6.2 API キーの取得先
 
-
-| API            | 取得先                                               |
-| -------------- | ---------------------------------------------------- |
-| Gemini API Key | https://aistudio.google.com/apikey                   |
-| Cohere API Key | https://dashboard.cohere.com/api-keys （オプション） |
+| API | 取得先 | 用途 |
+|---|---|---|
+| Anthropic API Key | https://console.anthropic.com/settings/keys | LLM（Q&A生成・Agent応答） |
+| Gemini API Key | https://aistudio.google.com/apikey | Embedding（Qdrant登録・検索） |
+| Cohere API Key | https://dashboard.cohere.com/api-keys | Rerank（オプション） |
 
 ---
 
@@ -310,13 +335,13 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
 ```bash
 # 1. Docker コンテナ起動
-docker compose up -d
+docker compose -f docker-compose/docker-compose.yml up -d
 
 # 2. Celery ワーカー起動
 ./start_celery.sh start -c 8 --flower
 
-# 3. Streamlit アプリ起動
-streamlit run agent_rag.py --server.port 8501
+# 3. Streamlit アプリ起動（uv 経由）
+uv run streamlit run agent_rag.py --server.port 8501
 ```
 
 ブラウザで以下にアクセス:
@@ -324,6 +349,8 @@ streamlit run agent_rag.py --server.port 8501
 ```
 http://localhost:8501
 ```
+
+> `.venv` を有効化済みの場合は `streamlit run agent_rag.py --server.port 8501` でも起動できます。
 
 ### 7.2 全サービスの停止
 
@@ -334,7 +361,7 @@ http://localhost:8501
 ./start_celery.sh stop
 
 # Docker 停止
-docker compose down
+docker compose -f docker-compose/docker-compose.yml down
 ```
 
 ---
@@ -342,14 +369,16 @@ docker compose down
 ## 8. 動作確認チェックリスト
 
 ```
-[ ] Python 3.11+ がインストールされている
-[ ] pip install -r requirements.txt が正常完了
+[ ] Python 3.13 系がインストールされている
+[ ] uv がインストールされている
+[ ] uv sync が正常完了（.venv 作成 + 依存インストール）
 [ ] Docker Desktop が起動している
-[ ] docker compose up -d で Qdrant / Redis が起動
+[ ] docker compose -f docker-compose/docker-compose.yml up -d で Qdrant / Redis が起動
 [ ] curl http://localhost:6333/health が正常応答
-[ ] .env に GEMINI_API_KEY が設定されている
+[ ] .env に ANTHROPIC_API_KEY が設定されている（LLM用）
+[ ] .env に GOOGLE_API_KEY / GEMINI_API_KEY が設定されている（Gemini Embedding用）
 [ ] ./start_celery.sh status でワーカーが起動中
-[ ] streamlit run agent_rag.py が正常起動
+[ ] uv run streamlit run agent_rag.py が正常起動
 [ ] ブラウザで http://localhost:8501 にアクセス可能
 ```
 
@@ -361,33 +390,39 @@ docker compose down
 
 ```bash
 # コンテナの状態確認
-docker compose ps
+docker compose -f docker-compose/docker-compose.yml ps
 # qdrant コンテナが unhealthy の場合、再起動
-docker compose restart qdrant
+docker compose -f docker-compose/docker-compose.yml restart qdrant
 ```
 
 ### Celery ワーカーが起動しない
 
 ```bash
 # Redis が起動しているか確認
-docker compose exec redis redis-cli ping
+docker compose -f docker-compose/docker-compose.yml exec redis redis-cli ping
 
 # ログ確認
 tail -50 logs/celery_qa_worker.log
 ```
 
-### `ModuleNotFoundError` が出る
+### Planner/Executor 初期化エラー
+
+`ANTHROPIC_API_KEY`（LLM用）または `GOOGLE_API_KEY` / `GEMINI_API_KEY`（Gemini Embedding用）が `.env` に設定されているか確認してください。
 
 ```bash
 # PYTHONPATH にプロジェクトルートを追加
 export PYTHONPATH="$(pwd):$(pwd)/helper"
 ```
 
-### Apple Silicon で torch のインストールに失敗
+### uv sync が失敗する
 
 ```bash
-# MPS 対応版を明示的にインストール
-pip install torch torchvision torchaudio
+# uv 自体を最新化
+uv self update
+
+# キャッシュをクリアして再試行
+uv cache clean
+uv sync
 ```
 
 ---
