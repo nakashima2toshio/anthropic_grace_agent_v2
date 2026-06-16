@@ -14,6 +14,7 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
 from .config import get_config, GraceConfig
+from .llm_compat import create_chat_client
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +378,7 @@ class LLMSelfEvaluator:
     ):
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
-        self.client = genai.Client()
+        self.client = create_chat_client(self.config)
         logger.info(f"LLMSelfEvaluator initialized with model: {self.model_name}")
 
     def evaluate(
@@ -676,7 +677,7 @@ class QueryCoverageCalculator:
     ):
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
-        self.client = genai.Client()
+        self.client = create_chat_client(self.config)
         logger.info("QueryCoverageCalculator initialized")
 
     def calculate(self, query: str, answer: str) -> float:

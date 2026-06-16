@@ -21,6 +21,7 @@ from .schemas import (
 )
 from .tools import ToolRegistry, ToolResult, create_tool_registry
 from .config import get_config, GraceConfig
+from .llm_compat import create_chat_client
 from .confidence import (
     ConfidenceCalculator,
     ConfidenceFactors,
@@ -888,11 +889,10 @@ class Executor:
         )
 
         try:
-            from google import genai
             from google.genai import types
             import time as _time
 
-            client = genai.Client()
+            client = create_chat_client(self.config)
             t0 = _time.time()
 
             response = client.models.generate_content(

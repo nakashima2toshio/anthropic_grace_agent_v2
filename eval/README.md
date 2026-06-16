@@ -70,4 +70,5 @@ total_cost_usd                      0.0000
 
 - `run_eval.py` / `build_dataset.py` 冒頭の import は v1 のレイアウト（`grace.*`, `helper_llm`,
   `qdrant_client_wrapper`）を前提にしている。v2 のモジュール配置が異なる場合は import パスを調整すること。
-- ジャッジは `claude-sonnet-4-6` 等の Anthropic モデルを使用（`--judge-model` で指定可）。
+- ジャッジは文字列処理用途のため既定で `claude-haiku-4-5-20251001`（Anthropic）を使用（`--judge-model` で変更可）。
+  GRACE 本体（planner/executor/confidence/tools）は `claude-sonnet-4-6` を使用する。

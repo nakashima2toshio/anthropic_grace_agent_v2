@@ -10,7 +10,6 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 from qdrant_client import QdrantClient
-from google import genai
 from google.genai import types
 
 # Import wrappers for robust execution
@@ -18,6 +17,7 @@ from qdrant_client_wrapper import search_collection, embed_query_unified, embed_
 from services.qdrant_service import get_collection_embedding_params
 
 from .config import get_config, GraceConfig
+from .llm_compat import create_chat_client
 from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
@@ -313,7 +313,7 @@ class ReasoningTool(BaseTool):
     ):
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
-        self.client = genai.Client()
+        self.client = create_chat_client(self.config)
 
     def execute(
         self,
