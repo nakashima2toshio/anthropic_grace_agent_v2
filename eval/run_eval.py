@@ -34,12 +34,14 @@ from eval.metrics import EvalRecord, compute
 try:
     from grace.planner import create_planner
     from grace.executor import create_executor
+    from grace.config import get_config
     from helper_llm import create_llm_client
 except Exception:  # pragma: no cover - 環境依存
     try:
         from helper.helper_llm import create_llm_client  # 一部レイアウト用フォールバック
         from grace.planner import create_planner
         from grace.executor import create_executor
+        from grace.config import get_config
     except Exception as exc:
         print(
             "ERROR: GRACE 本体（grace.planner / grace.executor / helper_llm）を import できません。\n"
@@ -104,15 +106,26 @@ def _safe_judge(judge_llm: Any, model: str | None, question: str,
 
 
 def run(dataset: str, limit: int, model: str | None,
-        judge_model: str | None, report: str | None) -> int:
+        judge_model: str | None, report: str | None,
+        collection: str | None = None) -> int:
     items = load_dataset(dataset, limit=limit)
     if not items:
         print(f"ERROR: 評価データが空です: {dataset}", file=sys.stderr)
         return 1
 
+    # ジャッジのモデルは未指定なら GRACE 本体と同じ設定モデルを使う
+    # （None のままだとクライアントが model 未解決で 404 になる）
+    cfg = get_config()
+    if not judge_model:
+        judge_model = getattr(getattr(cfg, "llm", None), "model", None)
+    if not model:
+        model = getattr(getattr(cfg, "llm", None), "model", None)
+
     planner = create_planner(model_name=model)
     executor = create_executor()
     judge_llm = create_llm_client("anthropic", default_model=judge_model)
+    print(f"[run_eval] judge_model={judge_model} grace_model={model} "
+          f"pinned_collection={collection or '(none: search all)'}")
 
     records: list[EvalRecord] = []
     details: list[dict[str, Any]] = []
@@ -123,6 +136,12 @@ def run(dataset: str, limit: int, model: str | None,
         t0 = time.monotonic()
         try:
             plan = planner.create_plan(q)
+            # 対象コレクションに固定（指定時）。768次元など非対応コレクションの
+            # 総当たり検索（dim mismatch エラー）を避け、評価対象を一意にする。
+            if collection:
+                for step in getattr(plan, "steps", []):
+                    if getattr(step, "action", None) == "rag_search":
+                        step.collection = collection
             result = executor.execute(plan)
             prediction = getattr(result, "final_answer", None) or ""
             confidence = float(getattr(result, "overall_confidence", 0.0) or 0.0)
@@ -134,6 +153,8 @@ def run(dataset: str, limit: int, model: str | None,
         latency_ms = (time.monotonic() - t0) * 1000.0
 
         verdict = _safe_judge(judge_llm, judge_model, q, gold, prediction)
+        if verdict.reason.startswith("judge_error"):
+            print(f"    ⚠ judge error: {verdict.reason}", file=sys.stderr)
         correct = verdict.verdict == "correct"
 
         records.append(EvalRecord(
@@ -171,14 +192,17 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dataset", default="eval/dataset.jsonl")
     p.add_argument("--limit", type=int, default=0, help="先頭 N 件のみ（0 で全件）")
     p.add_argument("--model", default=None, help="GRACE 本体の LLM モデル（既定は config）")
-    p.add_argument("--judge-model", default=None, help="ジャッジ用 LLM モデル")
+    p.add_argument("--judge-model", default=None, help="ジャッジ用 LLM モデル（既定は config の llm.model）")
+    p.add_argument("--collection", default="cc_news_2per_anthropic",
+                   help="rag_search を固定するコレクション。空文字で全コレクション総当たり")
     p.add_argument("--report", default="logs/eval_baseline.json")
     return p.parse_args(list(argv) if argv is not None else None)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(argv)
-    return run(args.dataset, args.limit, args.model, args.judge_model, args.report)
+    return run(args.dataset, args.limit, args.model, args.judge_model,
+               args.report, collection=(args.collection or None))
 
 
 if __name__ == "__main__":
