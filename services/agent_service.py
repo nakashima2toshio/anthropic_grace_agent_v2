@@ -145,7 +145,20 @@ class ReActAgent:
     ):
         self.selected_collections = selected_collections
         # モデル名はconfig_serviceから取得（デフォルト）
-        self.model_name = model_name or get_config("models.default", "gemini-2.5-flash")
+        resolved_model = model_name or get_config("models.default", "gemini-2.5-flash")
+        # 安全デカップル: このレガシー ReActAgent は Gemini ネイティブの
+        # function-calling（chats.create(tools=...) / function_call）に依存しているため、
+        # Gemini 以外（例: GRACE 本体既定の claude-sonnet-4-6）が渡されると
+        # Gemini エンドポイントに Claude モデル名を投げて失敗する。
+        # その場合は Gemini 既定モデルへ自動回避し、警告を出す。
+        legacy_default = get_config("models.legacy_default", "gemini-2.5-flash")
+        if not str(resolved_model).lower().startswith("gemini"):
+            logger.warning(
+                f"ReActAgent(legacy) は Gemini ネイティブ function-calling 専用のため、"
+                f"非 Gemini モデル '{resolved_model}' を Gemini 既定 '{legacy_default}' へ回避します。"
+            )
+            resolved_model = legacy_default
+        self.model_name = resolved_model
         self.session_id = session_id or str(uuid.uuid4())
         self.use_hybrid_search = use_hybrid_search  # ★追加: インスタンス変数として保持
 
