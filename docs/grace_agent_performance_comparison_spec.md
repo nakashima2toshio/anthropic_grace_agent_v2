@@ -1,8 +1,9 @@
 # Agent性能比較 — 比較・調査仕様書
 
-**バージョン**: 1.3  
+**バージョン**: 1.4  
 **作成日**: 2026-05-24  
-**更新日**: 2026-05-24（v1.2→v1.3: 全体設計方針・6モデル比較・詳細計測・実施フェーズを再構成）  
+**更新日**: 2026-06-16（v1.3→v1.4: anthropic プロジェクトの LLM デフォルトを `claude-sonnet-4-6` に統一、最終更新日を更新）  
+**最終更新**: 2026-06-16  
 **対象リポジトリ**: openai / gemini / ollama / anthropic `_grace_agent`
 
 ---
@@ -33,7 +34,7 @@ GRACE（Guided Reasoning with Adaptive Confidence Execution）エージェント
 | 1 | Cloud | OpenAI | `gpt-4o-mini` | `gpt-4o-mini-2024-07-18` | `openai_grace_agent` |
 | 2 | Cloud | OpenAI | `gpt-4o` | `gpt-4o-2024-08-06` | `openai_grace_agent` |
 | 3 | Cloud | Google | `gemini-2.0-flash` | 日付スナップショット | `gemini_grace_agent` |
-| 4 | Cloud | Anthropic | `claude-3-5-sonnet` | `claude-3-5-sonnet-20241022` | `anthropic_grace_agent` |
+| 4 | Cloud | Anthropic | `claude-sonnet-4-6` | `claude-sonnet-4-6` | `anthropic_grace_agent` |
 | 5 | Local | Ollama | `llama3.2` | `3.2:3b` | `ollama_grace_agent` |
 | 6 | Local | Ollama | `gemma4:e4b` | 固定 | `ollama_grace_agent` |
 
@@ -236,7 +237,7 @@ accuracy_score, completeness_score
 
 ### 7-2. 比較サマリーテーブル（例）
 
-| 指標 | GPT-4o | GPT-4o-mini | Gemini-2.0-flash | Claude-3.5-Sonnet | llama3.2 | gemma4:e4b |
+| 指標 | GPT-4o | GPT-4o-mini | Gemini-2.0-flash | Claude-Sonnet-4-6 | llama3.2 | gemma4:e4b |
 |---|---|---|---|---|---|---|
 | 計画生成時間（秒） | - | - | - | - | - | - |
 | 全体実行時間（秒） | - | - | - | - | - | - |
@@ -359,3 +360,4 @@ pytest tests/test_agent_4operations.py -v
 | 1.1 | 2026-05-24 | config.py 調査に基づきモデル名修正、Ollama Embedding 次元差異追加、Section 8（単体テスト）追加 |
 | 1.2 | 2026-05-24 | config.py を spec v1.0 の意図通りモデル名に更新し同期（openai: gpt-5.4-mini、gemini: gemini-2.0-flash、ollama: gemma4:e4b） |
 | 1.3 | 2026-05-24 | 全体再構成: Section 0（設計方針）追加、6モデル比較表に拡張（gpt-4o / claude-3-5-sonnet / llama3.2 追加）、temperature=0.0 再現性設定、GRACEフェーズ別詳細計測項目、LLM-as-Judge 5軸、BENCHMARKログ出力仕様、Streamlitダッシュボード仕様、4フェーズ実施手順、CSV/サマリーテーブル形式を追加 |
+| 1.4 | 2026-06-16 | anthropic_grace_agent の LLM デフォルトを `claude-sonnet-4-6` に統一（比較表・サマリーテーブル列名を更新）。Gemini / OpenAI / Ollama の比較対象モデルは維持 |
