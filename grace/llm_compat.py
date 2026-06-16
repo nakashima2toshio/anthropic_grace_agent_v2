@@ -106,8 +106,10 @@ def _strip_to_json(text: str) -> str:
 class _AnthropicModels:
     """genai の `client.models` 互換ラッパー（generate_content のみ）。"""
 
-    def __init__(self, anthropic_client: Any, default_model: str):
-        self._client = anthropic_client
+    def __init__(self, client_getter: Any, default_model: str):
+        # client_getter は呼び出し時に Anthropic クライアントを遅延生成する callable。
+        # （genai.Client() と同様、構築時には SDK import / API キーを要求しない）
+        self._get_client = client_getter
         self._default_model = default_model
 
     def generate_content(
@@ -154,7 +156,7 @@ class _AnthropicModels:
         if temperature is not None:
             kwargs["temperature"] = float(temperature)
 
-        message = self._client.messages.create(**kwargs)
+        message = self._get_client().messages.create(**kwargs)
 
         # text ブロックを連結
         text_parts: list[str] = []
@@ -185,15 +187,27 @@ class AnthropicGenaiClient:
     """
 
     def __init__(self, default_model: str, api_key: Optional[str] = None):
-        try:
-            import anthropic
-        except ImportError as exc:  # pragma: no cover - 依存未導入
-            raise ImportError(
-                "anthropic パッケージが必要です。`pip install anthropic` を実行してください。"
-            ) from exc
-        # API キー・ベース URL は環境変数（ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL）から解決
-        self._client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
-        self.models = _AnthropicModels(self._client, default_model)
+        self._default_model = default_model
+        self._api_key = api_key
+        self._client: Any = None
+        # genai.Client() と同様、構築時には SDK import / API キー検証を行わず、
+        # 最初の generate_content 呼び出し時に遅延生成する（import 安全性のため）。
+        self.models = _AnthropicModels(self._ensure_client, default_model)
+
+    def _ensure_client(self) -> Any:
+        if self._client is None:
+            try:
+                import anthropic
+            except ImportError as exc:  # pragma: no cover - 依存未導入
+                raise ImportError(
+                    "anthropic パッケージが必要です。`pip install anthropic` を実行してください。"
+                ) from exc
+            # API キー・ベース URL は環境変数（ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL）から解決
+            self._client = (
+                anthropic.Anthropic(api_key=self._api_key)
+                if self._api_key else anthropic.Anthropic()
+            )
+        return self._client
 
 
 def create_chat_client(config: Any = None) -> Any:
