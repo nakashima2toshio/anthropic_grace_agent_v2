@@ -3,19 +3,18 @@ GRACE Confidence Tests
 信頼度計算システムのテスト
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from grace.confidence import (
+    ActionDecision,
+    ConfidenceAggregator,
+    ConfidenceCalculator,
     ConfidenceFactors,
     ConfidenceScore,
-    ActionDecision,
     InterventionLevel,
-    ConfidenceCalculator,
     LLMSelfEvaluator,
-    SourceAgreementCalculator,
     QueryCoverageCalculator,
-    ConfidenceAggregator,
+    SourceAgreementCalculator,
     create_confidence_calculator,
 )
 from grace.config import GraceConfig, reset_config
@@ -273,7 +272,7 @@ class TestConfidenceCalculator:
 class TestLLMSelfEvaluator:
     """LLMSelfEvaluatorのテスト"""
 
-    @patch("grace.confidence.genai.Client")
+    @patch("grace.confidence.create_chat_client")
     def test_evaluate_success(self, mock_client_class):
         """評価成功"""
         mock_response = MagicMock()
@@ -292,7 +291,7 @@ class TestLLMSelfEvaluator:
 
         assert result == 0.85
 
-    @patch("grace.confidence.genai.Client")
+    @patch("grace.confidence.create_chat_client")
     def test_evaluate_parse_error(self, mock_client_class):
         """パースエラー時はデフォルト値"""
         mock_response = MagicMock()
@@ -310,7 +309,7 @@ class TestLLMSelfEvaluator:
 
         assert result == 0.5  # デフォルト値
 
-    @patch("grace.confidence.genai.Client")
+    @patch("grace.confidence.create_chat_client")
     def test_evaluate_clamp_values(self, mock_client_class):
         """値は0.0-1.0の範囲にクランプ"""
         mock_response = MagicMock()
@@ -360,7 +359,7 @@ class TestSourceAgreementCalculator:
 class TestQueryCoverageCalculator:
     """QueryCoverageCalculatorのテスト"""
 
-    @patch("grace.confidence.genai.Client")
+    @patch("grace.confidence.create_chat_client")
     def test_calculate_success(self, mock_client_class):
         """網羅度計算成功"""
         mock_response = MagicMock()

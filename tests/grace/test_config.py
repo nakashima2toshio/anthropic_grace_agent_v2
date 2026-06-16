@@ -3,19 +3,16 @@ GRACE Config Tests
 設定のテスト
 """
 
-import pytest
 import os
 import tempfile
-from pathlib import Path
 
 from grace.config import (
-    GraceConfig,
-    LLMConfig,
-    EmbeddingConfig,
     ConfidenceConfig,
     ConfigLoader,
+    EmbeddingConfig,
+    GraceConfig,
+    LLMConfig,
     get_config,
-    reload_config,
     reset_config,
 )
 
@@ -27,8 +24,8 @@ class TestConfigModels:
         """LLMConfig のデフォルト値"""
         config = LLMConfig()
 
-        assert config.provider == "gemini"
-        assert config.model == "gemini-2.5-flash"
+        assert config.provider == "anthropic"
+        assert config.model == "claude-sonnet-4-6"
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
         assert config.timeout == 30
@@ -55,7 +52,7 @@ class TestConfigModels:
         config = GraceConfig()
 
         assert config.version == "1.0"
-        assert config.llm.provider == "gemini"
+        assert config.llm.provider == "anthropic"
         assert config.embedding.dimensions == 3072
         assert config.replan.max_replans == 3
         assert config.cost.daily_limit_usd == 10.0
@@ -84,7 +81,7 @@ class TestConfigLoader:
         config = loader.load()
 
         assert isinstance(config, GraceConfig)
-        assert config.llm.model == "gemini-2.5-flash"
+        assert config.llm.model == "claude-sonnet-4-6"
 
     def test_load_from_yaml(self):
         """YAMLファイルから読み込み"""
