@@ -4,11 +4,11 @@ GRACE Schemas - Pydanticモデル定義
 計画生成・実行に使用するデータモデルを定義
 """
 
-from typing import Literal, Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from enum import Enum
+from typing import List, Literal, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
 
 # =============================================================================
 # アクション種別
@@ -318,6 +318,59 @@ class SearchResultItem(BaseModel):
 # ユーティリティ
 # =============================================================================
 
+# =============================================================================
+# S3: ハイブリッド ReAct 用スキーマ
+# =============================================================================
+
+class ScratchpadEntry(BaseModel):
+    """ReAct ループの1ターン分の観測履歴（action / observation / confidence）。"""
+    action: str = Field(..., description="実行したアクション")
+    query: Optional[str] = Field(None, description="アクションのクエリ")
+    observation: str = Field("", description="観測（ツール出力の要約）")
+    confidence: float = Field(0.0, ge=0.0, le=1.0, description="このターンの信頼度")
+
+
+class Scratchpad(BaseModel):
+    """ReAct の観測履歴。Reason ステップへ渡す思考の足場。"""
+    entries: List[ScratchpadEntry] = Field(default_factory=list)
+
+    def add(self, action: str, observation: str, confidence: float,
+            query: Optional[str] = None) -> None:
+        obs = observation if len(observation) <= 600 else observation[:600] + "…(省略)"
+        self.entries.append(ScratchpadEntry(
+            action=action, query=query, observation=obs, confidence=confidence,
+        ))
+
+    def as_prompt(self) -> str:
+        """LLM プロンプト用に観測履歴を整形する。"""
+        if not self.entries:
+            return "(まだ何も実行していません)"
+        lines = []
+        for i, e in enumerate(self.entries, 1):
+            q = f" query='{e.query}'" if e.query else ""
+            lines.append(
+                f"[{i}] action={e.action}{q} confidence={e.confidence:.2f}\n"
+                f"    observation: {e.observation}"
+            )
+        return "\n".join(lines)
+
+    def last_confidence(self) -> float:
+        return self.entries[-1].confidence if self.entries else 0.0
+
+
+class AgentThought(BaseModel):
+    """ReAct の Reason 出力：次の1手と停止判定。"""
+    reasoning: str = Field("", description="現在の状況と次手の根拠（簡潔に）")
+    next_action: Literal[
+        "rag_search", "web_search", "reasoning", "ask_user", "finish"
+    ] = Field("reasoning", description="次に実行するアクション。十分なら finish")
+    query: Optional[str] = Field(None, description="検索/推論のためのクエリ")
+    collection: Optional[str] = Field(None, description="RAG 検索対象コレクション")
+    is_final: bool = Field(
+        False, description="このアクションで回答が確定し、ループを終了してよいか"
+    )
+
+
 def create_plan_id() -> str:
     """一意の計画IDを生成"""
     import hashlib
@@ -366,6 +419,11 @@ __all__ = [
     # Result schemas
     "StepResult",
     "ExecutionResult",
+
+    # S3: ReAct schemas
+    "ScratchpadEntry",
+    "Scratchpad",
+    "AgentThought",
 
     # Search result schemas (RAG/Web common)
     "SearchResultPayload",
