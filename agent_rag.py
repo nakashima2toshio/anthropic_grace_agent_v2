@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-streamlit run agent_rag.py --server.port 8501
+uv run streamlit run agent_rag.py --server.port 8501
 Agent RAG Q&A生成・Qdrant管理 Streamlit アプリケーション
 sudo systemctl restart streamlit-app
 
