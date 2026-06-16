@@ -66,6 +66,38 @@ total_cost_usd                      0.0000
 `python -m eval.run_eval` で現行システムのスコア表が出ること。
 このベースライン値が、S1（ECE 改善）・S3（accuracy が静的版以上）の基準点になる。
 
+## S1｜較正された根拠妥当性（実装済み）
+
+`docs/grace_react_refactor_todo.md` の **S1**。confidence を「検索スコアの言い換え」から
+「根拠妥当性（groundedness）＋較正」へ移行する。
+
+### 1. groundedness（根拠妥当性）を信頼度の主成分に
+- `grace/confidence.py::GroundednessVerifier` が最終回答を主張（claim）に分解し、
+  各主張が引用ソースに **支持(supported)/矛盾(contradicted)/無関係(neutral)** かを LLM 判定。
+- 支持率（support_rate）を `executor._calculate_overall_confidence` の**主成分**に採用。
+  検索スコアベースの集約値は **補助項**（`confidence.search_aux_weight`、既定 0.2）に降格。
+- 矛盾検出時は強く減点、ソース皆無の事実回答は過信抑制。
+- 設定：`confidence.groundedness_enabled` / `groundedness_weight`(0.6) /
+  `self_eval_weight`(0.25) / `coverage_weight`(0.15)。
+- ソース無し／LLM 失敗時は未検証として従来ブレンドへ graceful fallback。
+
+### 2. 較正（temperature scaling）で ECE を縮小
+```bash
+# ベースライン測定（confidence 付きレポートを出力）
+python -m eval.run_eval --report logs/eval_baseline.json
+# レポートから温度 T を推定し config/calibration.json に保存（較正前後の ECE を表示）
+python -m eval.calibrate --report logs/eval_baseline.json --output config/calibration.json
+# 以降の run_eval は config/calibration.json を読み、較正後 ECE も表示。
+# executor も実行時に overall_confidence へ T を適用する。
+python -m eval.run_eval --report logs/eval_calibrated.json
+```
+- `grace/calibration.py`：`p' = sigmoid(logit(p)/T)`。T は二値 NLL 最小化で推定（scipy 非依存）。
+- 較正ファイルが無ければ T=1.0（恒等）で動作。
+
+**DoD**：S0 の **ECE がベースラインより改善**。較正は事後変換のため fit 集合上で ECE を
+必ず縮小する（`tests/grace/test_calibration.py` で検証）。実データでの最終確認は
+`ANTHROPIC_API_KEY` + Qdrant 稼働下での `run_eval` → `calibrate` → `run_eval` で行う。
+
 ## 注意
 
 - `run_eval.py` / `build_dataset.py` 冒頭の import は v1 のレイアウト（`grace.*`, `helper_llm`,
