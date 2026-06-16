@@ -122,6 +122,26 @@ Plan は「初期仮説」として保持するハイブリッド方式。
 true/false を切り替えて `run_eval` のスコアを比較する（静的版とのA/B）。
 ロジックは `tests/grace/test_react.py`（API 非依存・mock）で検証済み。
 
+## A/B 自動比較（`ab_compare`）
+
+`executor.react_enabled` の ON/OFF を自動で2回まわし、accuracy / ECE /
+hallucination / latency / cost を差分テーブルで比較する。
+
+```bash
+python -m eval.ab_compare \
+    --dataset eval/dataset.jsonl --limit 20 \
+    --collection cc_news_2per_anthropic \
+    --output-dir logs/ab
+# → logs/ab/eval_static.json, logs/ab/eval_react.json, logs/ab/ab_summary.json
+```
+
+- `static` = `react_enabled=False`（静的 Plan-Execute）/ `react` = `react_enabled=True`。
+- `--threshold` で `react_complexity_threshold` を上書き可能（複雑質問のみ ReAct が効くため、
+  しきい値を下げると ReAct の発火率が上がる）。
+- 出力テーブルの `better` 列は指標の方向性（accuracy は高い方が良い、ECE/hallucination/
+  latency/cost は低い方が良い）を加味して `react` / `static` / `=` を表示する。
+- ロジックは `tests/eval/test_ab_compare.py`（API 非依存・mock）で検証済み。
+
 ## 注意
 
 - `run_eval.py` / `build_dataset.py` 冒頭の import は v1 のレイアウト（`grace.*`, `helper_llm`,
