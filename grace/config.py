@@ -53,9 +53,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class LLMConfig(BaseModel):
-    """LLM設定"""
-    provider: str = "gemini"
-    model: str = "gemini-2.5-flash"
+    """LLM設定（本プロジェクトは Anthropic を使用）"""
+    provider: str = "anthropic"
+    model: str = "claude-sonnet-4-6"
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 30

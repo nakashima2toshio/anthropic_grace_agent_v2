@@ -31,8 +31,9 @@ from pydantic import BaseModel, Field
 from eval.metrics import EvalRecord, compute
 
 # --- GRACE 本体の import（配置が異なる場合は調整） ---
+# helper_llm は helper パッケージ配下に配置されている（helper/helper_llm.py）。
 try:
-    from helper_llm import create_llm_client
+    from helper.helper_llm import create_llm_client
 
     from grace.config import get_config
     from grace.executor import create_executor
@@ -42,8 +43,8 @@ except Exception:  # pragma: no cover - 環境依存
         from grace.config import get_config
         from grace.executor import create_executor
         from grace.planner import create_planner
-        from helper.helper_llm import (
-            create_llm_client,  # 一部レイアウト用フォールバック
+        from helper_llm import (
+            create_llm_client,  # フラット配置用フォールバック
         )
     except Exception as exc:
         print(
@@ -195,7 +196,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     p.add_argument("--dataset", default="eval/dataset.jsonl")
     p.add_argument("--limit", type=int, default=0, help="先頭 N 件のみ（0 で全件）")
     p.add_argument("--model", default=None, help="GRACE 本体の LLM モデル（既定は config）")
-    p.add_argument("--judge-model", default=None, help="ジャッジ用 LLM モデル（既定は config の llm.model）")
+    p.add_argument("--judge-model", default="claude-haiku-4-5-20251001",
+                   help="ジャッジ用 LLM モデル（文字列処理のため既定は Haiku）")
     p.add_argument("--collection", default="cc_news_2per_anthropic",
                    help="rag_search を固定するコレクション。空文字で全コレクション総当たり")
     p.add_argument("--report", default="logs/eval_baseline.json")

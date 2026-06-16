@@ -18,6 +18,7 @@ from qdrant_client_wrapper import search_collection, embed_query_unified, embed_
 from services.qdrant_service import get_collection_embedding_params
 
 from .config import get_config, GraceConfig
+from .llm_compat import create_chat_client
 from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
@@ -313,7 +314,7 @@ class ReasoningTool(BaseTool):
     ):
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
-        self.client = genai.Client()
+        self.client = create_chat_client(self.config)
 
     def execute(
         self,

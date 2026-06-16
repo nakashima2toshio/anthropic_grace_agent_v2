@@ -16,6 +16,7 @@ from .schemas import (
     validate_plan_dependencies,
 )
 from .config import get_config, GraceConfig
+from .llm_compat import create_chat_client
 from services.qdrant_service import get_all_collections
 from qdrant_client import QdrantClient
 from services.prompts import SEARCH_QUERY_INSTRUCTION
@@ -120,7 +121,7 @@ class Planner:
         """
         self.config = config or get_config()
         self.model_name = model_name or self.config.llm.model
-        self.client = genai.Client()
+        self.client = create_chat_client(self.config)
 
         # KeywordExtractorの初期化（Legacy Agentと同一）
         try:
