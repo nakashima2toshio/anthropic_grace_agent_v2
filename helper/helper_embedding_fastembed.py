@@ -22,7 +22,10 @@ try:
     from fastembed import TextEmbedding
 except ImportError:
     TextEmbedding = None
-    logger.error("FastEmbed is not installed. Please run `pip install fastembed`.")
+    # FastEmbed はローカル Embedding を使うときだけ必要な optional 依存。import
+    # しただけの時点では未使用かもしれないため error で叫ばない（実際に使うと
+    # __init__ で ImportError を送出する）。
+    logger.debug("FastEmbed is not installed; local embedding is unavailable until `pip install fastembed`.")
 
 
 # FastEmbedのデフォルト設定

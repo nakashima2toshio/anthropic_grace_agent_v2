@@ -22,7 +22,10 @@ try:
     from fastembed import SparseTextEmbedding
 except ImportError:
     SparseTextEmbedding = None
-    logger.error("FastEmbed is not installed. Please run `pip install fastembed`.")
+    # FastEmbed は sparse/hybrid 検索でのみ使う optional 依存。import しただけの
+    # 時点では未使用かもしれないため error で叫ばない（実際に使うと __init__ で
+    # ImportError を送出する）。
+    logger.debug("FastEmbed is not installed; sparse embedding is unavailable until `pip install fastembed`.")
 
 # Sparse Embeddingのデフォルトモデル
 DEFAULT_SPARSE_MODEL = "prithivida/Splade_PP_en_v1"
