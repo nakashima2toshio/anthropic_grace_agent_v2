@@ -185,6 +185,19 @@ class CodeExecuteConfig(BaseModel):
     ])
 
 
+class MemoryConfig(BaseModel):
+    """実行メモリ層（P4）設定。
+
+    実行ログから (質問キーワード, コレクション, 成否, confidence) を蓄積し、
+    Planner のコレクション優先順位に反映する。
+    """
+    enabled: bool = True
+    path: str = "logs/grace_memory.jsonl"
+    # best_collection の採用条件（実績が薄いコレクションへ早まって固定しない）
+    min_count: int = 3        # この件数以上の実績が必要
+    min_score: float = 0.6    # success_rate(平滑化) × mean_confidence の下限
+
+
 class PlannerConfig(BaseModel):
     """Planner設定（二層計画生成）"""
     # この複雑度（ヒューリスティック推定）未満の質問は
@@ -226,6 +239,7 @@ class GraceConfig(BaseModel):
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     code_execute: CodeExecuteConfig = Field(default_factory=CodeExecuteConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
@@ -379,6 +393,7 @@ __all__ = [
     "WebSearchConfig",
     "ToolsConfig",
     "CodeExecuteConfig",
+    "MemoryConfig",
     "GraceConfig",
 
     # Loader
