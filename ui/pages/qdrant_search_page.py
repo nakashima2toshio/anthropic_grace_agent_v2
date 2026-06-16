@@ -428,11 +428,11 @@ def show_qdrant_search_page():
                     st.code(qa_prompt)
 
                 try:
-                    with st.spinner("Gemini AIが回答を生成中..."):
-                        llm_client = create_llm_client(provider="gemini")
+                    with st.spinner("Claude が回答を生成中..."):
+                        llm_client = create_llm_client(provider="anthropic")
                         generated_answer = llm_client.generate_content(
                             prompt=qa_prompt,
-                            model="gemini-2.5-flash"
+                            model="claude-sonnet-4-6"
                         )
 
                     if generated_answer and generated_answer.strip():

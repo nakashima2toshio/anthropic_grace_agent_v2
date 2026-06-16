@@ -18,8 +18,7 @@ import logging
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from google import genai
-from google.genai import types
+from helper.helper_llm import create_llm_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -54,39 +53,23 @@ class SmartQAGenerator:
     コンテンツを考慮したインテリジェントQ/A生成クラス（構造化出力1回方式）
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash", api_key: Optional[str] = None):
+    def __init__(self, model: str = "claude-sonnet-4-6", api_key: Optional[str] = None):
         """
         初期化
 
         Args:
-            model: 使用するGeminiモデル（デフォルト: gemini-2.5-flash）
-            api_key: Google API Key（環境変数 GOOGLE_API_KEY/GEMINI_API_KEY から取得する場合はNone）
+            model: 使用するClaudeモデル（デフォルト: claude-sonnet-4-6）
+            api_key: 未使用（統一クライアントが環境変数からキーを解決する）
         """
         self.model = model
 
-        if api_key:
-            self.client = genai.Client(api_key=api_key)
-        else:
-            self.client = genai.Client()
+        # 統一 LLM クライアント（Anthropic Claude）を使用する。
+        self.client = create_llm_client(provider="anthropic", default_model=model)
         # 直近の analyze_and_generate 呼び出しのトークン使用量。
         # process_chunk → Celery worker → collect_results(usage_out) へ伝播し、
-        # トークン集計サマリーを実値化する（#67 の usage 配管を gemini で有効化）。
+        # トークン集計サマリーを実値化する（#67 の usage 配管）。
         self.last_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
-        logger.info(f"google.genai APIを使用 (model={self.model})")
-
-    @staticmethod
-    def _extract_usage(response) -> Dict[str, int]:
-        """genai レスポンスの usage_metadata からトークン数を取り出す。
-
-        SDK/モデルにより属性が欠ける場合があるため getattr で安全に読む。
-        """
-        um = getattr(response, "usage_metadata", None)
-        if um is None:
-            return {"input_tokens": 0, "output_tokens": 0}
-        return {
-            "input_tokens": int(getattr(um, "prompt_token_count", 0) or 0),
-            "output_tokens": int(getattr(um, "candidates_token_count", 0) or 0),
-        }
+        logger.info(f"統一LLMクライアント(Anthropic)を使用 (model={self.model})")
 
     COMBINED_PROMPT = """
 以下のテキストチャンクを分析し、適切な数のQ/Aペアを生成してください。
@@ -123,23 +106,17 @@ class SmartQAGenerator:
         2段階だったが、1回の構造化出力（response_schema=SmartQAResult）に統合して
         コストを半減し、Markdownフェンス除去によるJSONパースの脆弱性も排除した。
         """
-        response = self.client.models.generate_content(
+        # generate_structured は解析済みの SmartQAResult インスタンスを直接返す。
+        result = self.client.generate_structured(
+            prompt=self.COMBINED_PROMPT.format(chunk_text=chunk_text),
+            response_schema=SmartQAResult,
             model=self.model,
-            contents=self.COMBINED_PROMPT.format(chunk_text=chunk_text),
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SmartQAResult,
-                temperature=0.2,
-                max_output_tokens=4096,
-                # AFC無効化: AFC永続化 + JSON mode で空レスポンス/JSON途切れが発生するバグを防止
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            ),
+            max_output_tokens=4096,
+            temperature=0.2,
         )
-        if response is None or not response.text:
+        if result is None:
             raise ValueError("analyze_and_generate returned empty response")
-        # トークン使用量を捕捉（process_chunk が戻り値に同梱する）
-        self.last_usage = self._extract_usage(response)
-        return SmartQAResult.model_validate_json(response.text)
+        return result
 
     def process_chunk(self, chunk_text: str) -> Dict:
         """

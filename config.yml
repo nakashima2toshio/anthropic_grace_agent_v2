@@ -1,21 +1,16 @@
-# config.yml（Gemini API学習用）
+# config.yml（LLM=Anthropic Claude / Embedding=Gemini）
 
 models:
-  default: "gemini-2.5-flash"  # Geminiデフォルトモデル
+  default: "claude-sonnet-4-6"  # Anthropic デフォルトモデル（推論・生成）
   available:
-    - "gemini-3-pro-preview"       # 最新Pro（思考モード対応）
-    - "gemini-2.5-flash-preview"   # 高速・思考対応
-    - "gemini-2.0-flash"           # 安定版（推奨デフォルト）
-    - "gemini-1.5-pro"             # レガシー
-    - "gemini-1.5-flash"           # レガシー高速
+    - "claude-sonnet-4-6"             # 推論・生成（既定）
+    - "claude-haiku-4-5-20251001"     # 高速・文字列処理向け
 
   categories:
-    thinking: ["gemini-3-pro-preview", "gemini-2.5-flash-preview"]  # 思考モード対応
-    fast: ["gemini-2.0-flash", "gemini-1.5-flash"]                  # 高速処理
-    standard: ["gemini-3-pro-preview", "gemini-2.5-flash-preview"]  # 標準処理
-    legacy: ["gemini-1.5-pro", "gemini-1.5-flash"]                  # レガシーモデル
-    vision: ["gemini-3-pro-preview", "gemini-2.0-flash"]            # 画像入力対応
-    embeddings: ["gemini-embedding-001"]                            # Embedding
+    thinking: ["claude-sonnet-4-6"]              # 高度推論
+    fast: ["claude-haiku-4-5-20251001"]          # 高速処理
+    standard: ["claude-sonnet-4-6"]              # 標準処理
+    embeddings: ["gemini-embedding-001"]         # Embedding（Gemini 継続）
 
 samples:
   images:

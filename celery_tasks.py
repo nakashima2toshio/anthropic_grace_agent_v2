@@ -65,7 +65,7 @@ def submit_unified_qa_generation(
         chunks: List[Dict],
         config: Dict,
         model: str,
-        provider: str = "gemini",  # 互換性のために残すが使用しない
+        provider: str = "anthropic",  # 互換性のために残すが使用しない
 ) -> List:
     """
     チャンクのQ/A生成タスクを並列実行
