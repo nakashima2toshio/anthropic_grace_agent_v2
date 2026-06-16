@@ -168,6 +168,23 @@ class ToolsConfig(BaseModel):
     disabled: list = Field(default_factory=list, description="プロジェクト全体で恒久的に禁止するツールのリスト")
 
 
+class CodeExecuteConfig(BaseModel):
+    """code_execute（サンドボックス Python 実行）設定。
+
+    セキュリティ上、既定では tools.enabled に含めず opt-in とする。
+    実体はサブプロセス分離＋resource 制限＋isolated mode による best-effort サンドボックス。
+    真の隔離が必要な場合はコンテナ/gVisor 等の外部境界を併用すること。
+    """
+    timeout_seconds: int = 5          # CPU/実時間のタイムアウト
+    max_memory_mb: int = 256          # アドレス空間上限（RLIMIT_AS）
+    max_output_chars: int = 10000     # 標準出力の最大文字数（超過分は切り詰め）
+    # AST レベルで import を禁止するモジュール（防御の多層化）
+    denied_imports: list = Field(default_factory=lambda: [
+        "subprocess", "socket", "ctypes", "multiprocessing",
+        "urllib", "requests", "http", "ftplib", "shutil", "asyncio",
+    ])
+
+
 class PlannerConfig(BaseModel):
     """Planner設定（二層計画生成）"""
     # この複雑度（ヒューリスティック推定）未満の質問は
@@ -208,6 +225,7 @@ class GraceConfig(BaseModel):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    code_execute: CodeExecuteConfig = Field(default_factory=CodeExecuteConfig)
     planner: PlannerConfig = Field(default_factory=PlannerConfig)
     executor: ExecutorConfig = Field(default_factory=ExecutorConfig)
 
@@ -360,6 +378,7 @@ __all__ = [
     "QdrantConfig",
     "WebSearchConfig",
     "ToolsConfig",
+    "CodeExecuteConfig",
     "GraceConfig",
 
     # Loader
