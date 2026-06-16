@@ -35,7 +35,9 @@ from .confidence import (
     create_confidence_aggregator,
     create_query_coverage_calculator,
     create_source_agreement_calculator,  # TODO #5: 追加
+    create_groundedness_verifier,        # S1: 根拠妥当性検証
 )
+from .calibration import Calibrator      # S1: confidence 較正
 from .intervention import (
     InterventionHandler,
     InterventionRequest,
@@ -148,6 +150,12 @@ class Executor:
         self.llm_evaluator = create_llm_evaluator(config=self.config)
         self.query_coverage_calculator = create_query_coverage_calculator(config=self.config)
         self.confidence_aggregator = create_confidence_aggregator(config=self.config)
+        # S1: 根拠妥当性検証器（最終回答の groundedness を信頼度の主成分に用いる）
+        self.groundedness_verifier = create_groundedness_verifier(config=self.config)
+        # S1: confidence 較正器（無ければ恒等 T=1.0）
+        self._calibrator = Calibrator.load(
+            getattr(self.config.confidence, "calibration_path", "config/calibration.json")
+        )
 
         # コールバック
         self.on_step_start = on_step_start
@@ -1385,6 +1393,10 @@ class Executor:
                     final_answer = result.output
                     break
 
+        # S1: 最終回答の自己評価/網羅度を保持（groundedness ブレンドで使用）
+        self_eval_score: Optional[float] = None
+        coverage_score: Optional[float] = None
+
         # LLMSelfEvaluatorで最終回答を評価（オプション）
         if final_answer is not None:
             # 自己評価＋クエリ網羅度を1回のLLM呼び出しで統合評価
@@ -1395,6 +1407,9 @@ class Executor:
                     answer=final_answer,
                     sources=state.get_completed_sources()
                 )
+
+                self_eval_score = final_eval.self_eval_score
+                coverage_score = final_eval.coverage_score
 
                 # 1. LLM自己評価 (Accuracy/Style etc.)
                 current_breakdown["llm_self_eval"] = final_eval.self_eval_score
@@ -1429,18 +1444,98 @@ class Executor:
             except Exception as e:
                 logger.warning(f"Final answer evaluation failed: {e}")
 
-        # ConfidenceAggregatorで統合
+        # ConfidenceAggregatorで統合（検索ステップ等を含む「補助」スコア）
         if step_scores:
             aggregated_score = self.confidence_aggregator.aggregate(
                 scores=step_scores,
                 method="weighted"
             )
-            logger.info(f"Aggregated confidence: {aggregated_score:.2f}")
-            return aggregated_score
+        else:
+            confidences = [r.confidence for r in state.step_results.values()]
+            aggregated_score = sum(confidences) / len(confidences) if confidences else 0.0
+        logger.info(f"Aggregated confidence (auxiliary): {aggregated_score:.2f}")
 
-        # フォールバック: 単純平均
-        confidences = [r.confidence for r in state.step_results.values()]
-        return sum(confidences) / len(confidences)
+        # S1: groundedness を主成分にブレンドし、検索ベースの集約値は補助項へ降格。
+        # 最後に較正（temperature scaling）を適用する。
+        final_conf = self._blend_groundedness_confidence(
+            query=state.plan.original_query,
+            final_answer=final_answer,
+            self_eval=self_eval_score,
+            coverage=coverage_score,
+            aggregated=aggregated_score,
+            sources=state.get_completed_sources(),
+        )
+        calibrated = self._calibrator.transform(final_conf)
+        if not self._calibrator.is_identity():
+            logger.info(f"Calibrated confidence: {final_conf:.3f} -> {calibrated:.3f} "
+                        f"(T={self._calibrator.temperature})")
+        return round(min(1.0, max(0.0, calibrated)), 3)
+
+    def _blend_groundedness_confidence(
+        self,
+        query: str,
+        final_answer: Optional[str],
+        self_eval: Optional[float],
+        coverage: Optional[float],
+        aggregated: float,
+        sources: List[str],
+    ) -> float:
+        """S1: groundedness を主成分に最終 confidence を合成する。
+
+        - groundedness（支持率）を主成分、self_eval / coverage を従、
+          検索ベースの集約値(aggregated)は補助項に降格。
+        - groundedness が未検証（ソース無し/LLM失敗）の場合は従来ブレンド
+          （self_eval / coverage / aggregated）にフォールバック。
+        - 矛盾検出（contradiction）や検索0件の過信は減点。
+        """
+        cc = self.config.confidence
+        if not getattr(cc, "groundedness_enabled", True) or not final_answer:
+            return aggregated
+
+        gres = self.groundedness_verifier.verify(query, final_answer, sources)
+
+        # 補助項（検索ベース集約）の重み
+        w_aux = float(getattr(cc, "search_aux_weight", 0.2))
+
+        if not gres.verified:
+            # 未検証: 従来の self_eval / coverage / aggregated のブレンドにフォールバック
+            comps = [(v, w) for v, w in (
+                (self_eval, 0.5), (coverage, 0.3), (aggregated, 0.2)
+            ) if v is not None]
+            answer_conf = (sum(v * w for v, w in comps) / sum(w for _, w in comps)
+                           if comps else aggregated)
+            # 事実回答なのにソース皆無 → 過信抑制
+            if not sources:
+                answer_conf *= 0.85
+            logger.info(f"Groundedness unverified ({gres.reason}); "
+                        f"fallback answer_conf={answer_conf:.3f}")
+            return (1.0 - w_aux) * answer_conf + w_aux * aggregated
+
+        wg = float(getattr(cc, "groundedness_weight", 0.6))
+        ws = float(getattr(cc, "self_eval_weight", 0.25))
+        wc = float(getattr(cc, "coverage_weight", 0.15))
+
+        comps = [(gres.support_rate, wg)]
+        if self_eval is not None:
+            comps.append((self_eval, ws))
+        if coverage is not None:
+            comps.append((coverage, wc))
+        answer_conf = sum(v * w for v, w in comps) / sum(w for _, w in comps)
+
+        # 矛盾が含まれる回答は強く減点（過信検出）
+        if gres.has_contradiction:
+            answer_conf = min(answer_conf, 0.3)
+            logger.info(f"Groundedness contradiction detected "
+                        f"(supported={gres.supported}, contradicted={gres.contradicted}); "
+                        f"capping answer_conf at {answer_conf:.3f}")
+
+        final = (1.0 - w_aux) * answer_conf + w_aux * aggregated
+        logger.info(
+            f"Groundedness blend: support_rate={gres.support_rate:.3f} "
+            f"({gres.supported}/{gres.supported + gres.contradicted} decided, "
+            f"total={gres.total}) -> final={final:.3f}"
+        )
+        return final
 
     def _create_execution_result(self, state: ExecutionState) -> ExecutionResult:
         """実行結果を生成"""

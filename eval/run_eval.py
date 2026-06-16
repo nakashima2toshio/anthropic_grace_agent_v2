@@ -180,11 +180,37 @@ def run(dataset: str, limit: int, model: str | None,
     rep = compute(records)
     print("\n" + rep.as_table())
 
+    # S1: 較正後 ECE のレポート（config/calibration.json があれば適用結果も表示）
+    calibrated_ece = None
+    try:
+        from grace.calibration import Calibrator, expected_calibration_error
+        confs = [float(r.confidence) for r in records]
+        corr = [bool(r.correct) for r in records]
+        calibrator = Calibrator.load()
+        if not calibrator.is_identity():
+            cal_confs = [calibrator.transform(c) for c in confs]
+            calibrated_ece = expected_calibration_error(cal_confs, corr)
+            print(f"\n[calibration] T={calibrator.temperature} "
+                  f"ECE(raw)={rep.ece:.4f} -> ECE(calibrated)={calibrated_ece:.4f}")
+        else:
+            # 較正未適用。この run から fit した場合の改善見込みを参考表示。
+            fitted = Calibrator.fit(confs, corr)
+            cal_confs = [fitted.transform(c) for c in confs]
+            potential = expected_calibration_error(cal_confs, corr)
+            print(f"\n[calibration] 未適用（T=1.0）。この run から fit すると "
+                  f"T={fitted.temperature}, ECE {rep.ece:.4f} -> {potential:.4f} 見込み。"
+                  f" `python -m eval.calibrate --report <report>` で保存可能。")
+    except Exception as exc:  # 較正は付随情報のため失敗しても評価は継続
+        print(f"\n[calibration] スキップ: {exc}", file=sys.stderr)
+
     if report:
         out = Path(report)
         out.parent.mkdir(parents=True, exist_ok=True)
+        summary = rep.to_dict()
+        if calibrated_ece is not None:
+            summary["ece_calibrated"] = calibrated_ece
         with out.open("w", encoding="utf-8") as f:
-            json.dump({"summary": rep.to_dict(), "details": details},
+            json.dump({"summary": summary, "details": details},
                       f, ensure_ascii=False, indent=2)
         print(f"\nレポート保存: {report}")
 
