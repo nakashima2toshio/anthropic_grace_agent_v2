@@ -21,7 +21,7 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   # チャンク済みCSVからQ/A生成
   pipeline = QAPipeline(
       input_file="output_chunked/data_chunks.csv",
-      model="gemini-2.5-flash",
+      model="claude-sonnet-4-6",
       output_dir="qa_output/pipeline"
   )
   result = pipeline.run(
@@ -52,7 +52,7 @@ class QAPipeline:
     def __init__(self,
                  dataset_name: Optional[str] = None,
                  input_file: Optional[str] = None,
-                 model: str = "gemini-2.0-flash",
+                 model: str = "claude-sonnet-4-6",
                  output_dir: str = "qa_output/pipeline",
                  max_docs: Optional[int] = None,
                  client: Optional[LLMClient] = None):
@@ -334,7 +334,7 @@ class QAPipeline:
             raise RuntimeError("Celery workers are not running")
 
         tasks = submit_unified_qa_generation(
-            chunks, self.config, self.model, provider="gemini"
+            chunks, self.config, self.model, provider="anthropic"
         )
 
         # 逐次永続化: タスク完了ごとにチャンク結果を JSONL へ追記

@@ -331,7 +331,7 @@ class ResponseProcessor:
 # ==================================================
 
 # デフォルトプロバイダー（環境変数で設定可能）
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # "gemini" or "openai"
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" / "gemini" / "openai"
 
 
 class UnifiedLLMClient:

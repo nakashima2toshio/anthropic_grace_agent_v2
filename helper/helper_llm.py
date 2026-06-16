@@ -94,7 +94,7 @@ EMBEDDING_DIMS = {
     "text-embedding-3-large": 3072,
 }
 
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
 
 
 class LLMClient(ABC):
@@ -226,16 +226,27 @@ class AnthropicClient(LLMClient):
     """
 
     def __init__(self, api_key: Optional[str] = None, default_model: str = "claude-sonnet-4-6"):
-        try:
-            import anthropic
-        except ImportError as exc:
-            raise ImportError(
-                "anthropic package is not installed. Run `pip install anthropic`."
-            ) from exc
+        # 遅延初期化: SDK import / クライアント生成は最初の API 呼び出し時まで遅延する。
+        # （GeminiClient と異なり anthropic.Anthropic() は API キー必須のため、
+        #   構築だけで失敗しないよう副作用を持たせない。テスト容易性のためにも重要。）
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        # ANTHROPIC_BASE_URL 等は SDK が環境変数から解決する
-        self.client = anthropic.Anthropic(api_key=self.api_key) if self.api_key else anthropic.Anthropic()
         self.default_model = default_model
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            try:
+                import anthropic
+            except ImportError as exc:
+                raise ImportError(
+                    "anthropic package is not installed. Run `pip install anthropic`."
+                ) from exc
+            # ANTHROPIC_BASE_URL 等は SDK が環境変数から解決する
+            self._client = (
+                anthropic.Anthropic(api_key=self.api_key)
+                if self.api_key else anthropic.Anthropic()
+            )
+        return self._client
 
     def _create(self, prompt: str, model: Optional[str], system: Optional[str] = None,
                 **kwargs) -> str:
@@ -250,7 +261,7 @@ class AnthropicClient(LLMClient):
             create_kwargs["system"] = system
         if "temperature" in kwargs:
             create_kwargs["temperature"] = kwargs.pop("temperature")
-        message = self.client.messages.create(**create_kwargs)
+        message = self._get_client().messages.create(**create_kwargs)
         return "".join(
             getattr(block, "text", "") or "" for block in (getattr(message, "content", []) or [])
         )
@@ -281,7 +292,8 @@ class AnthropicClient(LLMClient):
         return len(encoding.encode(text))
 
 
-def create_llm_client(provider: str = "gemini", **kwargs) -> LLMClient:
+def create_llm_client(provider: str = None, **kwargs) -> LLMClient:
+    provider = (provider or DEFAULT_LLM_PROVIDER).lower()
     if provider == "openai":
         return OpenAIClient(**kwargs)
     if provider == "anthropic":

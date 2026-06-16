@@ -124,8 +124,8 @@ class ConfigManager:
         """デフォルト設定"""
         return {
             "models": {
-                "default": "gemini-2.5-flash",
-                "available": ["gemini-2.5-flash", "gemini-2.5-flash-preview", "gemini-2.5-pro-preview", "gemini-2.0-flash"]
+                "default": "claude-sonnet-4-6",
+                "available": ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]
             },
             "api": {
                 "timeout": 30,
@@ -160,7 +160,7 @@ class ConfigManager:
                 "performance_monitoring": True
             },
             "llm": {
-                "provider": "gemini"
+                "provider": "anthropic"
             }
         }
 
