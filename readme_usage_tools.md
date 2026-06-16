@@ -1,6 +1,7 @@
 # Agent RAG (Anthropic) ツール使用ガイド
 
-> 最終更新: 2026-06-12
+> バージョン: v1.1
+> 最終更新: 2026-06-16
 
 ---
 
@@ -449,3 +450,12 @@ docker compose -f docker-compose/docker-compose.yml down
 | Qdrant | 6333 | ベクトル DB REST API |
 | Redis | 6379 | Celery ブローカー / 結果保存 |
 | Flower | 5555 | Celery タスクモニタリング |
+
+---
+
+## 8. 変更履歴
+
+| バージョン | 日付 | 内容 |
+|-----------|------|------|
+| v1.1 | 2026-06-16 | 技術スタック表記を Anthropic Claude に統一（LLM: `claude-sonnet-4-6` / 軽量: `claude-haiku-4-5-20251001`、LLM 用 API キーは `ANTHROPIC_API_KEY`）。Embedding は Gemini `gemini-embedding-001`（3072次元）を維持。 |
+| v1.0 | 2026-06-12 | 初版。 |

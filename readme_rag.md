@@ -1,6 +1,6 @@
 # RAG Q/A 生成・検索システム ドキュメント
 
-**Version 3.0** | 最終更新: 2026-06-12
+**Version 3.1** | 最終更新: 2026-06-16
 
 **Agent Graceの資料へ** [Agent Grace](README.md) | **ReActの資料へ** [ReAct](README_ReAct.md)
 
@@ -1362,6 +1362,7 @@ __all__ = [
 | 1.5        | Anthropic API対応、SemanticCoverageクラスによるチャンク分割                                                                                                                                                                      |
 | 2.0        | フォーマット仕様書準拠で全面再構成。LLMベース3段階チャンク分割（csv_text_to_chunks_text_csv.py）導入。Gemini Embedding（gemini-embedding-001, 3072次元）に統一。make_qa_register_qdrant.py統合パイプライン追加。IPO詳細追加。 |
 | 3.0        | 最新化（2026-06-12）。チャンキングをAnthropic（`AsyncAPIClient` の Tool Use 構造化出力・`ANTHROPIC_API_KEY`）へ統一、CLI/シグネチャを実装に追従（`documents`/`continuity_mode`/`max_chunk_tokens=512`、`load_documents_from_csv` による文書境界保証・`doc_id`・カバレッジ検証・manifest出力、`--timestamp`/`--max-chunk-tokens`/`--continuity-mode` 等）。3段階パイプライン（チャンキング/Q/A生成/Qdrant登録）として整理。`QAPipeline` v3.0（チャンク処理分離）・`SmartQAGenerator` v3.0（`analyze_and_generate()` 構造化出力1回）・`evaluation.py` v3.0（統一閾値）を反映。`run_registration()` は `register_to_qdrant` へ委譲（Embedding=Gemini固定）。存在しないファイル参照（setup.py / server.py / a-prefixed scripts）を削除。Mermaid黒背景スタイル準拠に修正。`GeminiConfig` を追記、uv 実行に統一。 |
+| 3.1        | 最新化（2026-06-16）。技術スタック表記をAnthropic Claude（LLM）へ統一して再確認（LLM用途のGemini表記なし・既定 `claude-sonnet-4-6` / 軽量 `claude-haiku-4-5-20251001`・LLM設定クラス `ModelConfig`・LLM鍵 `ANTHROPIC_API_KEY`）。Embedding=Gemini（`gemini-embedding-001`, 3072次元, `GeminiConfig`, `GOOGLE_API_KEY`/`GEMINI_API_KEY`）は意図的に維持。全Mermaid図の黒背景・白文字スタイル準拠を再検証。 |
 
 ---
 

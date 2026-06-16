@@ -1,6 +1,6 @@
 ## agent_rag.py - Streamlit メインアプリケーション ドキュメント
 
-**Version 3.0** | 最終更新: 2026-03-19
+**Version 3.1** | 最終更新: 2026-06-16
 
 
 | Phase | モジュール | subgraph |
@@ -46,7 +46,7 @@
 
 ## 概要
 
-`agent_rag.py`は、Agent RAG（Gemini）プロジェクトの Streamlit メインアプリケーションです。サイドバーのメニューからページを選択し、各機能ページを動的に切り替えて表示するルーティング制御を担います。
+`agent_rag.py`は、Agent RAG（Anthropic Claude）プロジェクトの Streamlit メインアプリケーションです。サイドバーのメニューからページを選択し、各機能ページを動的に切り替えて表示するルーティング制御を担います。
 
 実行コマンド：
 ```bash
@@ -116,7 +116,7 @@ flowchart TB
     end
 
     subgraph EXTERNAL["外部サービス"]
-        GEMINI["Gemini API"]
+        CLAUDE["Anthropic Claude API"]
         QDRANT["Qdrant Vector DB"]
         FS["ローカルファイルシステム"]
     end
@@ -126,9 +126,17 @@ flowchart TB
     SIDEBAR --> ROUTER
     ROUTER --> PAGES
     ROUTER --> INLINE
-    PAGES --> GEMINI
+    PAGES --> CLAUDE
     PAGES --> QDRANT
     INLINE --> FS
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class USER,MAIN,SIDEBAR,ROUTER,P1,P2,P3,P4,P5,P6,P7,CLAUDE,QDRANT,FS default
+style BROWSER fill:#1a1a1a,stroke:#fff,color:#fff
+style STREAMLIT fill:#1a1a1a,stroke:#fff,color:#fff
+style PAGES fill:#1a1a1a,stroke:#fff,color:#fff
+style INLINE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
@@ -137,7 +145,7 @@ flowchart TB
 2. `main()` が `st.set_page_config` でページ設定を初期化
 3. サイドバーの `st.radio` でユーザーがページを選択
 4. `page_mapping` 辞書から対応する関数を取得して呼び出し
-5. 選択されたページが Gemini API / Qdrant / ローカルファイルと連携して結果を表示
+5. 選択されたページが Anthropic Claude API / Qdrant / ローカルファイルと連携して結果を表示
 
 ---
 
@@ -176,6 +184,14 @@ flowchart TB
     MAIN --> INLINE_PAGES
     CONST --> RAG_PAGE
     RAG_PAGE --> LOAD_MD
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class DOCS,MAIN,RAG_PAGE,CRUD_PAGE,LOAD_MD,EXPLAIN,SEARCH,AGENT,GRACE,LOG default
+style CONST fill:#1a1a1a,stroke:#fff,color:#fff
+style MAIN_FUNC fill:#1a1a1a,stroke:#fff,color:#fff
+style INLINE_PAGES fill:#1a1a1a,stroke:#fff,color:#fff
+style HELPER fill:#1a1a1a,stroke:#fff,color:#fff
+style IMPORTED_PAGES fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
@@ -235,7 +251,7 @@ def main() -> None
 | 項目 | 内容 |
 |------|------|
 | **Input** | なし（Streamlitセッション状態から取得） |
-| **Process** | 1. `st.set_page_config` でページ設定（タイトル: "Agent RAG(Gemini)", アイコン: 🤖, レイアウト: wide）<br>2. `st.sidebar` 内にタイトル・メニューを描画<br>3. `st.radio` で7つのページ選択肢を表示（`format_func` でラベル変換）<br>4. `page_mapping` 辞書から選択されたページの関数を取得<br>5. 対応する関数を呼び出してメインエリアに描画 |
+| **Process** | 1. `st.set_page_config` でページ設定（タイトル: "Agent RAG(Anthropic Claude)", アイコン: 🤖, レイアウト: wide）<br>2. `st.sidebar` 内にタイトル・メニューを描画<br>3. `st.radio` で7つのページ選択肢を表示（`format_func` でラベル変換）<br>4. `page_mapping` 辞書から選択されたページの関数を取得<br>5. 対応する関数を呼び出してメインエリアに描画 |
 | **Output** | なし（画面描画のみ） |
 
 **ページルーティング定義**:
@@ -403,6 +419,7 @@ sudo systemctl restart streamlit-app
 | 1.0 | 初版作成。基本的なページルーティング |
 | 2.0 | GRACE自律型エージェントページ追加。ログビューアページ追加 |
 | 3.0 | RAGデータ作成ページ追加。Qdrant CRUDページ追加（仮実装）。メニュー構成を7ページに拡張 |
+| 3.1 | LLM 技術スタックを Anthropic Claude（`claude-sonnet-4-6`）に統一。Mermaid 図を黒背景スタイルに準拠（2026-06-16） |
 
 ---
 
@@ -435,4 +452,10 @@ flowchart LR
     AGENT_RAG --> AGENT_CHAT
     AGENT_RAG --> LOG_VIEW
     AGENT_RAG --> PATHLIB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class AGENT_RAG,ST,EXPLAIN,SEARCH,GRACE,AGENT_CHAT,LOG_VIEW,PATHLIB default
+style STREAMLIT_LIB fill:#1a1a1a,stroke:#fff,color:#fff
+style UI_PAGES fill:#1a1a1a,stroke:#fff,color:#fff
+style STDLIB fill:#1a1a1a,stroke:#fff,color:#fff
 ```

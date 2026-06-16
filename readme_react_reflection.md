@@ -1,6 +1,10 @@
 **Agent Graceの資料へ** [Agent Grace](README.md) | **RAGの資料へ** [RAG](readme_rag.md)
 
 ## Anthropic Claude搭載・自律型RAGエージェントシステム
+
+> バージョン: v1.1
+> 最終更新: 2026-06-16
+
 ![react_refrection](assets/react_refrection.png)
 # Agent RAG システム
 
@@ -1026,3 +1030,12 @@ style Service_Layer fill:#1a1a1a,stroke:#fff,color:#fff
 style Helper_Layer fill:#1a1a1a,stroke:#fff,color:#fff
 style External_API fill:#1a1a1a,stroke:#fff,color:#fff
 ```
+
+---
+
+## 変更履歴
+
+| バージョン | 日付 | 内容 |
+|-----------|------|------|
+| v1.1 | 2026-06-16 | 技術スタック表記を Anthropic Claude に統一（LLM/ReAct 推論ロールは `claude-sonnet-4-6` 既定、LLM 設定クラスは `ModelConfig`、LLM 用 API キーは `ANTHROPIC_API_KEY`）。Embedding は Gemini `gemini-embedding-001`（3072次元）を維持。全 Mermaid 図を黒背景スタイルに準拠。 |
+| v1.0 | — | 初版。 |
