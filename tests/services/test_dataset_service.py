@@ -1,13 +1,13 @@
-import pytest
+from unittest.mock import MagicMock, patch
+
 import pandas as pd
-from unittest.mock import MagicMock, patch, mock_open
+
 from services.dataset_service import (
     download_livedoor_corpus,
-    load_livedoor_corpus,
-    download_hf_dataset,
     extract_text_content,
-    load_uploaded_file
+    load_uploaded_file,
 )
+
 
 class TestDatasetService:
 

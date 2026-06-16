@@ -5,14 +5,14 @@ OpenAI API と Gemini API の両方に対応する統一インターフェース
 google.genai (新パッケージ) に対応。
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Optional, Type, List, Dict
-import os
 import json
 import logging
+import os
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Type
 
-from pydantic import BaseModel
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 # SDK imports
 # try:
@@ -33,10 +33,9 @@ try:
 except ImportError:
     OpenAI = None
 
+import tiktoken
 from google import genai
 from google.genai import types
-
-import tiktoken
 
 load_dotenv()
 

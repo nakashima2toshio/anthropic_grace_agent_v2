@@ -1,12 +1,14 @@
-import pytest
+from unittest.mock import MagicMock, mock_open, patch
+
 import pandas as pd
-from unittest.mock import MagicMock, patch, mock_open
+
 from services.file_service import (
-    load_qa_output_history,
     load_preprocessed_history,
+    load_qa_output_history,
+    load_sample_questions_from_csv,
     save_to_output,
-    load_sample_questions_from_csv
 )
+
 
 class TestFileService:
 

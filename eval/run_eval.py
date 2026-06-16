@@ -33,19 +33,19 @@ from eval.metrics import EvalRecord, compute
 # --- GRACE 本体の import（配置が異なる場合は調整） ---
 # helper_llm は helper パッケージ配下に配置されている（helper/helper_llm.py）。
 try:
-    from helper.helper_llm import create_llm_client
-
     from grace.config import get_config
     from grace.executor import create_executor
     from grace.planner import create_planner
+    from helper.helper_llm import create_llm_client
 except Exception:  # pragma: no cover - 環境依存
     try:
-        from grace.config import get_config
-        from grace.executor import create_executor
-        from grace.planner import create_planner
         from helper_llm import (
             create_llm_client,  # フラット配置用フォールバック
         )
+
+        from grace.config import get_config
+        from grace.executor import create_executor
+        from grace.planner import create_planner
     except Exception as exc:
         print(
             "ERROR: GRACE 本体（grace.planner / grace.executor / helper_llm）を import できません。\n"

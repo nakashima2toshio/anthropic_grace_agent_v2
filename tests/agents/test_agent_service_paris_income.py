@@ -1,13 +1,13 @@
+import logging
 import os
 import sys
-import logging
+
 from dotenv import load_dotenv
 
 # プロジェクトルートをパスに追加してインポート可能にする
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from services.agent_service import ReActAgent
-from config import AgentConfig
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

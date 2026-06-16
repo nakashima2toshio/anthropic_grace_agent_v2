@@ -25,11 +25,11 @@ $ python test_collection_dynamic.py
 - 必要なPythonパッケージがインストール済みであること
 """
 
+import logging
+import socket
 import sys
 import time
-import socket
-import logging
-from typing import List, Dict, Any
+from typing import List
 
 import pytest
 from qdrant_client import QdrantClient
@@ -186,7 +186,6 @@ def test_03_no_naming_convention_dependency():
 
     # すべてのパターンが受け入れられることを確認
     total_unique = len(all_collections)
-    total_categorized = sum(len(cols) for cols in naming_patterns.values())
 
     logger.info(f"✅ すべての命名規則を受け入れ: {total_unique}個のコレクション")
 

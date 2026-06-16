@@ -2,6 +2,7 @@
 import unittest
 from unittest.mock import MagicMock
 
+
 def get_collection_embedding_params_logic_verification(client, collection_name):
     """
     検証対象の修正ロジック

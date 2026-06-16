@@ -19,13 +19,7 @@ from google.genai import types
 from qdrant_client import QdrantClient
 
 # Import wrappers for robust execution
-from qdrant_client_wrapper import (
-    embed_query_unified,
-    embed_sparse_query_unified,
-    search_collection,
-)
 from regex_mecab import KeywordExtractor
-from services.qdrant_service import get_collection_embedding_params
 
 from .config import GraceConfig, get_config
 from .llm_compat import create_chat_client
@@ -117,7 +111,6 @@ class RAGSearchTool(BaseTool):
         Returns:
             ToolResult: 検索結果
         """
-        import re
         import time
 
         from agent_tools import search_rag_knowledge_base_structured

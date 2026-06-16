@@ -10,11 +10,11 @@
 import asyncio
 import json
 import logging
-from typing import Type, Optional
+from typing import Optional, Type
 
-from pydantic import BaseModel
 from google import genai
 from google.genai import types
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 

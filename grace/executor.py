@@ -7,51 +7,49 @@ GRACE Executor - 計画実行エージェント
 import ast
 import logging
 import time
-from typing import Dict, Literal, Optional, List, Callable, Any, Generator, cast
 from dataclasses import dataclass, field
-from enum import Enum
+from typing import Any, Callable, Dict, Generator, List, Literal, Optional, cast
 
+from .calibration import Calibrator  # S1: confidence 較正
+from .confidence import (
+    ActionDecision,
+    ConfidenceFactors,
+    ConfidenceScore,
+    InterventionLevel,
+    create_confidence_aggregator,
+    create_confidence_calculator,
+    create_groundedness_verifier,  # S1: 根拠妥当性検証
+    create_llm_evaluator,
+    create_query_coverage_calculator,
+    create_source_agreement_calculator,  # TODO #5: 追加
+)
+from .config import GraceConfig, get_config
+from .intervention import (
+    InterventionAction,
+    InterventionRequest,
+    InterventionResponse,
+    create_intervention_handler,
+)
+from .llm_compat import create_chat_client
+from .memory import create_execution_memory  # P4: 実行メモリ層
 from .schemas import (
-    ExecutionPlan,
-    PlanStep,
-    StepResult,
-    ExecutionResult,
-    StepStatus,
-    Scratchpad,
     AgentThought,
+    ExecutionPlan,
+    ExecutionResult,
+    PlanStep,
+    Scratchpad,
+    StepResult,
+    StepStatus,
     create_plan_id,
 )
 from .tools import ToolRegistry, ToolResult, create_tool_registry
-from .config import get_config, GraceConfig
-from .llm_compat import create_chat_client
-from .confidence import (
-    ConfidenceCalculator,
-    ConfidenceFactors,
-    ConfidenceScore,
-    LLMSelfEvaluator,
-    ConfidenceAggregator,
-    ActionDecision,
-    InterventionLevel,
-    create_confidence_calculator,
-    create_llm_evaluator,
-    create_confidence_aggregator,
-    create_query_coverage_calculator,
-    create_source_agreement_calculator,  # TODO #5: 追加
-    create_groundedness_verifier,        # S1: 根拠妥当性検証
-)
-from .calibration import Calibrator      # S1: confidence 較正
-from .memory import create_execution_memory  # P4: 実行メモリ層
-from .intervention import (
-    InterventionHandler,
-    InterventionRequest,
-    InterventionResponse,
-    InterventionAction,
-    create_intervention_handler,
-)
 
 # === Legacy Agent Integration ===
 try:
-    from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
+    from services.agent_service import (
+        ReActAgent,
+        get_available_collections_from_qdrant_helper,
+    )
 
     LEGACY_AGENT_AVAILABLE = True
 except ImportError:
@@ -124,7 +122,7 @@ class ExecutionState:
 # Executor クラス
 # =============================================================================
 
-from .replan import ReplanOrchestrator, create_replan_orchestrator
+from .replan import ReplanOrchestrator, create_replan_orchestrator  # noqa: E402
 
 
 class Executor:
@@ -357,7 +355,6 @@ class Executor:
                         state.is_paused = True
 
                         # 介入リクエストを作成
-                        req_type = "confirm" if action_decision.level == InterventionLevel.CONFIRM else "escalate"
                         message = f"信頼度が低いため確認が必要です ({confidence_score.score:.2f})"
                         if action_decision.reason:
                             message += f"\n理由: {action_decision.reason}"
@@ -1125,7 +1122,7 @@ class Executor:
             # → 動的挿入された web_search やリプラン後の結果も取得可能
             context_parts = []
             sources = []
-            logger.info(f"--- Reasoning Step ---")
+            logger.info("--- Reasoning Step ---")
             logger.info(f"Step: {step}")
             logger.info(f"Available step_results: {list(state.step_results.keys())}")
 
@@ -1200,8 +1197,9 @@ class Executor:
         )
 
         try:
-            from google.genai import types
             import time as _time
+
+            from google.genai import types
 
             client = create_chat_client(self.config)
             t0 = _time.time()
@@ -1255,7 +1253,7 @@ class Executor:
         web_step = PlanStep(
             step_id=web_step_id,
             action="web_search",
-            description=f"[動的挿入] RAGスコア不足のためWeb検索を実行",
+            description="[動的挿入] RAGスコア不足のためWeb検索を実行",
             query=rag_step.query,
             collection=None,
             depends_on=[rag_step.step_id],
@@ -1326,7 +1324,7 @@ class Executor:
         ask_step = PlanStep(
             step_id=ask_step_id,
             action="ask_user",
-            description=f"[動的挿入] 検索結果が不十分なためユーザーに確認",
+            description="[動的挿入] 検索結果が不十分なためユーザーに確認",
             query=(
                 f"「{rag_step.query[:100]}」について検索しましたが、"
                 f"十分な情報が見つかりませんでした。\n"
@@ -1581,7 +1579,7 @@ class Executor:
         current_avg_score = factors.get("avg_score", 0.0)
 
         # 自身で検索しておらず、かつ推論ステップなどの場合、依存元のスコアを引き継ぐ
-        if current_result_count == 0 and not (step.action in ["rag_search", "web_search"]):
+        if current_result_count == 0 and step.action not in ["rag_search", "web_search"]:
             inherited_max = 0.0
             inherited_found = False
             for dep_id in step.depends_on:

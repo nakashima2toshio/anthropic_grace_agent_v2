@@ -2,12 +2,12 @@
 
 実 LLM/Celery 不要。SmartQAGenerator をモックして同期経路（_generate_sync）を駆動する。
 """
-import os
 import json
+import os
 import tempfile
+from unittest.mock import patch
 
 import pandas as pd
-from unittest.mock import patch
 
 
 class TestPipelinePersistence:

@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from helper.helper_rag_qa import (
     BestKeywordSelector,
     SmartKeywordSelector,
     get_best_keywords,
-    get_smart_keywords
+    get_smart_keywords,
 )
 
 # Mock data

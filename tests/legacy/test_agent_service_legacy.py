@@ -9,26 +9,18 @@ ReActAgentのユニットテストおよび統合テストを実装。
 """
 
 import os
-from unittest.mock import MagicMock, patch, call, PropertyMock
 from collections import namedtuple
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agent_tools import (
+    RAGToolError,
+)
 from services.agent_service import (
     ReActAgent,
     get_available_collections_from_qdrant_helper,
-    TOOLS_MAP,
-    SYSTEM_INSTRUCTION_TEMPLATE,
-    REFLECTION_INSTRUCTION,
 )
-from agent_tools import (
-    search_rag_knowledge_base,
-    list_rag_collections,
-    RAGToolError,
-    QdrantConnectionError,
-    CollectionNotFoundError,
-)
-
 
 # モックGeminiレスポンス用のヘルパークラス
 #
@@ -135,7 +127,7 @@ class TestReActAgent:
 
     def test_setup_session(self, mock_genai, mock_env):
         """セッションセットアップのテスト（新SDK: client.chats.create）"""
-        agent = ReActAgent(['wikipedia_ja'], 'gemini-pro')
+        ReActAgent(['wikipedia_ja'], 'gemini-pro')
 
         # 新SDK: genai.Client(api_key=...) と chats.create の呼び出し確認
         mock_genai.Client.assert_called_once()

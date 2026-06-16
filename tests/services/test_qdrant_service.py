@@ -1,20 +1,23 @@
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
 from qdrant_client.http import models
+
 from services.qdrant_service import (
-    QdrantHealthChecker,
     QdrantDataFetcher,
-    map_collection_to_csv,
-    get_dynamic_collection_mapping,
-    get_collection_embedding_params,
-    load_csv_for_qdrant,
+    QdrantHealthChecker,
     build_inputs_for_embedding,
-    embed_texts_for_qdrant,
     build_points_for_qdrant,
     embed_query_for_search,
-    merge_collections
+    embed_texts_for_qdrant,
+    get_collection_embedding_params,
+    get_dynamic_collection_mapping,
+    load_csv_for_qdrant,
+    map_collection_to_csv,
+    merge_collections,
 )
+
 
 @pytest.fixture
 def mock_qdrant_client():

@@ -14,26 +14,23 @@ Qdrantベクトルデータベースの操作を担当
 
 """
 
+import logging
 import os
 import socket
 import time
-import logging
 import traceback
-import glob
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Tuple, Iterable
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pandas as pd
-import tiktoken
-from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
-from qdrant_client_wrapper import (
-    embed_sparse_texts_unified,
-    create_or_recreate_collection,
-    stable_point_id,
-)
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import UnexpectedResponse
+
+from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
+from qdrant_client_wrapper import (
+    stable_point_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +138,13 @@ def get_dynamic_collection_mapping(
 
             # 方法2: 完全一致のみ（フォールバック）
             if not csv_file:
-                logger.debug(f"   🔄 完全一致チェック中...")
+                logger.debug("   🔄 完全一致チェック中...")
                 csv_file = map_collection_to_csv(col_name, qa_output_dir)
 
                 if csv_file:
                     logger.debug(f"   ✅ 完全一致で発見: {csv_file}")
                 else:
-                    logger.debug(f"   ❌ マッピング不可")
+                    logger.debug("   ❌ マッピング不可")
 
             # マッピング結果の記録
             if csv_file:
@@ -159,7 +156,7 @@ def get_dynamic_collection_mapping(
 
         # サマリーログ
         logger.info(f"\n{'=' * 60}")
-        logger.info(f"📊 コレクションマッピングサマリー")
+        logger.info("📊 コレクションマッピングサマリー")
         logger.info(f"   総コレクション数: {len(collections_resp.collections)}")
         logger.info(f"   マッピング成功: {len(mapping)}")
         logger.info(f"   マッピング失敗: {len(unmapped_collections)}")

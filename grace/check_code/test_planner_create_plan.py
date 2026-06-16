@@ -59,8 +59,9 @@ GRACE Planner.create_plan() / estimate_complexity_with_llm() / refine_plan() 単
 
 import os
 import time
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 # =============================================================================
 # GOOGLE_API_KEY チェック — 未設定なら全テストスキップ
@@ -74,15 +75,14 @@ pytestmark = pytest.mark.skipif(not api_key_available, reason=SKIP_REASON)
 # =============================================================================
 # Imports (テスト対象)
 # =============================================================================
-from grace.schemas import (
+from grace.config import GraceConfig, LLMConfig, QdrantConfig  # noqa: E402
+from grace.planner import Planner  # noqa: E402
+from grace.schemas import (  # noqa: E402
     ExecutionPlan,
     PlanStep,
-    validate_plan_dependencies,
     create_plan_id,
+    validate_plan_dependencies,
 )
-from grace.config import GraceConfig, LLMConfig, QdrantConfig
-from grace.planner import Planner
-
 
 # =============================================================================
 # 共通フィクスチャ
@@ -120,7 +120,7 @@ def planner(grace_config):
         {"name": "cc_news", "points_count": 2000, "status": "green"},
     ]
 
-    with patch("grace.planner.QdrantClient") as mock_qdrant, \
+    with patch("grace.planner.QdrantClient"), \
          patch("grace.planner.get_all_collections", return_value=mock_collections), \
          patch("grace.planner.KeywordExtractor") as mock_kw:
 

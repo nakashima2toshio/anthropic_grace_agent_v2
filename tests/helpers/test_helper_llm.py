@@ -5,24 +5,23 @@ helper_llm.py 単体テスト
     pytest tests/helpers/test_helper_llm.py -v
 """
 
-import pytest
 import os
-from typing import List
-from unittest.mock import Mock, patch, MagicMock
-
-from pydantic import BaseModel
 import sys
+from typing import List
+from unittest.mock import Mock, patch
+
+import pytest
+from pydantic import BaseModel
 
 # テスト対象のインポートパス解決
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import helper.helper_llm as helper_llm  # Import the module to inspect
 from helper.helper_llm import (
-    LLMClient,
-    OpenAIClient,
     GeminiClient,
+    OpenAIClient,
     create_llm_client,
 )
+
 
 # テスト用Pydanticモデル
 class MockResponseSchema(BaseModel):

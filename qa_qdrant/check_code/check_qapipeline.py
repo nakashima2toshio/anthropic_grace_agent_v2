@@ -34,16 +34,16 @@ check_qapipeline.py - QAPipeline 学習用プログラム
     python qa_qdrant/check_code/check_qapipeline.py --no-save
 """
 
+import argparse
 import os
 import sys
-import argparse
 from pathlib import Path
 
 # プロジェクトルートをPythonパスに追加
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qa_generation.pipeline import QAPipeline
+from qa_generation.pipeline import QAPipeline  # noqa: E402
 
 
 def print_separator(title: str, char: str = "=", width: int = 70):
@@ -74,7 +74,7 @@ def demo_initialization(input_file: str, max_docs: int, output_dir: str):
     print(f"📁 入力ファイル: {input_file}")
     print(f"📊 最大チャンク数: {max_docs}")
     print(f"📂 出力ディレクトリ: {output_dir}")
-    print(f"🤖 モデル: gemini-2.0-flash")
+    print("🤖 モデル: gemini-2.0-flash")
     print()
 
     print("🔄 初期化中...")
@@ -113,10 +113,10 @@ def demo_load_data(pipeline: QAPipeline):
     print("   → load_uploaded_file(): CSVファイルを読み込み")
     df = pipeline.load_data()
 
-    print(f"\n✅ 読み込み完了!")
+    print("\n✅ 読み込み完了!")
     print(f"   • 行数: {len(df)}")
     print(f"   • カラム: {list(df.columns)}")
-    print(f"\n📋 先頭3行のプレビュー:")
+    print("\n📋 先頭3行のプレビュー:")
 
     # 先頭3行を表示（textカラムは短縮）
     for i, row in df.head(3).iterrows():
@@ -143,19 +143,19 @@ def demo_load_chunks(pipeline: QAPipeline, df):
     print("   → IDカラムを自動検出")
     chunks = pipeline._load_chunks_from_csv(df)
 
-    print(f"\n✅ 変換完了!")
+    print("\n✅ 変換完了!")
     print(f"   • チャンク数: {len(chunks)}")
-    print(f"\n📋 チャンクの構造（最初の1件）:")
+    print("\n📋 チャンクの構造（最初の1件）:")
 
     if chunks:
         chunk = chunks[0]
-        print(f"   {{")
+        print("   {")
         print(f"       'id': '{chunk.get('id', 'N/A')}',")
         print(f"       'text': '{chunk.get('text', 'N/A')[:40]}...',")
         print(f"       'tokens': {chunk.get('tokens', 'N/A')},")
         print(f"       'type': '{chunk.get('type', 'N/A')}',")
         print(f"       'dataset_type': '{chunk.get('dataset_type', 'N/A')}'")
-        print(f"   }}")
+        print("   }")
 
     return chunks
 
@@ -188,10 +188,10 @@ def demo_generate_qa(pipeline: QAPipeline, chunks: list):
         use_smart_generation=True
     )
 
-    print(f"\n✅ 生成完了!")
+    print("\n✅ 生成完了!")
     print(f"   • 生成Q/A数: {len(qa_pairs)}")
 
-    print(f"\n📋 生成されたQ/Aペア:")
+    print("\n📋 生成されたQ/Aペア:")
     for i, qa in enumerate(qa_pairs[:5], 1):  # 最大5件表示
         print(f"\n   [{i}] チャンク: {qa.get('chunk_id', 'N/A')}")
         print(f"       トピック: {qa.get('topic', 'N/A')}")
@@ -231,7 +231,7 @@ def demo_save(pipeline: QAPipeline, qa_pairs: list, do_save: bool):
 
     saved_files = pipeline.save(qa_pairs, coverage_results)
 
-    print(f"\n✅ 保存完了!")
+    print("\n✅ 保存完了!")
     print(f"   • サマリー: {saved_files.get('summary', 'N/A')}")
     print(f"   • Q/A CSV: {saved_files.get('qa_csv', 'N/A')}")
 

@@ -16,22 +16,21 @@ agent_service.py のプロンプトと機能を統合したCLI版
 - 再試行メカニズム
 """
 
+import datetime
+import logging
 import os
 import uuid
+from pathlib import Path
+from typing import Any, Dict, List
 
 from google import genai
 from google.genai import types
+from qdrant_client import QdrantClient
 
-from dotenv import load_dotenv
-import logging
-import datetime
-from typing import Dict, List, Any, Optional, Union, Tuple
-from pathlib import Path
+from agent_tools import RAGToolError, list_rag_collections, search_rag_knowledge_base
 
 # Configuration and Tools
 from config import AgentConfig, PathConfig
-from agent_tools import search_rag_knowledge_base, list_rag_collections, RAGToolError
-from qdrant_client import QdrantClient
 from services.qdrant_service import get_all_collections
 
 # キーワード抽出（オプション）

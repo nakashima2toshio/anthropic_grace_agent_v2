@@ -16,11 +16,10 @@ test_celery_integration.py - Celeryスマート生成統合テスト v2.4
     python qa_qdrant/tests/test_celery_integration.py
 """
 
+import logging
 import sys
 import time
-import logging
 from pathlib import Path
-from typing import List, Dict
 
 # ================================================================
 # パス設定（重要）- プロジェクトルートをPYTHONPATHに追加
@@ -176,7 +175,7 @@ def test_smart_generation_single_chunk():
 
             # 最初のQ/Aを表示
             first_qa = qa_pairs[0]
-            logger.info(f"例:")
+            logger.info("例:")
             logger.info(f"  Q: {first_qa.get('question', 'N/A')}")
             logger.info(f"  A: {first_qa.get('answer', 'N/A')}")
             logger.info(f"  Topic: {first_qa.get('topic', 'N/A')}")
@@ -254,7 +253,7 @@ def test_legacy_generation_single_chunk():
 
             # 最初のQ/Aを表示
             first_qa = qa_pairs[0]
-            logger.info(f"例:")
+            logger.info("例:")
             logger.info(f"  Q: {first_qa.get('question', 'N/A')}")
             logger.info(f"  A: {first_qa.get('answer', 'N/A')}")
             logger.info(f"  Method: {first_qa.get('generation_method', 'N/A')}")
@@ -279,7 +278,7 @@ def test_multiple_chunks():
     logger.info("=" * 60)
 
     try:
-        from celery_tasks import submit_unified_qa_generation, collect_results
+        from celery_tasks import collect_results, submit_unified_qa_generation
 
         # テストチャンク（3個）
         test_chunks = [

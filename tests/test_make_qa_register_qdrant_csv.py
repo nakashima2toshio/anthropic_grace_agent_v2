@@ -1,9 +1,10 @@
 
-import unittest
-import pandas as pd
 import os
 import shutil
-from unittest.mock import MagicMock, patch
+import unittest
+
+import pandas as pd
+
 
 class TestMakeQaRegisterQdrantCSV(unittest.TestCase):
     

@@ -3,10 +3,11 @@ GRACE Test Fixtures
 pytest共通フィクスチャ
 """
 
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 import os
 import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -153,7 +154,7 @@ def low_confidence_factors():
 @pytest.fixture
 def mock_config():
     """設定モック"""
-    from grace.config import GraceConfig, LLMConfig, EmbeddingConfig
+    from grace.config import EmbeddingConfig, GraceConfig, LLMConfig
 
     return GraceConfig(
         llm=LLMConfig(

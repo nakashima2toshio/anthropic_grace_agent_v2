@@ -24,38 +24,30 @@ helper_rag_qa.py - RAG Q&A用ユーティリティモジュール（後方互換
 - BatchHybridQAGenerator
 """
 
-from regex_mecab import KeywordExtractor
-from typing import List, Dict, Tuple, Optional, Any
-import re
-import math
 import json
-import os
+import math
+import re
 from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-import tiktoken
-from helper_llm import create_llm_client
-from helper_embedding import create_embedding_client, get_embedding_dimensions
-from pydantic import BaseModel
 import spacy
+import tiktoken
 
 # .envファイルから環境変数を読み込む
 from dotenv import load_dotenv
+from helper_embedding import create_embedding_client, get_embedding_dimensions
+from helper_llm import create_llm_client
+from pydantic import BaseModel
+
+from regex_mecab import KeywordExtractor
+
 load_dotenv()
 
 # ===================================================================
 # qa_generation/ からの統合インポート（後方互換性）
 # ===================================================================
-from qa_generation.semantic import SemanticCoverage
-from qa_generation.models import (
-    QAPair as _QAPair,
-    QAPairsList as _QAPairsList,
-    ChainOfThoughtAnalysis as _ChainOfThoughtAnalysis,
-    ChainOfThoughtQAPair as _ChainOfThoughtQAPair,
-    ChainOfThoughtResponse as _ChainOfThoughtResponse,
-    EnhancedQAPair as _EnhancedQAPair,
-    EnhancedQAPairsList as _EnhancedQAPairsList,
-    QAGenerationConsiderations as _QAGenerationConsiderations,
-)
+from qa_generation.semantic import SemanticCoverage  # noqa: E402
 
 """
 [キーワード抽出関連クラス]
@@ -133,7 +125,7 @@ class BestKeywordSelector:
         lengths = [len(kw) for kw in keywords]
         avg_len = sum(lengths) / len(lengths)
         if len(lengths) > 1:
-            variance = sum((l - avg_len) ** 2 for l in lengths) / (len(lengths) - 1)
+            variance = sum((length - avg_len) ** 2 for length in lengths) / (len(lengths) - 1)
             # 適度な分散を評価（標準偏差2-4文字が理想）
             std_dev = variance ** 0.5
             metrics['diversity'] = min(1.0, (std_dev / 3.0) if std_dev < 3 else (6 - std_dev) / 3.0)
@@ -593,7 +585,7 @@ class QACountOptimizer:
         if len(sentences) > 1:
             lengths = [len(s) for s in sentences]
             avg_len = sum(lengths) / len(lengths)
-            variance = sum((l - avg_len) ** 2 for l in lengths) / len(lengths)
+            variance = sum((length - avg_len) ** 2 for length in lengths) / len(lengths)
             std_dev = variance ** 0.5
             length_complexity = min(1.0, std_dev / avg_len)
             score += length_complexity * 0.3
