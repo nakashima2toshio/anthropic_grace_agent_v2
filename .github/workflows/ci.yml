@@ -1,0 +1,131 @@
+# ============================================================================
+# CI + 自動マージ ワークフロー（段階導入版）
+# ----------------------------------------------------------------------------
+# 方針:
+#  - 必須ゲート（blocking）: `python -m compileall`（全 .py の構文チェック）。
+#  - lint（ruff）: 当面 advisory（continue-on-error）。lint 負債を解消したら
+#    blocking 化し、auto-merge の needs に lint を追加する。
+#  - 自動マージ: CI（build=compileall）が緑になった `claude/*` ブランチの PR を
+#    master へ自動マージ。ドラフトでも Ready 化して merge する（claude/* 限定）。
+#    `hold` ラベルが付いた PR は自動マージしない（保留用エスケープ）。
+#  - master への直接 push は許可（ブランチ保護は掛けない）。
+# ============================================================================
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    branches: [master]
+  push:
+    branches: [master]
+
+# 自動マージ（gh pr merge / gh pr ready）に必要な書き込み権限
+permissions:
+  contents: write
+  pull-requests: write
+
+# 同一参照に対する多重実行を抑制
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 必須チェック: compileall（構文ゲート / blocking）
+  # --------------------------------------------------------------------------
+  build:
+    name: compile (syntax gate)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # ハードゲート: 全 .py の構文/バイトコンパイル（外部サービス・APIキー不要）
+      # check_code/ は検証用スクラッチ（壊れた断片を含む）のため除外。
+      - name: Compile all (syntax gate)
+        run: python -m compileall -q -x '\.venv|/old_code/|/\.git/|/chunking/check_code/' .
+
+  # --------------------------------------------------------------------------
+  # lint（ruff）: 当面 advisory（continue-on-error）。
+  #   - lint 負債を解消したら continue-on-error を外し blocking 化、
+  #     auto-merge の needs に lint を追加すること。
+  # --------------------------------------------------------------------------
+  lint:
+    name: ruff (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # 当面は advisory（マージをブロックしない）
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: pip install ruff==0.12.11
+
+      # pyproject.toml の [tool.ruff] 設定に従う
+      - name: Ruff lint (whole repo, advisory)
+        run: ruff check .
+
+  # --------------------------------------------------------------------------
+  # ユニットテスト（pytest）: モックベースのユニットテストを実行する。
+  #   - 実 Anthropic/Qdrant 依存の統合テストは APIキー未設定時に skipif で自動 skip。
+  #   - 現状は advisory（auto-merge の needs に含めない）。
+  # --------------------------------------------------------------------------
+  unit-tests:
+    name: pytest (unit, integration skipped)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # 安定するまでは advisory（マージをブロックしない）
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pydantic pandas numpy \
+            qdrant-client tiktoken scikit-learn pyyaml python-dotenv openai celery
+
+      - name: Run unit tests (integration auto-skipped)
+        env:
+          PYTHONPATH: .
+        run: pytest tests/ -q -rs
+
+  # --------------------------------------------------------------------------
+  # 自動マージ: claude/* ブランチの PR を CI（build）成功後に master へマージ
+  # --------------------------------------------------------------------------
+  auto-merge:
+    name: auto-merge (claude/*)
+    needs: build
+    if: >-
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'claude/') &&
+      !contains(github.event.pull_request.labels.*.name, 'hold')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Mark ready & merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # ドラフトなら Ready 化（既に Ready ならエラーになるので無視）
+          gh pr ready "$PR" --repo "$REPO" || true
+          # CI（build）成功後にマージ。マージコミット方式。
+          gh pr merge "$PR" --repo "$REPO" --merge

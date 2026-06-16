@@ -153,6 +153,24 @@ filterwarnings = [
     "ignore:.*is not a valid.*:UserWarning:google.genai._common",
 ]
 
+[tool.ruff]
+# old_code/ と check_code/ はアーカイブ・検証用スクラッチのため lint 対象外
+extend-exclude = ["old_code", "chunking/check_code", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+# known-first-party を明示しないと CI(未インストール)とローカル(導入済)で
+# isort 分類が割れ、I001 がローカル緑/CI赤になる。トップレベルの module/package を列挙。
+known-first-party = [
+  "agent_cache", "agent_main", "agent_parallel_search", "agent_rag", "agent_tools",
+  "celery_config", "celery_tasks", "chunking", "config", "eval", "grace", "helper",
+  "models", "qa_generation", "qa_qdrant", "qdrant_client_wrapper", "regex_mecab",
+  "run_benchmark", "services", "tools", "ui",
+]
+
 [build-system]
 requires = ["hatchling>=1.25.0"]
 build-backend = "hatchling.build"
