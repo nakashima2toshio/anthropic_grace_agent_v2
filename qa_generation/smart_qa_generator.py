@@ -117,6 +117,14 @@ class SmartQAGenerator:
         )
         if result is None:
             raise ValueError("analyze_and_generate returned empty response")
+        # per-call トークン使用量を取り込む（AnthropicClient.last_usage 由来）。
+        # process_chunk → Celery worker → collect_results(usage_out) へ伝播する。
+        client_usage = getattr(self.client, "last_usage", None)
+        if isinstance(client_usage, dict):
+            self.last_usage = {
+                "input_tokens": int(client_usage.get("input_tokens", 0) or 0),
+                "output_tokens": int(client_usage.get("output_tokens", 0) or 0),
+            }
         return result
 
     def process_chunk(self, chunk_text: str) -> Dict:

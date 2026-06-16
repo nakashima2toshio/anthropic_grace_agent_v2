@@ -231,6 +231,9 @@ class AnthropicClient(LLMClient):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.default_model = default_model
         self._client = None
+        # 直近の API 呼び出しのトークン使用量（per-call usage 配管）。
+        # generate_content / generate_structured の呼び出しごとに更新される。
+        self.last_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
 
     def _get_client(self):
         if self._client is None:
@@ -261,6 +264,12 @@ class AnthropicClient(LLMClient):
         if "temperature" in kwargs:
             create_kwargs["temperature"] = kwargs.pop("temperature")
         message = self._get_client().messages.create(**create_kwargs)
+        # per-call usage を記録（usage が無い/壊れている場合は 0）
+        usage = getattr(message, "usage", None)
+        self.last_usage = {
+            "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        }
         return "".join(
             getattr(block, "text", "") or "" for block in (getattr(message, "content", []) or [])
         )
