@@ -6,7 +6,6 @@ GRACE Planner - 計画生成エージェント
 
 import logging
 from typing import Optional, List
-from google import genai
 from google.genai import types
 
 from .schemas import (

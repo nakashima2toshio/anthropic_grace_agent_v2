@@ -10,7 +10,6 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
 from qdrant_client import QdrantClient
-from google import genai
 from google.genai import types
 
 # Import wrappers for robust execution
