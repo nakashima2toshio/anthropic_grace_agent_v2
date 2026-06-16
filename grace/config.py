@@ -4,10 +4,11 @@ GRACE Config - 設定管理
 YAMLファイルと環境変数からの設定読み込み
 """
 
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Dict, Optional
+
 import yaml
 from pydantic import BaseModel, Field
 
@@ -187,6 +188,10 @@ class ExecutorConfig(BaseModel):
     # 依存関係のない検索ステップを並列実行する
     parallel_search: bool = True
     max_parallel_steps: int = 4
+    # S3: ハイブリッド ReAct（観測駆動ループ）
+    react_enabled: bool = True              # 複雑質問を ReAct ループで実行する
+    react_complexity_threshold: float = 0.7  # この複雑度以上のみ ReAct（未満は静的パス温存）
+    react_max_iterations: int = 8           # ReAct ループの最大反復回数
 
 
 class GraceConfig(BaseModel):

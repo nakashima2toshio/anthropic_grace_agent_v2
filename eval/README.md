@@ -98,6 +98,30 @@ python -m eval.run_eval --report logs/eval_calibrated.json
 必ず縮小する（`tests/grace/test_calibration.py` で検証）。実データでの最終確認は
 `ANTHROPIC_API_KEY` + Qdrant 稼働下での `run_eval` → `calibrate` → `run_eval` で行う。
 
+## S3｜ハイブリッド ReAct スケルトン（実装済み）
+
+`docs/grace_react_refactor_todo.md` の **S3**。静的な `plan.steps` の for ループを、
+観測を見て毎ターン次の1手を決める **Reason–Act–Observe** ループへ置換する。
+Plan は「初期仮説」として保持するハイブリッド方式。
+
+- **スキーマ**（`grace/schemas.py`）：`Scratchpad`/`ScratchpadEntry`（観測履歴）、
+  `AgentThought`（reasoning＋次アクション＋停止判定 `is_final`）。
+- **Reason**（`executor._decide_next_action`）：Scratchpad＋初期 Plan から次の1手を LLM が決定。
+  LLM 不在/失敗時は初期 Plan を順に辿るフォールバック（＝静的パス相当に degrade）。
+- **ループ**（`executor.execute_react_generator`）：Reason→Act→Observe→Confidence→Controller。
+  - Act：既存の `_execute_step`（ツール実行・タイムアウト・フォールバック）を再利用。
+  - Observe：ツール出力を Scratchpad に追記。
+  - Confidence：`_llm_calculate_step_confidence` ＋ **S1 の groundedness/較正**を再利用。
+  - Controller：較正済み confidence と `decide_action` で 継続/介入/終了 を判定。
+- **分岐制御**（`executor._dispatch_generator`）：`complexity >= executor.react_complexity_threshold`
+  （既定 0.7）の複雑質問のみ ReAct、単純質問は**現行の静的パスを温存**。
+- 設定：`executor.react_enabled` / `react_complexity_threshold` / `react_max_iterations`。
+
+**DoD**：S0 の **正解率が静的版以上**、かつ複雑質問で改善。
+実データでの確認は `ANTHROPIC_API_KEY` + Qdrant 稼働下で、`react_enabled` の
+true/false を切り替えて `run_eval` のスコアを比較する（静的版とのA/B）。
+ロジックは `tests/grace/test_react.py`（API 非依存・mock）で検証済み。
+
 ## 注意
 
 - `run_eval.py` / `build_dataset.py` 冒頭の import は v1 のレイアウト（`grace.*`, `helper_llm`,

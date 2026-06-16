@@ -17,6 +17,8 @@ from .schemas import (
     StepResult,
     ExecutionResult,
     StepStatus,
+    Scratchpad,
+    AgentThought,
     create_plan_id,
 )
 from .tools import ToolRegistry, ToolResult, create_tool_registry
@@ -156,6 +158,8 @@ class Executor:
         self._calibrator = Calibrator.load(
             getattr(self.config.confidence, "calibration_path", "config/calibration.json")
         )
+        # S3: ReAct の Reason（_decide_next_action）用 LLM クライアント
+        self._react_client = create_chat_client(self.config)
 
         # コールバック
         self.on_step_start = on_step_start
@@ -437,7 +441,7 @@ class Executor:
         """
         logger.info(f"Executing plan (blocking): {plan.plan_id}, steps={len(plan.steps)}")
 
-        gen = self.execute_plan_generator(plan)
+        gen = self._dispatch_generator(plan)
         try:
             while True:
                 event = next(gen)
@@ -447,9 +451,291 @@ class Executor:
         except StopIteration as e:
             return e.value
 
+    def _dispatch_generator(
+            self, plan: ExecutionPlan
+    ) -> Generator[Any, None, ExecutionResult]:
+        """S3: 複雑度に応じて ReAct ループ / 静的 Plan-Execute を振り分ける。
+
+        - react_enabled かつ complexity >= 閾値 → 観測駆動 ReAct ループ
+        - それ以外（単純質問）→ 現行の静的パスを温存（移行リスク低減）
+        """
+        ec = self.config.executor
+        use_react = (
+            getattr(ec, "react_enabled", False)
+            and plan.complexity >= getattr(ec, "react_complexity_threshold", 0.7)
+        )
+        if use_react:
+            logger.info(
+                f"[dispatch] ReAct loop (complexity={plan.complexity:.2f} "
+                f">= {ec.react_complexity_threshold})"
+            )
+            return (yield from self.execute_react_generator(plan))
+        logger.info(
+            f"[dispatch] static plan-execute (complexity={plan.complexity:.2f})"
+        )
+        return (yield from self.execute_plan_generator(plan))
+
     def execute(self, plan: ExecutionPlan) -> ExecutionResult:
         """execute_plan() の統一エントリーポイント（benchmark.py 互換）"""
         return self.execute_plan(plan)
+
+    # =========================================================================
+    # S3: ハイブリッド ReAct ループ
+    # =========================================================================
+
+    REACT_PROMPT = """あなたは観測駆動の調査エージェントです。
+これまでの観測（Scratchpad）を踏まえ、ユーザーの質問に答えるための
+「次の1手」を1つだけ決めてください。
+
+# ユーザーの質問
+{query}
+
+# 初期計画（仮説。従う必要はない）
+{plan_hint}
+
+# これまでの観測（Scratchpad）
+{scratchpad}
+
+# 選べるアクション
+- rag_search : 社内ナレッジ（Qdrant）を検索する。query を必ず指定。
+- web_search : Web を検索する。query を必ず指定。
+- reasoning  : これまでの観測を統合して最終回答を生成する。
+- ask_user   : 情報不足でユーザーに確認が必要なとき。
+- finish     : 既に十分な回答が得られ、これ以上の行動が不要なとき。
+
+# 判断指針
+- まだ根拠が不足していれば検索（rag_search / web_search）を選ぶ。
+- 十分な根拠が揃ったら reasoning で回答を生成し is_final=true とする。
+- reasoning 済みで回答が確定していれば finish を選ぶ。
+- 無駄な繰り返しは避け、最短で回答に到達すること。
+"""
+
+    def execute_react_generator(
+            self,
+            plan: ExecutionPlan,
+            state: Optional[ExecutionState] = None,
+    ) -> Generator[Any, None, ExecutionResult]:
+        """S3: Reason→Act→Observe→Confidence→Controller の ReAct ループ。
+
+        既存資産を最大限再利用する:
+        - Act       : `_execute_step`（ツール実行・タイムアウト・フォールバック）
+        - Observe   : ツール出力を `Scratchpad` に追記
+        - Confidence: `_llm_calculate_step_confidence`（_execute_step 内）＋ S1 groundedness/較正
+        - Controller: 較正済み confidence と `decide_action` で継続/介入/終了を判定
+
+        初期 Plan は「仮説」として `_decide_next_action` に渡し、LLM 不在時は
+        初期 Plan のステップ列をそのまま辿る（静的パス相当に degrade）。
+        実行した暫定ステップは `state.plan.steps` に追記し、既存の
+        `_calculate_overall_confidence` / `_create_execution_result` をそのまま使う。
+        """
+        if state is None:
+            state = ExecutionState(plan=plan)
+            state.start_time = time.time()
+            self._prefetched_tool_results.clear()
+
+        scratchpad = Scratchpad()
+        initial_steps = list(plan.steps)      # フォールバック用に初期計画を保持
+        fallback_queue = list(initial_steps)
+        max_iters = getattr(self.config.executor, "react_max_iterations", 8)
+        # 既存ステップIDと衝突しない採番
+        next_step_id = (max((s.step_id for s in plan.steps), default=0)) + 1
+        produced_answer = False
+
+        try:
+            for it in range(max_iters):
+                if state.is_cancelled:
+                    logger.info("ReAct: execution cancelled")
+                    break
+
+                thought = self._decide_next_action(plan, scratchpad, fallback_queue)
+                logger.info(
+                    f"[ReAct {it + 1}/{max_iters}] action={thought.next_action} "
+                    f"final={thought.is_final} reason={(thought.reasoning or '')[:80]}"
+                )
+
+                if thought.next_action == "finish":
+                    logger.info("ReAct: finish signaled")
+                    break
+
+                action = thought.next_action
+                query = thought.query
+                if action == "reasoning":
+                    # 推論は元の質問に答える（観測は _prepare_tool_kwargs が自動集約）
+                    query = thought.query or plan.original_query
+
+                step = PlanStep(
+                    step_id=next_step_id,
+                    action=action,
+                    description=thought.reasoning or f"ReAct step {next_step_id}",
+                    query=query,
+                    collection=thought.collection,
+                    depends_on=[],
+                    expected_output="ReActターンの出力",
+                    timeout_seconds=30,
+                )
+                next_step_id += 1
+                # 暫定ステップを計画へ追記（結果・confidence 集約の既存ロジックを流用）
+                state.plan.steps.append(step)
+                state.current_step_id = step.step_id
+                state.step_statuses[step.step_id] = StepStatus.RUNNING
+                if self.on_step_start:
+                    self.on_step_start(step)
+
+                step_exec = self._execute_step(step, state)
+                if isinstance(step_exec, Generator):
+                    result = yield from step_exec
+                else:
+                    result = step_exec
+
+                state.step_results[step.step_id] = result
+                state.step_statuses[step.step_id] = (
+                    StepStatus.SUCCESS if result.status == "success" else StepStatus.FAILED
+                )
+                if self.on_step_complete:
+                    self.on_step_complete(result)
+
+                # Observe: Scratchpad へ観測を追記
+                conf_score = self.step_confidence_scores.get(step.step_id)
+                conf_val = conf_score.score if conf_score else result.confidence
+                scratchpad.add(
+                    action=step.action,
+                    observation=self._format_output(result.output) or (result.error or ""),
+                    confidence=conf_val,
+                    query=step.query,
+                )
+
+                if step.action == "reasoning" and result.status == "success":
+                    produced_answer = True
+
+                # Controller: 介入判定（既存 decide_action を再利用）
+                if conf_score is not None:
+                    action_decision = self.confidence_calculator.decide_action(conf_score)
+                    if action_decision.level in [InterventionLevel.CONFIRM, InterventionLevel.ESCALATE]:
+                        logger.info(
+                            f"ReAct: pausing for intervention {action_decision.level} "
+                            f"(step {step.step_id})"
+                        )
+                        state.is_paused = True
+                        message = f"信頼度が低いため確認が必要です ({conf_score.score:.2f})"
+                        if action_decision.reason:
+                            message += f"\n理由: {action_decision.reason}"
+                        state.intervention_request = InterventionRequest(
+                            level=action_decision.level,
+                            step_id=step.step_id,
+                            message=message,
+                            reason=action_decision.reason,
+                            confidence_score=conf_score.score,
+                            plan=state.plan,
+                        )
+                        yield state
+                        return self._create_execution_result(state)
+                    self._handle_intervention_if_needed(action_decision, step, state)
+
+                yield state
+
+                if step.action == "ask_user" and result.status == "success":
+                    self._handle_ask_user_response(step, result, state)
+
+                # Controller: 回答が確定したら終了
+                if thought.is_final and produced_answer:
+                    logger.info("ReAct: final answer produced, stopping loop")
+                    break
+
+            # ループ終了時に回答が無ければ、観測を統合する最終 reasoning を1回実行
+            if not produced_answer and not state.is_cancelled:
+                step = PlanStep(
+                    step_id=next_step_id,
+                    action="reasoning",
+                    description="観測を統合して最終回答を生成",
+                    query=plan.original_query,
+                    depends_on=[],
+                    expected_output="最終回答",
+                    timeout_seconds=30,
+                )
+                state.plan.steps.append(step)
+                state.current_step_id = step.step_id
+                state.step_statuses[step.step_id] = StepStatus.RUNNING
+                step_exec = self._execute_step(step, state)
+                result = (yield from step_exec) if isinstance(step_exec, Generator) else step_exec
+                state.step_results[step.step_id] = result
+                state.step_statuses[step.step_id] = (
+                    StepStatus.SUCCESS if result.status == "success" else StepStatus.FAILED
+                )
+                yield state
+
+            state.overall_confidence = self._calculate_overall_confidence(state)
+            state.end_time = time.time()
+            return self._create_execution_result(state)
+
+        except Exception as e:
+            logger.error(f"ReAct execution failed: {e}", exc_info=True)
+            state.end_time = time.time()
+            return ExecutionResult(
+                plan_id=plan.plan_id or create_plan_id(),
+                original_query=plan.original_query,
+                final_answer=f"実行エラー: {str(e)}",
+                step_results=list(state.step_results.values()),
+                overall_confidence=0.0,
+                overall_status="failed",
+                replan_count=state.replan_count,
+                total_execution_time_ms=state.get_execution_time_ms(),
+                total_token_usage=None,
+                total_cost_usd=None,
+            )
+
+    def _decide_next_action(
+            self,
+            plan: ExecutionPlan,
+            scratchpad: Scratchpad,
+            fallback_queue: List[PlanStep],
+    ) -> AgentThought:
+        """Reason：Scratchpad＋初期計画から次の1手を LLM が決定する。
+
+        LLM 不在/失敗時は初期計画のステップ列を順に辿るフォールバックへ degrade
+        （= 静的パス相当）。これにより API 無し環境でもクラッシュしない。
+        """
+        plan_hint = "\n".join(
+            f"- {s.action}: {s.description}" for s in plan.steps[:6]
+        ) or "(なし)"
+        prompt = self.REACT_PROMPT.format(
+            query=plan.original_query,
+            plan_hint=plan_hint,
+            scratchpad=scratchpad.as_prompt(),
+        )
+        try:
+            from google.genai import types
+            response = self._react_client.models.generate_content(
+                model=self.config.llm.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=AgentThought,
+                    temperature=0.0,
+                    max_output_tokens=512,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+            if not response or not response.text:
+                raise ValueError("empty response")
+            return AgentThought.model_validate_json(response.text)
+        except Exception as e:
+            logger.warning(f"_decide_next_action LLM failed ({e}); falling back to initial plan")
+            _allowed = {"rag_search", "web_search", "reasoning", "ask_user"}
+            if fallback_queue:
+                s = fallback_queue.pop(0)
+                act = s.action if s.action in _allowed else "reasoning"
+                return AgentThought(
+                    reasoning=f"[fallback] {s.description}",
+                    next_action=act,
+                    query=s.query,
+                    collection=s.collection,
+                    is_final=(s.action in ("reasoning", "run_legacy_agent")),
+                )
+            return AgentThought(
+                reasoning="[fallback] 初期計画を消化済み",
+                next_action="finish",
+                is_final=True,
+            )
 
     def _handle_ask_user_response(
             self,
