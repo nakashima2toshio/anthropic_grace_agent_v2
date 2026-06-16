@@ -19,16 +19,16 @@ check_smart_qa_generator.py - SmartQAGenerator 学習用プログラム
     python qa_qdrant/check_code/check_smart_qa_generator.py
 """
 
+import csv
 import os
 import sys
-import csv
 from pathlib import Path
 
 # プロジェクトルートをPythonパスに追加
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from qa_generation.smart_qa_generator import SmartQAGenerator
+from qa_generation.smart_qa_generator import SmartQAGenerator  # noqa: E402
 
 
 def print_separator(title: str, char: str = "=", width: int = 70):
@@ -150,7 +150,7 @@ def demo_process_chunk(generator: SmartQAGenerator, chunk_text: str, chunk_id: s
     # 結果を表示
     if result['success']:
         print("\n✅ 処理成功!")
-        print(f"\n📊 【分析結果】")
+        print("\n📊 【分析結果】")
         analysis = result['analysis']
         print(f"   • Q/A数: {analysis.get('qa_count', 0)} 個")
         print(f"   • 重要度: {analysis.get('importance_score', 0):.2f}")
@@ -241,7 +241,7 @@ def main():
     analysis = demo_analyze_chunk(generator, chunk['text'], chunk['id'])
 
     # Step 2: Q/Aペア生成
-    qa_pairs = demo_generate_qa_pairs(generator, chunk['text'], analysis)
+    demo_generate_qa_pairs(generator, chunk['text'], analysis)
 
     # ================================================================
     # デモ2: 一括処理（残りのチャンク）

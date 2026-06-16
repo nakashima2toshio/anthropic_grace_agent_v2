@@ -10,9 +10,8 @@ diagnose_celery_complete.py - Celery完全診断スクリプト
 4. タスクが実際にキューに入っているか
 """
 
-import os
-import sys
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -190,7 +189,7 @@ def check_celery_config():
     print("=" * 60)
 
     try:
-        from celery_config import app, CeleryConfig
+        from celery_config import CeleryConfig, app
 
         print(f"broker_url: {app.conf.broker_url}")
         print(f"result_backend: {app.conf.result_backend}")

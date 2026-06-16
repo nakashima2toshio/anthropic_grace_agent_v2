@@ -1,11 +1,12 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
 from services.qa_service import (
+    QAPair,
     generate_qa_pairs,
-    save_qa_pairs_to_file,
     run_advanced_qa_generation,
-    QAPair
+    save_qa_pairs_to_file,
 )
+
 
 class TestQAService:
 

@@ -5,22 +5,24 @@ GRACE Planner - 計画生成エージェント
 """
 
 import logging
-from typing import Optional, List
-from google.genai import types
+from typing import Optional
 
+from google.genai import types
+from qdrant_client import QdrantClient
+
+from regex_mecab import KeywordExtractor
+from services.prompts import SEARCH_QUERY_INSTRUCTION
+from services.qdrant_service import get_all_collections
+
+from .config import GraceConfig, get_config
+from .llm_compat import create_chat_client
+from .memory import create_execution_memory
 from .schemas import (
     ExecutionPlan,
     PlanStep,
     create_plan_id,
     validate_plan_dependencies,
 )
-from .config import get_config, GraceConfig
-from .llm_compat import create_chat_client
-from .memory import create_execution_memory
-from services.qdrant_service import get_all_collections
-from qdrant_client import QdrantClient
-from services.prompts import SEARCH_QUERY_INSTRUCTION
-from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -285,8 +287,8 @@ class Planner:
             logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
             # --- TODO #2: リトライ付きでLLM呼び出し（最大2回） ---
-            import time as _time
             import json as _json
+            import time as _time
 
             plan = None
             last_error = None

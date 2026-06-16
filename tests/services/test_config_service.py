@@ -1,7 +1,10 @@
 import os
+from unittest.mock import mock_open, patch
+
 import pytest
-from unittest.mock import patch, mock_open
+
 from services.config_service import ConfigManager
+
 
 # Reset singleton before each test
 @pytest.fixture(autouse=True)

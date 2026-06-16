@@ -88,7 +88,7 @@ try:
         # queue='high_priority' を削除
     )
 
-    print(f"✅ タスク投入成功（デフォルトキュー）")
+    print("✅ タスク投入成功（デフォルトキュー）")
     print(f"  タスクID: {task.id}")
     print(f"  初期状態: {task.state}")
 
@@ -117,7 +117,7 @@ try:
             print(f"  {i + 1}秒: {state}")
 
         if i == 9 and state == 'PENDING':
-            print(f"\n⚠️ デフォルトキューでもPENDINGのまま")
+            print("\n⚠️ デフォルトキューでもPENDINGのまま")
             print("別の問題がある可能性があります")
 
 except Exception as e:

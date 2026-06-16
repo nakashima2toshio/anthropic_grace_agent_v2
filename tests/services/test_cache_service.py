@@ -1,6 +1,7 @@
 import time
-import pytest
+
 from services.cache_service import MemoryCache, cache_result
+
 
 class TestMemoryCache:
     

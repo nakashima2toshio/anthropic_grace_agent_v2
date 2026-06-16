@@ -1,5 +1,6 @@
 from regex_mecab import KeywordExtractor
 
+
 def test_keyword_extractor_init():
     extractor = KeywordExtractor()
     assert extractor is not None

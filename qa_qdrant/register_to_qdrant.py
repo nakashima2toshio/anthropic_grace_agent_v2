@@ -36,8 +36,8 @@ register_csv_to_qdrant.py と register_qdrant.py を統合した最終版
       --max-docs 10
 """
 
-import sys
 import os
+import sys
 
 # プロジェクトルートをPythonパスに追加
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,17 +45,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import logging
 import re
-import pandas as pd
 from typing import List, Optional
+
+import pandas as pd
+
+from qdrant_client_wrapper import create_qdrant_client
 
 # プロジェクト内モジュール
 from services.qdrant_service import (
+    build_points_for_qdrant,
     create_or_recreate_collection_for_qdrant,
     embed_texts_for_qdrant,
     upsert_points_to_qdrant,
-    build_points_for_qdrant
 )
-from qdrant_client_wrapper import create_qdrant_client
 
 # ログ設定
 logging.basicConfig(
@@ -233,7 +235,7 @@ def register_to_qdrant(
     # ================================================================
     # 4. Qdrantクライアント初期化 & コレクション準備
     # ================================================================
-    logger.info(f"🔌 Qdrant接続中...")
+    logger.info("🔌 Qdrant接続中...")
     try:
         client = create_qdrant_client()
 
@@ -271,7 +273,7 @@ def register_to_qdrant(
         normalized_filename = source_filename
 
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🚀 登録処理開始")
+    logger.info("🚀 登録処理開始")
     logger.info(f"{'=' * 60}")
     logger.info(f"   全件数       : {len(df)} 件")
     logger.info(f"   バッチサイズ : {batch_size}")
@@ -384,7 +386,7 @@ def register_to_qdrant(
                 df_ui.to_csv(output_path, index=False, encoding='utf-8')
                 logger.info(f"   ✅ 作成完了 ({len(df_ui):,} 行)")
             else:
-                logger.warning(f"   ⚠️  'question', 'answer' カラムが見つからないためスキップ")
+                logger.warning("   ⚠️  'question', 'answer' カラムが見つからないためスキップ")
 
         except Exception as e:
             logger.warning(f"   ⚠️  UI用ファイル作成エラー: {e}")
@@ -393,7 +395,7 @@ def register_to_qdrant(
     # 7. 完了メッセージ
     # ================================================================
     logger.info(f"\n{'=' * 60}")
-    logger.info(f"🎉 登録完了！")
+    logger.info("🎉 登録完了！")
     logger.info(f"{'=' * 60}")
     logger.info(f"   コレクション : {collection_name}")
     logger.info(f"   登録件数     : {total_processed:,} 件")

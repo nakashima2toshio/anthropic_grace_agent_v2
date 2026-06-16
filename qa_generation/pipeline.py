@@ -30,18 +30,22 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   )
 """
 
-import sys
 import json
 import logging
-from typing import List, Dict, Optional, Any
-import pandas as pd
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
+from celery_tasks import (
+    check_celery_workers,
+    collect_results,
+    submit_unified_qa_generation,
+)
 from config import DATASET_CONFIGS
 from helper.helper_llm import LLMClient
-from qa_generation.smart_qa_generator import SmartQAGenerator
 from qa_generation.evaluation import analyze_coverage
-from celery_tasks import submit_unified_qa_generation, collect_results, check_celery_workers
+from qa_generation.smart_qa_generator import SmartQAGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +129,7 @@ class QAPipeline:
 
     def load_data(self) -> pd.DataFrame:
         """データを読み込む"""
-        from qa_generation.data_io import load_uploaded_file, load_preprocessed_data
+        from qa_generation.data_io import load_preprocessed_data, load_uploaded_file
 
         logger.info("\n[1/3] データ読み込み...")
 
@@ -325,7 +329,7 @@ class QAPipeline:
             concurrency: 並列タスク数
             batch_size: バッチサイズ
         """
-        logger.info(f"  Celery並列処理モード:")
+        logger.info("  Celery並列処理モード:")
         logger.info(f"    - ワーカープロセス数チェック: {workers}")
         logger.info(f"    - 並列タスク数 (concurrency): {concurrency}")
 
@@ -399,7 +403,7 @@ class QAPipeline:
                     all_qa_pairs.extend(chunk_pairs)
                     logger.info(f"      → {len(chunk_pairs)} Q/A生成")
                 else:
-                    logger.warning(f"      → Q/A生成なし（qa_count=0 または失敗）")
+                    logger.warning("      → Q/A生成なし（qa_count=0 または失敗）")
 
                 # トークン使用量を集計（usage_metadata 由来）
                 usage = result.get('usage') or {}

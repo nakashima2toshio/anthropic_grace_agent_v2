@@ -15,8 +15,9 @@ tests/test_agent_4operations.py
 """
 
 import time
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture
@@ -221,9 +222,12 @@ class TestOperation3ConfidenceEvaluation:
 
     @classmethod
     def _classify(cls, score: float) -> str:
-        if score >= cls.THRESH_SILENT:  return "SILENT"
-        if score >= cls.THRESH_NOTIFY:  return "NOTIFY"
-        if score >= cls.THRESH_CONFIRM: return "CONFIRM"
+        if score >= cls.THRESH_SILENT:
+            return "SILENT"
+        if score >= cls.THRESH_NOTIFY:
+            return "NOTIFY"
+        if score >= cls.THRESH_CONFIRM:
+            return "CONFIRM"
         return "ESCALATE"
 
 
@@ -292,9 +296,12 @@ class TestOperation4InterventionReplan:
 
     @staticmethod
     def _to_level(c: float) -> str:
-        if c >= 0.9: return "SILENT"
-        if c >= 0.7: return "NOTIFY"
-        if c >= 0.4: return "CONFIRM"
+        if c >= 0.9:
+            return "SILENT"
+        if c >= 0.7:
+            return "NOTIFY"
+        if c >= 0.4:
+            return "CONFIRM"
         return "ESCALATE"
 
     @staticmethod
@@ -305,7 +312,7 @@ class TestOperation4InterventionReplan:
 
 class TestBenchmarkPerformanceEvaluation:
     def test_benchmark_module_importable(self):
-        from grace.benchmark import BenchmarkRunner, BenchmarkSession, BenchmarkLogger
+        from grace.benchmark import BenchmarkRunner
         assert BenchmarkRunner is not None
 
     def test_benchmark_queries_complete(self):
@@ -354,6 +361,7 @@ class TestBenchmarkPerformanceEvaluation:
 
     def test_benchmark_csv_contains_all_headers(self, tmp_path):
         import csv as csv_mod
+
         from grace.benchmark import BenchmarkLogger
         csv_path = tmp_path / "headers.csv"
         BenchmarkLogger(csv_path=csv_path)

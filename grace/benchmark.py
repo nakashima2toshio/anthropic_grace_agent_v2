@@ -219,9 +219,12 @@ class BenchmarkLogger:
         session.intervention_level = self._score_to_intervention(session.overall_confidence)
 
     def _score_to_intervention(self, score: float) -> str:
-        if score >= self._THRESH_SILENT:  return "SILENT"
-        if score >= self._THRESH_NOTIFY:  return "NOTIFY"
-        if score >= self._THRESH_CONFIRM: return "CONFIRM"
+        if score >= self._THRESH_SILENT:
+            return "SILENT"
+        if score >= self._THRESH_NOTIFY:
+            return "NOTIFY"
+        if score >= self._THRESH_CONFIRM:
+            return "CONFIRM"
         return "ESCALATE"
 
     def finalize_and_log(self, session: BenchmarkSession) -> None:
@@ -269,8 +272,8 @@ class BenchmarkRunner:
         level: str = "",
         category: str = "",
     ) -> BenchmarkSession:
-        from .planner  import Planner
         from .executor import Executor
+        from .planner import Planner
         session = BenchmarkSession(
             query_id=query_id, query_text=query_text,
             model=self.model_name, provider=self.provider,
@@ -297,8 +300,10 @@ class BenchmarkRunner:
             logger.error("[BENCHMARK] %s run%d failed: %s", query_id, run_number, exc, exc_info=True)
             session.overall_status = "failed"
             now = time.monotonic()
-            if session.plan_end    == 0.0: session.plan_end    = now
-            if session.execute_end == 0.0: session.execute_end = now
+            if session.plan_end    == 0.0:
+                session.plan_end    = now
+            if session.execute_end == 0.0:
+                session.execute_end = now
         finally:
             self.bm_logger.finalize_and_log(session)
             self.bm_logger.save_to_csv(session)

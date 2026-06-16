@@ -1,25 +1,27 @@
 # agent_services.py
 import os
 import uuid
+from typing import Any, Dict, Generator, List, Optional
+
 from google import genai  # 新しいSDK
 from google.genai import types  # 新しいSDK
-from typing import Dict, List, Any, Optional, Union, Tuple, Generator
-from qdrant_client import QdrantClient
-from qdrant_client_wrapper import get_qdrant_client
 
 # Configuration and Tools
-from config import AgentConfig, GeminiConfig
-from agent_tools import (
-    search_rag_knowledge_base,
-    list_rag_collections,
-    RAGToolError,
-    search_rag_knowledge_base_cached
+from qdrant_client import (
+    QdrantClient,  # noqa: F401  (レガシーテストの patch ターゲット)
 )
-from services.qdrant_service import get_all_collections
-from services.log_service import log_unanswered_question
+
+from agent_tools import (
+    RAGToolError,
+    list_rag_collections,
+    search_rag_knowledge_base,
+    search_rag_knowledge_base_cached,
+)
+from qdrant_client_wrapper import get_qdrant_client
 
 # 設定サービスからロガーと設定を取得
-from services.config_service import config, logger, get_config
+from services.config_service import get_config, logger
+from services.log_service import log_unanswered_question
 
 # キーワード抽出（オプション）
 try:
@@ -31,8 +33,6 @@ except ImportError:
     KeywordExtractor = None
 
 # キャッシュと並列検索をインポート
-from agent_cache import collection_cache
-from agent_parallel_search import parallel_search_engine
 
 # -----------------------------------------------------------------------------
 # Constants & Configuration

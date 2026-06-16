@@ -10,8 +10,9 @@ test_planner.py - GRACE Planner ユニットテスト
 """
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
 
 # =============================================================================
 # テスト用フィクスチャ
@@ -474,7 +475,7 @@ class TestGetAvailableCollections:
             {"name": "livedoor", "points_count": 50, "status": "green"},
         ]
 
-        with patch(PATCH_QDRANT_CLIENT) as mock_qc:
+        with patch(PATCH_QDRANT_CLIENT):
             with patch(PATCH_GET_ALL_COLLECTIONS, return_value=mock_collections):
                 result = planner_instance._get_available_collections()
 

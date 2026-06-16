@@ -13,13 +13,13 @@ import pandas as pd
 import pytest
 
 from services.qdrant_service import (
-    batched,
-    QdrantHealthChecker,
+    QDRANT_CONFIG,
     QdrantDataFetcher,
-    load_csv_for_qdrant,
+    QdrantHealthChecker,
+    batched,
     build_inputs_for_embedding,
     build_points_for_qdrant,
-    QDRANT_CONFIG,
+    load_csv_for_qdrant,
 )
 
 

@@ -5,18 +5,17 @@ helper_embedding.py 単体テスト
     pytest tests/helpers/test_helper_embedding.py -v
 """
 
-import pytest
 import os
-from typing import List
-from unittest.mock import Mock, patch, MagicMock
-
 import sys
+from unittest.mock import Mock, patch
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from helper.helper_embedding import (
-    EmbeddingClient,
-    OpenAIEmbedding,
     GeminiEmbedding,
+    OpenAIEmbedding,
     create_embedding_client,
     get_embedding_dimensions,
 )
@@ -28,14 +27,14 @@ class TestCreateEmbeddingClient:
     def test_create_gemini_client(self):
         """Geminiクライアント生成"""
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
-            with patch("helper.helper_embedding.genai") as mock_genai:
+            with patch("helper.helper_embedding.genai"):
                 client = create_embedding_client("gemini")
                 assert isinstance(client, GeminiEmbedding)
 
     def test_create_openai_client(self):
         """OpenAIクライアント生成"""
         with patch.dict(os.environ, {"OPENAI_API_KEY": "test-key"}):
-            with patch("helper.helper_embedding.OpenAI") as mock_openai:
+            with patch("helper.helper_embedding.OpenAI"):
                 client = create_embedding_client("openai")
                 assert isinstance(client, OpenAIEmbedding)
 

@@ -1,13 +1,19 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 
 # プロジェクトルートをパスに追加 (先頭に追加して tests/grace などの競合を回避)
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 print(f"DEBUG: sys.path: {sys.path}")
 
-from unittest.mock import MagicMock, patch
-from grace.confidence import ConfidenceCalculator, ConfidenceFactors, ConfidenceScore, create_confidence_calculator
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+from grace.confidence import (  # noqa: E402
+    ConfidenceFactors,
+    ConfidenceScore,
+    create_confidence_calculator,
+)
+
 
 class TestConfidenceFix(unittest.TestCase):
     def setUp(self):

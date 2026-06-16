@@ -1,15 +1,19 @@
 
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
 import pandas as pd
-import sys
-import os
 
 # プロジェクトルートをパスに追加
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from services.qdrant_service import build_points_for_qdrant
-from services.qdrant_service import get_collection_embedding_params
+from services.qdrant_service import (
+    build_points_for_qdrant,
+    get_collection_embedding_params,
+)
+
 
 class TestRegisterQdrantMetadata(unittest.TestCase):
 
@@ -62,10 +66,9 @@ class TestRegisterQdrantMetadata(unittest.TestCase):
         mock_client.scroll.return_value = ([mock_point], None)
         
         # 実際の関数をインポート
-        from services.qdrant_service import get_collection_embedding_params
         
         # 実行 (services/qdrant_service.py の修正後を想定した動作確認)
-        params = get_collection_embedding_params(mock_client, "test_collection")
+        get_collection_embedding_params(mock_client, "test_collection")
         
         # OpenAIのケース
         mock_point_openai = MagicMock()
@@ -75,7 +78,7 @@ class TestRegisterQdrantMetadata(unittest.TestCase):
         }
         mock_client.scroll.return_value = ([mock_point_openai], None)
         
-        params_openai = get_collection_embedding_params(mock_client, "test_collection_openai")
+        get_collection_embedding_params(mock_client, "test_collection_openai")
         
         # 修正適用後に有効になるアサーション
         # 現状はコメントアウトしないとFailする可能性があるが、

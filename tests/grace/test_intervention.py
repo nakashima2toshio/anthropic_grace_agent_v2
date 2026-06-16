@@ -3,23 +3,22 @@ GRACE Intervention Tests
 介入システムのテスト
 """
 
-import pytest
-from unittest.mock import MagicMock
 
+import pytest
+
+from grace.confidence import ActionDecision, InterventionLevel
+from grace.config import GraceConfig, reset_config
 from grace.intervention import (
+    ConfirmationFlow,
+    DynamicThresholdAdjuster,
+    InterventionAction,
+    InterventionHandler,
     InterventionRequest,
     InterventionResponse,
-    InterventionAction,
-    FeedbackRecord,
-    InterventionHandler,
-    DynamicThresholdAdjuster,
-    ConfirmationFlow,
     create_intervention_handler,
     create_threshold_adjuster,
 )
-from grace.confidence import InterventionLevel, ActionDecision
 from grace.schemas import ExecutionPlan, PlanStep
-from grace.config import GraceConfig, reset_config
 
 
 class TestInterventionRequest:

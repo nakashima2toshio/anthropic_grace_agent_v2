@@ -7,7 +7,6 @@ diagnose_celery.py - Celery診断スクリプト（修正版）
 """
 
 import sys
-import os
 from pathlib import Path
 
 # ================================================================
@@ -49,7 +48,7 @@ print(f"sys.path[0]: {sys.path[0]}")
 print(f"sys.path[1]: {sys.path[1] if len(sys.path) > 1 else 'N/A'}")
 
 # プロジェクト構造の確認
-print(f"\nプロジェクト構造:")
+print("\nプロジェクト構造:")
 for item in sorted(project_root.iterdir())[:15]:
     if item.is_dir() and not item.name.startswith('.'):
         print(f"  📁 {item.name}/")
@@ -79,7 +78,7 @@ try:
         # キューの内容をサンプル表示
         if celery_queue_length > 0:
             print(f"  ⚠️ 処理待ちタスク: {celery_queue_length}個")
-    except:
+    except Exception:
         pass
 
 except Exception as e:
@@ -99,7 +98,7 @@ celery_tasks_path = project_root / 'celery_tasks.py'
 print(f"celery_tasks.py: {celery_tasks_path.exists()}")
 
 try:
-    from celery_config import app, CeleryConfig
+    from celery_config import CeleryConfig, app  # noqa: F401  (importability probe)
 
     print("✅ celery_config.pyインポート成功")
     print(f"  Broker URL: {app.conf.broker_url}")
@@ -143,7 +142,7 @@ try:
     # 登録されているタスク
     registered = inspect.registered()
     if registered:
-        print(f"\n✅ 登録されているタスク:")
+        print("\n✅ 登録されているタスク:")
         for worker_name, tasks in registered.items():
             print(f"\n  ワーカー: {worker_name}")
 
@@ -151,15 +150,15 @@ try:
             qa_tasks = [t for t in tasks if 'generate_qa' in t or 'chunk' in t]
 
             if qa_tasks:
-                print(f"  📋 Q/A生成タスク:")
+                print("  📋 Q/A生成タスク:")
                 for task in qa_tasks:
                     print(f"    ✅ {task}")
             else:
-                print(f"  ⚠️ Q/A生成タスクが登録されていません")
+                print("  ⚠️ Q/A生成タスクが登録されていません")
 
             # その他の主要なタスク
             print(f"  📋 全タスク数: {len(tasks)}個")
-            print(f"  📋 サンプル（最初の5個）:")
+            print("  📋 サンプル（最初の5個）:")
             for task in list(tasks)[:5]:
                 print(f"    - {task}")
     else:
@@ -173,32 +172,32 @@ try:
     if active:
         has_active = any(tasks for tasks in active.values())
         if has_active:
-            print(f"\n⚠️ 実行中のタスク:")
+            print("\n⚠️ 実行中のタスク:")
             for worker_name, tasks in active.items():
                 if tasks:
                     print(f"  ワーカー: {worker_name}")
                     for task in tasks:
                         print(f"    - {task['name']} (ID: {task['id'][:8]}...)")
         else:
-            print(f"\n✅ 実行中のタスクなし")
+            print("\n✅ 実行中のタスクなし")
     else:
-        print(f"\n✅ 実行中のタスクなし")
+        print("\n✅ 実行中のタスクなし")
 
     # 予約されているタスク
     reserved = inspect.reserved()
     if reserved:
         has_reserved = any(tasks for tasks in reserved.values())
         if has_reserved:
-            print(f"\n⚠️ 予約されているタスク:")
+            print("\n⚠️ 予約されているタスク:")
             for worker_name, tasks in reserved.items():
                 if tasks:
                     print(f"  ワーカー: {worker_name}")
                     for task in tasks:
                         print(f"    - {task['name']} (ID: {task['id'][:8]}...)")
         else:
-            print(f"\n✅ 予約されているタスクなし")
+            print("\n✅ 予約されているタスクなし")
     else:
-        print(f"\n✅ 予約されているタスクなし")
+        print("\n✅ 予約されているタスクなし")
 
 except Exception as e:
     print(f"❌ ワーカー確認エラー: {e}")
@@ -221,14 +220,16 @@ if qa_gen_path.exists():
     # ファイルリスト
     py_files = list(qa_gen_path.glob('*.py'))
     print(f"Pythonファイル数: {len(py_files)}個")
-    print(f"主要ファイル:")
+    print("主要ファイル:")
     for f in ['__init__.py', 'generation.py', 'pipeline.py', 'structure.py']:
         path = qa_gen_path / f
         print(f"  {'✅' if path.exists() else '❌'} {f}")
 
     # インポートテスト
     try:
-        from qa_generation.generation import generate_qa_dataset
+        from qa_generation.generation import (
+            generate_qa_dataset,  # noqa: F401  (importability probe)
+        )
 
         print("✅ qa_generation.generationインポート成功")
     except ImportError as e:
@@ -262,7 +263,7 @@ try:
 
     )
 
-    print(f"✅ タスク投入成功")
+    print("✅ タスク投入成功")
     print(f"  タスクID: {task.id}")
     print(f"  初期状態: {task.state}")
 
@@ -280,25 +281,25 @@ try:
                 result = task.get(timeout=1)
                 print(f" → ✅ 成功（{len(result)}件のQ/A）")
                 break
-            except:
-                print(f" → ❌ 結果取得失敗")
+            except Exception:
+                print(" → ❌ 結果取得失敗")
                 break
         elif state == 'FAILURE':
-            print(f" → ❌ 失敗")
+            print(" → ❌ 失敗")
             try:
                 print(f"  エラー: {task.info}")
-            except:
+            except Exception:
                 pass
             break
         elif state == 'STARTED':
-            print(f" → ⚙️ 実行中")
+            print(" → ⚙️ 実行中")
         elif state == 'PENDING':
-            print(f" → ⏳ 待機中")
+            print(" → ⏳ 待機中")
         else:
-            print(f" → ❓ 不明な状態")
+            print(" → ❓ 不明な状態")
 
         if i == 9:
-            print(f"\n\n⚠️ 10秒経過してもタスクが完了しません")
+            print("\n\n⚠️ 10秒経過してもタスクが完了しません")
             print(f"最終状態: {task.state}")
 
             if task.state == 'PENDING':
@@ -338,7 +339,7 @@ if log_dir.exists():
                     lines = f.readlines()
                     if lines:
                         print(f"     最終行数: {len(lines)}")
-                        print(f"     最後の3行:")
+                        print("     最後の3行:")
                         for line in lines[-3:]:
                             print(f"       {line.rstrip()}")
             except Exception as e:
@@ -365,7 +366,7 @@ success = []
 try:
     r.ping()
     success.append("✅ Redis接続")
-except:
+except Exception:
     issues.append("❌ Redis接続失敗")
 
 # Celeryモジュール
@@ -373,14 +374,14 @@ try:
     from celery_config import app
 
     success.append("✅ celery_config.pyインポート")
-except:
+except Exception:
     issues.append("❌ celery_config.pyインポート失敗")
 
 try:
     from celery_tasks import generate_qa_for_chunk_task
 
     success.append("✅ celery_tasks.pyインポート")
-except:
+except Exception:
     issues.append("❌ celery_tasks.pyインポート失敗")
 
 # ワーカー
@@ -392,7 +393,7 @@ try:
         success.append(f"✅ ワーカー起動中（{len(stats)}個）")
     else:
         issues.append("❌ ワーカーが起動していません")
-except:
+except Exception:
     issues.append("❌ ワーカー確認失敗")
 
 # qa_generation

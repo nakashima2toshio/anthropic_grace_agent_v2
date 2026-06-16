@@ -1,5 +1,6 @@
 # test_helper_llm_step1.py
 import os
+
 import pytest
 
 # これらは実際の Gemini API を呼び出すライブテスト。
@@ -13,7 +14,8 @@ if not _api_key or _api_key == "test-api-key":
         allow_module_level=True,
     )
 
-from helper.helper_llm import GeminiClient
+from helper.helper_llm import GeminiClient  # noqa: E402
+
 
 def test_generate_content():
     """テキスト生成の基本動作確認"""

@@ -1,9 +1,8 @@
 """
 Pytest configuration and hooks for custom output formatting.
 """
-import pytest
-import sys
 import os
+import sys
 
 # プロジェクトルートと helper/ ディレクトリを sys.path に追加する。
 # 一部の production モジュール（helper/helper_rag_qa.py 等）は helper/ が

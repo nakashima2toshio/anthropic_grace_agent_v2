@@ -1,8 +1,9 @@
 
 import sys
-import os
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+
 
 # 検証対象の修正ロジック
 def get_collection_embedding_params_real_api_verification(client, collection_name):
