@@ -6,14 +6,14 @@
 - → 介入判定（Intervention）
 - → リプラン（Replan）
 
-![自律型Agent](assets/lp_img.png)
+![自律型Agent](assets/ReActAgent.png)
 
 ## (2) Chunking（意味ある文章に分割する）
 - (2-1) 評価用データ：HuggingFaceからダウンロード
 - (2-2) RAG: Chunkデータの作成
 - (2-3) RAG: Qdrant(ベクターDB)への登録、検索
 
-![RagデータDL・登録](assets/qa_pair_img.png)
+![RagデータDL・登録](assets/img_csv_text_to_chunks_text_csv.png)
 
 > **はじめにお読みください**
 >
