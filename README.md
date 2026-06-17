@@ -8,11 +8,26 @@
 
 ![自律型Agent](assets/ReActAgent.png)
 
+・計画策定（Plan）
+![plan](assets/planner_auto.png)
+
+→ 実行（Execute）
+![executor](assets/executor.png)
+
+→ 信頼度評価（Confidence）
+![confidence](assets/confidence.png)
+
+→ 介入判定（Intervention）
+![intervention](assets/)
+
+→ リプラン（Replan）
+![replan](assets/replanning.png)
+
 ## (2) Chunking（意味ある文章に分割する）
 - (2-1) 評価用データ：HuggingFaceからダウンロード
 - (2-2) RAG: Chunkデータの作成
 - (2-3) RAG: Qdrant(ベクターDB)への登録、検索
-
+![step123](assets/img_step1_2_3.png)
 ![RagデータDL・登録](assets/img_csv_text_to_chunks_text_csv.png)
 
 > **はじめにお読みください**
