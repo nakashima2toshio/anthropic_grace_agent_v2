@@ -1,80 +1,68 @@
-## planner.py - GRACE計画生成エージェント ドキュメント
+# planner.py - GRACE 計画生成エージェント ドキュメント
 
-**Version 3.0** | 最終更新: 2026-02-19
+**Version 3.1** | 最終更新: 2026-06-16
 
 ---
 
 ## 目次
 
 1. [概要](#概要)
-   - [主な責務](#主な責務)
-   - [各責務対応のモジュール](#各責務対応のモジュール)
-   - [主要機能一覧](#主要機能一覧)
-2. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
-   - [システム全体構成](#11-システム全体構成)
-   - [データフロー](#12-データフロー)
-3. [モジュール構成図](#2-モジュール構成図)
-   - [内部モジュール構成](#21-内部モジュール構成)
-   - [外部依存関係](#22-外部依存関係)
-   - [内部依存モジュール](#23-内部依存モジュール)
-4. [クラス・関数一覧表](#3-クラス関数一覧表)
-   - [クラス一覧](#31-クラス一覧)
-   - [関数一覧（カテゴリ別）](#32-関数一覧カテゴリ別)
-5. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
-   - [Planner クラス](#41-planner-クラス)
-   - [ファクトリ関数](#42-ファクトリ関数)
-6. [設定・定数](#5-設定定数)
-   - [PLAN_GENERATION_PROMPT](#51-plan_generation_prompt)
-   - [COMPLEXITY_ESTIMATION_PROMPT](#52-complexity_estimation_prompt)
-   - [GraceConfigから使用される設定](#53-graceconfigから使用される設定)
-7. [使用例](#6-使用例)
-   - [基本的なワークフロー](#61-基本的なワークフロー)
-   - [カスタム設定での使用](#62-カスタム設定での使用)
-   - [計画の修正（リファインメント）](#63-計画の修正リファインメント)
-   - [複雑度の事前推定](#64-複雑度の事前推定)
-8. [エクスポート](#7-エクスポート)
-9. [変更履歴](#8-変更履歴)
+2. [1. アーキテクチャ構成図](#1-アーキテクチャ構成図)
+3. [2. モジュール構成図](#2-モジュール構成図)
+4. [3. クラス・関数一覧表](#3-クラス関数一覧表)
+5. [4. クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
+6. [5. 設定・定数](#5-設定定数)
+7. [6. 使用例](#6-使用例)
+8. [7. エクスポート](#7-エクスポート)
+9. [8. 変更履歴](#8-変更履歴)
 10. [付録: 依存関係図](#付録-依存関係図)
-11. [付録: エラーハンドリング](#付録-エラーハンドリング)
 
 ---
 
 ## 概要
 
-`planner.py`は、GRACE（Guided Reasoning with Adaptive Confidence Execution）エージェントの計画生成コンポーネントです。ユーザーの質問を分析し、回答生成に必要な実行計画（`ExecutionPlan`）を作成します。
+`planner.py`は、GRACE自律エージェントの「計画生成（Plan）」層を担うモジュールです。ユーザーの質問を分析し、`rag_search` → `reasoning` を中心とした実行計画（`ExecutionPlan`）を生成します。計画生成は二層方式を採用しており、単純なクエリはルールベースで即時に計画を作り（LLM呼び出しなし）、複雑なクエリや明示的なWeb検索指示のあるクエリのみ LLM（Anthropic Claude）で計画を生成します。
+
+LLM 呼び出しは `grace/llm_compat.py` の `create_chat_client()` で生成したクライアント経由で行います。このクライアントは google-genai 互換の `client.models.generate_content(...)` インターフェースを保ったまま、内部では Anthropic Claude（既定 `claude-sonnet-4-6`、軽量用途 `claude-haiku-4-5-20251001`）を呼び出すアダプターです。Embedding（検索）は別途 Gemini `gemini-embedding-001`（3072次元）を使用します。
 
 ### 主な責務
 
 - ユーザークエリの複雑度推定（キーワードベース / LLMベース）
-- LLMを用いた実行計画の自動生成（Gemini API + 構造化出力）
+- 二層方式による実行計画の生成（ルールベース計画 / LLM計画の振り分け）
+- LLM（Anthropic Claude）を用いた実行計画の自動生成
 - 利用可能なコレクション（Qdrant）の動的取得
 - フィードバックに基づく計画の修正（リファインメント）
-- フォールバック計画の提供（LLM失敗時の安全な代替）
+- LLMエラー時のフォールバック計画の提供
 
 ### 各責務対応のモジュール
 
 | # | 責務 | 対応モジュール | 説明 |
 |---|------|--------------|------|
-| 1 | ユーザークエリの複雑度推定 | `planner.py` | キーワード/LLMベースの複雑度分析 |
-| 2 | LLMを用いた実行計画の自動生成 | `planner.py` | Gemini APIで`ExecutionPlan`スキーマに基づく構造化出力で計画を生成 |
-| 3 | 利用可能なコレクションの動的取得 | `qdrant_service.py` | Qdrantから動的にコレクション一覧を取得 |
-| 4 | フィードバックに基づく計画の修正 | `planner.py` | ユーザーフィードバックに応じてLLMでリファインメント |
-| 5 | フォールバック計画の提供 | `planner.py` | LLMエラー時の安全な代替計画（動的コレクション検索→reasoning、fallbackはweb_search） |
+| 1 | ユーザークエリの複雑度推定 | `planner.py` | `estimate_complexity()` / `estimate_complexity_with_llm()` |
+| 2 | 二層方式による計画振り分け | `planner.py` | `create_plan()` / `_should_use_llm_plan()` |
+| 3 | LLMを用いた実行計画の自動生成 | `planner.py` | `_create_llm_plan()`（Anthropic Claude を compat 経由で呼び出し） |
+| 4 | 利用可能なコレクションの動的取得 | `services.qdrant_service` | `get_all_collections()` を `_get_available_collections()` から呼び出し |
+| 5 | フィードバックに基づく計画の修正 | `planner.py` | `refine_plan()` |
+| 6 | フォールバック計画の提供 | `planner.py` | `_create_fallback_plan()` / `_create_rule_based_plan()` |
 
 ### 主要機能一覧
 
 | 機能 | 説明 |
 |------|------|
 | `Planner` | 計画生成エージェントクラス |
-| `Planner.__init__()` | コンストラクタ（設定・モデル名指定、KeywordExtractor初期化） |
-| `Planner.create_plan()` | LLMを使用して実行計画を生成（構造化出力、AFC無効化、最大2回リトライ、JSON完全性チェック） |
-| `Planner._create_plan_legacy()` | Legacy Agent委譲用の単純計画生成（バックアップ） |
-| `Planner._get_available_collections()` | Qdrantからコレクション一覧を取得 |
-| `Planner._create_fallback_plan()` | フォールバック用の単純計画生成 |
+| `Planner.__init__()` | コンストラクタ（設定・モデル名・LLMクライアント・キーワード抽出器の初期化） |
+| `Planner.create_plan()` | 二層方式で実行計画を生成（ルールベース / LLM の振り分け） |
 | `Planner.estimate_complexity()` | キーワードベースで複雑度を推定 |
-| `Planner.estimate_complexity_with_llm()` | LLMで複雑度を推定（AFC無効化、Noneガード付き） |
-| `Planner.refine_plan()` | フィードバックに基づき計画を修正（AFC無効化） |
+| `Planner.estimate_complexity_with_llm()` | LLM（Anthropic Claude）で複雑度を推定 |
+| `Planner.refine_plan()` | フィードバックに基づき計画を修正 |
+| `Planner._should_use_llm_plan()` | LLM計画生成を使用すべきか判定 |
+| `Planner._create_rule_based_plan()` | ルールベースの標準2ステップ計画を生成 |
+| `Planner._create_llm_plan()` | LLMによる実行計画を生成（リトライ付き） |
+| `Planner._create_fallback_plan()` | LLMエラー時の安全な代替計画を生成 |
+| `Planner._get_available_collections()` | 利用可能なQdrantコレクションを取得 |
 | `create_planner()` | Plannerインスタンスを作成するファクトリ関数 |
+| `PLAN_GENERATION_PROMPT` | LLM計画生成用プロンプトテンプレート |
+| `COMPLEXITY_ESTIMATION_PROMPT` | LLM複雑度推定用プロンプトテンプレート |
 
 ---
 
@@ -85,38 +73,46 @@
 ```mermaid
 flowchart TB
     subgraph CLIENT["クライアント層"]
-        STREAMLIT[Streamlit Dashboard]
-        API[FastAPI Endpoints]
-        CLI[CLI Tools]
+        ORCH["Orchestrator / Executor"]
+        REPLAN["ReplanManager"]
+        UI["agent_rag.py (Streamlit)"]
     end
 
     subgraph MODULE["planner.py"]
-        PLANNER[Planner Class]
-        FACTORY[create_planner]
+        PLANNER["Planner クラス"]
+        FACTORY["create_planner()"]
     end
 
     subgraph EXTERNAL["外部サービス層"]
-        QDRANT[(Qdrant Server\n:6333)]
-        GEMINI[Gemini API\nLLM]
-        MECAB[MeCab/Regex\nKeyword]
+        LLM["Anthropic Claude (llm_compat 経由)"]
+        QDRANT["Qdrant Vector DB"]
+        CONFIG["GraceConfig"]
     end
 
-    STREAMLIT --> MODULE
-    API --> MODULE
-    CLI --> MODULE
+    ORCH --> PLANNER
+    REPLAN --> FACTORY
+    UI --> FACTORY
     FACTORY --> PLANNER
+    PLANNER --> LLM
     PLANNER --> QDRANT
-    PLANNER --> GEMINI
-    PLANNER --> MECAB
+    PLANNER --> CONFIG
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ORCH,REPLAN,UI,PLANNER,FACTORY,LLM,QDRANT,CONFIG default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
 
-1. クライアント層からユーザークエリを受信
-2. Qdrantから利用可能なコレクション一覧を動的取得
-3. LLMで質問の複雑度を推定（失敗時はキーワードベースにフォールバック）
-4. プロンプトを構築しGemini APIで構造化出力（`response_schema=ExecutionPlan`）により計画を生成（最大2回リトライ、JSON完全性チェック付き）
-5. `ExecutionPlan`オブジェクトをExecutorに返却
+1. クライアント層（Executor / ReplanManager / UI）が `create_plan(query)` を呼び出す
+2. `estimate_complexity()` でヒューリスティック複雑度を算出し、二層判定を行う
+3. 単純クエリは `_create_rule_based_plan()` でLLM呼び出しなしの2ステップ計画を即時生成
+4. 複雑クエリ・Web検索指示クエリは `_create_llm_plan()` でAnthropic Claudeに計画生成を依頼
+5. LLM計画では `_get_available_collections()` でQdrantから利用可能なコレクションを取得しプロンプトに埋め込む
+6. レスポンスのJSONを `ExecutionPlan` にパースし、依存関係を検証して返却
+7. 失敗時は `_create_fallback_plan()` が安全な代替計画を返す
 
 ---
 
@@ -126,56 +122,66 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph CONST["定数・設定"]
+    subgraph CONST["定数・プロンプト"]
         PROMPT["PLAN_GENERATION_PROMPT"]
-        COMPLEXITY_P["COMPLEXITY_ESTIMATION_PROMPT"]
-        SEARCH_INST["SEARCH_QUERY_INSTRUCTION<br/>※services.promptsから参照"]
+        CPROMPT["COMPLEXITY_ESTIMATION_PROMPT"]
+        MARKERS["_LLM_PLAN_MARKERS"]
     end
 
-    subgraph PLANNER_CLS["Planner クラス"]
-        INIT["__init__<br/>+ KeywordExtractor"]
-        CREATE["create_plan<br/>AFC無効化・構造化出力<br/>リトライ付き・JSON検証"]
-        LEGACY["_create_plan_legacy"]
-        GET_COLL["_get_available_collections"]
-        FALLBACK["_create_fallback_plan"]
-        EST["estimate_complexity"]
-        EST_LLM["estimate_complexity_with_llm<br/>AFC無効化・Noneガード"]
-        REFINE["refine_plan<br/>AFC無効化"]
+    subgraph PLANNER["Planner クラス"]
+        INIT["__init__()"]
+        CREATE["create_plan()"]
+        SHOULD["_should_use_llm_plan()"]
+        RULE["_create_rule_based_plan()"]
+        LLMPLAN["_create_llm_plan()"]
+        FALLBACK["_create_fallback_plan()"]
+        GETCOLL["_get_available_collections()"]
+        EST["estimate_complexity()"]
+        ESTLLM["estimate_complexity_with_llm()"]
+        REFINE["refine_plan()"]
     end
 
-    subgraph FACTORY_GRP["ファクトリ関数"]
-        CREATE_P["create_planner"]
+    subgraph FACTORY["ファクトリ関数"]
+        CREATEP["create_planner()"]
     end
 
-    PROMPT --> CREATE
-    COMPLEXITY_P --> EST_LLM
-    SEARCH_INST --> CREATE
-    CREATE_P --> INIT
+    CONST --> PLANNER
+    CREATEP --> INIT
     INIT --> CREATE
-    CREATE --> EST_LLM
-    CREATE --> GET_COLL
-    CREATE --> FALLBACK
-    EST_LLM -.-> |"失敗時"| EST
-    CREATE --> REFINE
+    CREATE --> EST
+    CREATE --> SHOULD
+    SHOULD --> RULE
+    SHOULD --> LLMPLAN
+    LLMPLAN --> ESTLLM
+    LLMPLAN --> GETCOLL
+    LLMPLAN --> FALLBACK
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class PROMPT,CPROMPT,MARKERS,INIT,CREATE,SHOULD,RULE,LLMPLAN,FALLBACK,GETCOLL,EST,ESTLLM,REFINE,CREATEP default
+style CONST fill:#1a1a1a,stroke:#fff,color:#fff
+style PLANNER fill:#1a1a1a,stroke:#fff,color:#fff
+style FACTORY fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
 
 | ライブラリ | バージョン | 用途 |
 |-----------|-----------|------|
-| `google-genai` | 1.x | Gemini APIクライアント（構造化出力、AFC制御） |
-| `qdrant-client` | 1.x | Qdrant接続 |
-| `pydantic` | 2.x | データモデル検証（GraceConfig、ExecutionPlan） |
+| `anthropic` | - | LLM計画生成（`llm_compat` 経由で Claude を呼び出し） |
+| `google-genai` | - | `types.GenerateContentConfig` の構築（呼び出しインターフェース互換） |
+| `qdrant-client` | >=1.15.1 | 利用可能コレクションの取得 |
+| `pydantic` | >=2.0 | `ExecutionPlan` / `PlanStep` のバリデーション |
 
 ### 2.3 内部依存モジュール
 
 | モジュール | 用途 |
 |-----------|------|
-| `grace.schemas` | ExecutionPlan, PlanStep, create_plan_id, validate_plan_dependencies |
-| `grace.config` | GraceConfig設定管理、get_config() |
-| `services.qdrant_service` | get_all_collections()によるコレクション取得 |
-| `services.prompts` | SEARCH_QUERY_INSTRUCTION検索クエリ指示テンプレート |
-| `regex_mecab` | KeywordExtractorによるキーワード抽出 |
+| `grace.schemas` | `ExecutionPlan` / `PlanStep` / `create_plan_id` / `validate_plan_dependencies` |
+| `grace.config` | `GraceConfig` / `get_config` |
+| `grace.llm_compat` | `create_chat_client`（Anthropic Claude の genai互換クライアント生成） |
+| `services.qdrant_service` | `get_all_collections`（コレクション一覧取得） |
+| `services.prompts` | `SEARCH_QUERY_INSTRUCTION`（検索クエリ作成指示） |
+| `regex_mecab` | `KeywordExtractor`（キーワード抽出） |
 
 ---
 
@@ -187,14 +193,16 @@ flowchart TB
 
 | メソッド | 概要 |
 |---------|------|
-| `__init__(config, model_name)` | コンストラクタ（設定・モデル名指定、KeywordExtractor初期化） |
-| `create_plan(query)` | LLMを使用して実行計画を生成（構造化出力、AFC無効化、最大2回リトライ、JSON完全性チェック） |
-| `_create_plan_legacy(query)` | Legacy Agent委譲用の単純計画生成 |
-| `_get_available_collections()` | Qdrantからコレクション一覧を取得 |
-| `_create_fallback_plan(query)` | フォールバック用の単純計画生成 |
+| `__init__(config, model_name)` | 設定・モデル名・LLMクライアント・キーワード抽出器を初期化 |
+| `create_plan(query)` | 二層方式で実行計画を生成 |
 | `estimate_complexity(query)` | キーワードベースで複雑度を推定 |
-| `estimate_complexity_with_llm(query)` | LLMで複雑度を推定（AFC無効化、Noneガード） |
-| `refine_plan(plan, feedback)` | フィードバックに基づき計画を修正（AFC無効化） |
+| `estimate_complexity_with_llm(query)` | LLMで複雑度を推定 |
+| `refine_plan(plan, feedback)` | フィードバックに基づき計画を修正 |
+| `_should_use_llm_plan(query, heuristic_complexity)` | LLM計画生成の要否を判定 |
+| `_create_rule_based_plan(query, complexity)` | ルールベース2ステップ計画を生成 |
+| `_create_llm_plan(query)` | LLMによる計画を生成（リトライ付き） |
+| `_create_fallback_plan(query)` | フォールバック計画を生成 |
+| `_get_available_collections()` | Qdrantコレクション一覧を取得 |
 
 ### 3.2 関数一覧（カテゴリ別）
 
@@ -202,7 +210,7 @@ flowchart TB
 
 | 関数名 | 概要 |
 |-------|------|
-| `create_planner(config, model_name)` | Plannerインスタンスを作成 |
+| `create_planner(config, model_name)` | Plannerインスタンスを生成 |
 
 ---
 
@@ -210,11 +218,11 @@ flowchart TB
 
 ### 4.1 Planner クラス
 
-計画生成エージェント。ユーザーの質問を分析し、実行計画を生成します。
+ユーザーの質問を分析し、実行計画（`ExecutionPlan`）を生成する計画生成エージェント。二層方式（ルールベース / LLM）を採用する。
 
 #### コンストラクタ: `__init__`
 
-**概要**: Plannerインスタンスを初期化します。設定オブジェクトとモデル名を受け取り、Gemini APIクライアントとKeywordExtractor（MeCab優先）を初期化します。
+**概要**: 設定・モデル名・LLMクライアント・キーワード抽出器を初期化する。
 
 ```python
 Planner(
@@ -225,33 +233,38 @@ Planner(
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定（Noneの場合はデフォルト設定を使用） |
-| `model_name` | Optional[str] | None | 使用するモデル名（Noneの場合は設定から取得） |
+| `config` | Optional[GraceConfig] | None | GRACE設定（Noneの場合は `get_config()` を使用） |
+| `model_name` | Optional[str] | None | 使用するモデル名（Noneの場合は `config.llm.model`） |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `config: Optional[GraceConfig] = None`, `model_name: Optional[str] = None` |
-| **Process** | 1. 設定オブジェクトの取得（デフォルトまたは指定）<br>2. モデル名の決定（指定またはconfig.llm.model）<br>3. Gemini APIクライアント（genai.Client）の初期化<br>4. KeywordExtractorの初期化（MeCab優先、失敗時はNoneを設定しWARNINGログ出力） |
+| **Process** | 1. `config` を解決（未指定なら `get_config()`）<br>2. `model_name` を解決（未指定なら `config.llm.model`）<br>3. `create_chat_client(config)` でLLMクライアントを生成<br>4. `KeywordExtractor(prefer_mecab=True)` を初期化（失敗時は None） |
 | **Output** | Plannerインスタンス |
+
+**戻り値例**:
+```python
+# Planner インスタンス（主な属性）
+{
+    "config": "<GraceConfig>",
+    "model_name": "claude-sonnet-4-6",
+    "client": "<AnthropicGenaiClient>",
+    "keyword_extractor": "<KeywordExtractor or None>"
+}
+```
 
 ```python
 # 使用例
 from grace.planner import Planner
-from grace.config import get_config
 
-# デフォルト設定で初期化
 planner = Planner()
-
-# カスタム設定で初期化
-config = get_config("config/custom.yml")
-planner = Planner(config=config, model_name="gemini-2.5-flash")
+print(planner.model_name)
+# 出力: claude-sonnet-4-6
 ```
-
----
 
 #### メソッド: `create_plan`
 
-**概要**: 質問から実行計画を生成します（LLM使用版）。利用可能なコレクションを取得し、複雑度を推定した上で、Gemini APIの構造化出力（`response_schema=ExecutionPlan`）を使用してJSON形式の計画を生成します。AFC（Automatic Function Calling）は明示的に無効化されています。リトライロジック（最大2回）とJSON完全性チェックを実装し、空レスポンスや不完全JSONからの耐障害性を強化しています。
+**概要**: 質問から実行計画を生成する（二層方式）。単純クエリはルールベース、複雑クエリ・Web検索指示はLLMで生成する。
 
 ```python
 def create_plan(self, query: str) -> ExecutionPlan
@@ -264,191 +277,36 @@ def create_plan(self, query: str) -> ExecutionPlan
 | 項目 | 内容 |
 |------|------|
 | **Input** | `query: str` |
-| **Process** | 1. 利用可能なコレクションをQdrantから取得（`_get_available_collections`）<br>2. LLMで複雑度を推定（`estimate_complexity_with_llm`）<br>3. `PLAN_GENERATION_PROMPT`にコレクション情報＋クエリを埋め込みプロンプト構築<br>4. IPOログにINPUTを出力<br>5. **リトライループ（最大2回）で以下を実行:**<br>&nbsp;&nbsp;5a. Gemini APIで構造化出力（`response_schema=ExecutionPlan`, `max_output_tokens=8192`, AFC無効化）<br>&nbsp;&nbsp;5b. API応答時間を計測・ログ出力<br>&nbsp;&nbsp;5c. IPOログにOUTPUTを出力<br>&nbsp;&nbsp;5d. 空レスポンスガード（`response.text`が空なら`continue`）<br>&nbsp;&nbsp;5e. JSON完全性チェック（`json.loads()`で検証、失敗なら`continue`）<br>&nbsp;&nbsp;5f. `ExecutionPlan.model_validate_json(response.text)`でパース<br>6. 事前推定した複雑度を`plan.complexity`に上書き<br>7. `create_plan_id()`で計画IDを設定<br>8. `validate_plan_dependencies()`で依存関係を検証（エラーは警告のみ）<br>9. 全リトライ失敗時は`_create_fallback_plan()`を返却 |
-| **Output** | `ExecutionPlan`: 実行計画オブジェクト |
-
-> 📝 **注意**: `automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)` を設定し、AFC永続化によるJSON mode空レスポンスバグを防止しています（See: [python-genai#1818](https://github.com/googleapis/python-genai/issues/1818)）。
+| **Process** | 1. `estimate_complexity(query)` でヒューリスティック複雑度を算出<br>2. `_should_use_llm_plan()` で二層判定<br>3. 非LLM経路: `_create_rule_based_plan()` を即時返却<br>4. LLM経路: `_create_llm_plan()` を実行 |
+| **Output** | `ExecutionPlan`: 生成された実行計画 |
 
 **戻り値例**:
 ```python
-ExecutionPlan(
-    plan_id="plan_20260212_123456_abc123",
-    original_query="『金色夜叉』の作者は誰ですか？",
-    complexity=0.3,
-    estimated_steps=2,
-    requires_confirmation=False,
-    steps=[
-        PlanStep(
-            step_id=1,
-            action="rag_search",
-            description="関連情報を検索",
-            query="『金色夜叉』の作者は誰ですか？",
-            collection=None,
-            expected_output="関連するドキュメント",
-            fallback="reasoning"
-        ),
-        PlanStep(
-            step_id=2,
-            action="reasoning",
-            description="取得した情報を元に回答を生成",
-            depends_on=[1],
-            expected_output="ユーザーへの回答"
-        )
+{
+    "original_query": "RAGとは何ですか？",
+    "complexity": 0.5,
+    "estimated_steps": 2,
+    "requires_confirmation": False,
+    "steps": [
+        {"step_id": 1, "action": "rag_search", "fallback": "web_search"},
+        {"step_id": 2, "action": "reasoning", "depends_on": [1]}
     ],
-    success_criteria="ユーザーの質問に適切に回答できている"
-)
+    "success_criteria": "ユーザーの質問に適切に回答できている",
+    "plan_id": "plan_xxxxxxxx"
+}
 ```
 
 ```python
 # 使用例
 planner = Planner()
-plan = planner.create_plan("『金色夜叉』の作者は誰ですか？")
-
-print(f"計画ID: {plan.plan_id}")
-print(f"複雑度: {plan.complexity}")
-print(f"ステップ数: {len(plan.steps)}")
-# 計画ID: plan_20260212_123456_abc123
-# 複雑度: 0.3
-# ステップ数: 2
+plan = planner.create_plan("RAGとは何ですか？")
+print(f"ステップ数: {len(plan.steps)}, 複雑度: {plan.complexity}")
+# 出力: ステップ数: 2, 複雑度: 0.5
 ```
-
----
-
-#### メソッド: `_create_plan_legacy`
-
-**概要**: Legacy Agent委譲用の単純な計画を生成します（バックアップ用）。ReActベースのLegacy Agentに処理を委譲する1ステップの計画を作成します。
-
-```python
-def _create_plan_legacy(self, query: str) -> ExecutionPlan
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `query` | str | - | ユーザーの質問 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query: str` |
-| **Process** | Legacy Agent（ReAct）に委譲する1ステップ計画を作成 |
-| **Output** | `ExecutionPlan`: Legacy Agent実行用の計画 |
-
-**戻り値例**:
-```python
-ExecutionPlan(
-    original_query="質問文",
-    complexity=0.1,
-    estimated_steps=1,
-    requires_confirmation=False,
-    steps=[
-        PlanStep(
-            step_id=1,
-            action="run_legacy_agent",
-            description="Legacy Agent (ReAct) を実行して回答を生成",
-            query="質問文",
-            expected_output="ユーザーへの回答",
-            fallback=None
-        )
-    ],
-    success_criteria="ユーザーの質問に適切に回答できている"
-)
-```
-
-```python
-# 使用例（内部メソッド）
-plan = planner._create_plan_legacy("簡単な質問")
-print(f"アクション: {plan.steps[0].action}")
-# アクション: run_legacy_agent
-```
-
----
-
-#### メソッド: `_get_available_collections`
-
-**概要**: 利用可能なQdrantコレクションを取得します。Qdrantサーバーに接続し、コレクション一覧を取得します。接続失敗時は設定ファイルの`search_priority`リストを返します。
-
-```python
-def _get_available_collections(self) -> list
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | なし（selfのみ） |
-| **Process** | 1. QdrantClientでサーバーに接続（`config.qdrant.url`）<br>2. `get_all_collections()`でコレクション一覧取得<br>3. 失敗時は設定の`search_priority`を返却 |
-| **Output** | `list`: コレクション名のリスト |
-
-**戻り値例**:
-```python
-["wikipedia_ja", "livedoor_news", "cc_news", "qa_data"]
-```
-
-```python
-# 使用例（内部メソッド）
-collections = planner._get_available_collections()
-print(f"利用可能なコレクション: {collections}")
-# 利用可能なコレクション: ['wikipedia_ja', 'livedoor_news', 'cc_news']
-```
-
----
-
-#### メソッド: `_create_fallback_plan`
-
-**概要**: フォールバック用の単純な計画を生成します。LLMによる計画生成が失敗した場合に使用される2ステップの計画を作成します。コレクションは動的に取得し、「wikipedia」を含むコレクションを優先的に選択します（該当なしの場合はNone＝自動選択）。Step 1のfallbackは`web_search`です。
-
-```python
-def _create_fallback_plan(self, query: str) -> ExecutionPlan
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `query` | str | - | ユーザーの質問 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query: str` |
-| **Process** | 1. `_get_available_collections()`で利用可能なコレクションを動的取得<br>2. 「wikipedia」を含むコレクションを検索、見つからなければNone（自動選択）<br>3. rag_search（fallback: web_search）→reasoningの2ステップ計画を作成 |
-| **Output** | `ExecutionPlan`: フォールバック計画 |
-
-**戻り値例**:
-```python
-ExecutionPlan(
-    original_query="質問文",
-    complexity=0.5,
-    estimated_steps=2,
-    requires_confirmation=False,
-    steps=[
-        PlanStep(
-            step_id=1,
-            action="rag_search",
-            description="全コレクションから関連情報を検索",
-            query="質問文",
-            collection="wikipedia_ja",  # 動的取得。該当なしの場合はNone
-            expected_output="関連するドキュメントや情報",
-            fallback="web_search"  # v3.0: reasoning → web_search に変更
-        ),
-        PlanStep(
-            step_id=2,
-            action="reasoning",
-            description="取得した情報を元に回答を生成",
-            depends_on=[1],
-            expected_output="ユーザーへの回答"
-        )
-    ],
-    success_criteria="ユーザーの質問に適切に回答できている"
-)
-```
-
-```python
-# 使用例（内部メソッド）
-fallback_plan = planner._create_fallback_plan("質問文")
-print(f"ステップ数: {len(fallback_plan.steps)}")
-# ステップ数: 2
-```
-
----
 
 #### メソッド: `estimate_complexity`
 
-**概要**: 質問の複雑度をキーワードベースで推定します（0.0-1.0）。「比較」「違い」「複数」などの複雑度を示すキーワードを検出し、質問の長さも考慮してスコアを算出します。
+**概要**: キーワードと質問長に基づき複雑度を簡易推定する（LLM呼び出しなし）。
 
 ```python
 def estimate_complexity(self, query: str) -> float
@@ -461,36 +319,25 @@ def estimate_complexity(self, query: str) -> float
 | 項目 | 内容 |
 |------|------|
 | **Input** | `query: str` |
-| **Process** | 1. ベーススコア0.5から開始<br>2. 複雑度キーワード（「比較」「違い」「複数」等）を検出<br>3. キーワードごとに重みを加算<br>4. 質問の長さも考慮（100文字超で+0.1、200文字超でさらに+0.1） |
+| **Process** | 1. ベーススコア 0.5 から開始<br>2. 「比較」「違い」「複数」等のキーワード一致で加点<br>3. 質問長が100/200文字超で加点<br>4. 上限を1.0にクリップ |
 | **Output** | `float`: 複雑度スコア（0.0-1.0） |
-
-**複雑度キーワードと重み**:
-
-| キーワード | 重み |
-|-----------|------|
-| 比較、違い | 0.15 |
-| 複数 | 0.2 |
-| 最新、理由、方法 | 0.1 |
-| 詳しく、どのように | 0.15 |
-| ステップ、手順、なぜ | 0.1 |
 
 **戻り値例**:
 ```python
-0.65  # 「比較」「違い」を含む質問の場合
+0.65
 ```
 
 ```python
 # 使用例
-complexity = planner.estimate_complexity("PythonとJavaの違いを比較してください")
-print(f"複雑度: {complexity}")
-# 複雑度: 0.8
+planner = Planner()
+score = planner.estimate_complexity("AとBの違いを複数の観点で比較してください")
+print(score)
+# 出力: 1.0
 ```
-
----
 
 #### メソッド: `estimate_complexity_with_llm`
 
-**概要**: LLMを使用して質問の複雑度を推定します。`COMPLEXITY_ESTIMATION_PROMPT`を使用してGemini APIに複雑度を問い合わせます。AFC（Automatic Function Calling）は明示的に無効化されています。レスポンスのNoneガードを実装し、空レスポンス時はキーワードベースの`estimate_complexity()`にフォールバックします。
+**概要**: LLM（Anthropic Claude）を使用して質問の複雑度を推定する。失敗・空レスポンス時はキーワードベース推定にフォールバックする。
 
 ```python
 def estimate_complexity_with_llm(self, query: str) -> float
@@ -503,45 +350,28 @@ def estimate_complexity_with_llm(self, query: str) -> float
 | 項目 | 内容 |
 |------|------|
 | **Input** | `query: str` |
-| **Process** | 1. `COMPLEXITY_ESTIMATION_PROMPT`にクエリを埋め込み<br>2. Gemini API呼び出し（`temperature=0.1`, `max_output_tokens=10`, AFC無効化）<br>3. API応答時間を計測・ログ出力<br>4. レスポンスのNoneガード（空レスポンス時は`estimate_complexity()`にフォールバック）<br>5. 数値をパースし0.0-1.0にクランプ<br>6. 例外発生時は`estimate_complexity()`にフォールバック |
+| **Process** | 1. `COMPLEXITY_ESTIMATION_PROMPT` を構築<br>2. `client.models.generate_content()` で複雑度を取得（`temperature=0.1`, `max_output_tokens=10`）<br>3. 空レスポンス時は `estimate_complexity()` にフォールバック<br>4. 数値をパースし0.0-1.0にクリップ |
 | **Output** | `float`: 複雑度スコア（0.0-1.0） |
-
-> 📝 **注意**: AFC永続化により`response.text`がNoneになるケースがあるため、Noneガードを実装しています。
-
-**複雑度の目安**:
-
-| スコア | 意味 |
-|-------|------|
-| 0.0-0.2 | 非常に単純（事実確認、定義の質問） |
-| 0.3-0.4 | 単純（1つのトピックについての説明） |
-| 0.5-0.6 | 中程度（比較、分析が必要） |
-| 0.7-0.8 | 複雑（複数ソースからの情報統合が必要） |
-| 0.9-1.0 | 非常に複雑（専門知識、多段階の推論が必要） |
 
 **戻り値例**:
 ```python
-0.7  # 複数の情報源が必要な質問
+0.7
 ```
 
 ```python
 # 使用例
-complexity = planner.estimate_complexity_with_llm("量子コンピュータの原理と応用について詳しく教えてください")
-print(f"複雑度（LLM推定）: {complexity}")
-# 複雑度（LLM推定）: 0.75
+planner = Planner()
+score = planner.estimate_complexity_with_llm("量子コンピュータの誤り訂正手法を比較して")
+print(score)
+# 出力: 0.8
 ```
-
----
 
 #### メソッド: `refine_plan`
 
-**概要**: フィードバックに基づいて計画を修正します。元の計画情報とユーザーフィードバックからプロンプトを構築し、Gemini APIの構造化出力（`response_schema=ExecutionPlan`）で修正計画を生成します。AFC（Automatic Function Calling）は明示的に無効化されています。
+**概要**: ユーザーフィードバックに基づき既存の計画をLLMで修正する。失敗時は元の計画を返す。
 
 ```python
-def refine_plan(
-    self,
-    plan: ExecutionPlan,
-    feedback: str
-) -> ExecutionPlan
+def refine_plan(self, plan: ExecutionPlan, feedback: str) -> ExecutionPlan
 ```
 
 | パラメータ | 型 | デフォルト | 説明 |
@@ -552,40 +382,212 @@ def refine_plan(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `plan: ExecutionPlan`, `feedback: str` |
-| **Process** | 1. 元の計画情報（クエリ、ステップ数、ステップ説明一覧）とフィードバックからプロンプト構築<br>2. Gemini APIで構造化出力（`response_schema=ExecutionPlan`, AFC無効化）<br>3. API応答時間を計測・ログ出力<br>4. `ExecutionPlan.model_validate_json(response.text)`でパース<br>5. `create_plan_id()`で新しい計画IDを設定<br>6. 失敗時は元の計画をそのまま返却 |
-| **Output** | `ExecutionPlan`: 修正された計画 |
+| **Process** | 1. 元計画とフィードバックから修正用プロンプトを構築<br>2. `client.models.generate_content()` でJSON出力を取得<br>3. `ExecutionPlan.model_validate_json()` でパース<br>4. 新しい `plan_id` を採番<br>5. 例外時は元の計画を返却 |
+| **Output** | `ExecutionPlan`: 修正された計画（失敗時は元の計画） |
 
 **戻り値例**:
 ```python
-ExecutionPlan(
-    plan_id="plan_20260212_123457_def456",  # 新しいID
-    original_query="『金色夜叉』の作者は誰ですか？",
-    complexity=0.5,  # フィードバックに応じて調整
-    estimated_steps=3,  # ステップ数が増加
-    steps=[...],  # 修正されたステップ
-    ...
-)
+{
+    "original_query": "RAGとは何ですか？",
+    "complexity": 0.5,
+    "estimated_steps": 3,
+    "requires_confirmation": False,
+    "steps": ["..."],
+    "plan_id": "plan_yyyyyyyy"
+}
 ```
 
 ```python
 # 使用例
-original_plan = planner.create_plan("AIについて教えてください")
-feedback = "もっと技術的な詳細が欲しいです"
-refined_plan = planner.refine_plan(original_plan, feedback)
-
-print(f"元の計画ステップ数: {len(original_plan.steps)}")
-print(f"修正後のステップ数: {len(refined_plan.steps)}")
-# 元の計画ステップ数: 2
-# 修正後のステップ数: 3
+planner = Planner()
+plan = planner.create_plan("RAGとは何ですか？")
+refined = planner.refine_plan(plan, "もっと詳しく、最新事例も含めてください")
+print(refined.plan_id != plan.plan_id)
+# 出力: True
 ```
 
----
+#### メソッド: `_should_use_llm_plan`
+
+**概要**: LLM計画生成を使用すべきか判定する（強制フラグ・Web検索マーカー・複雑度閾値）。
+
+```python
+def _should_use_llm_plan(self, query: str, heuristic_complexity: float) -> bool
+```
+
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `query` | str | - | ユーザーの質問 |
+| `heuristic_complexity` | float | - | ヒューリスティック複雑度 |
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | `query: str`, `heuristic_complexity: float` |
+| **Process** | 1. `config.planner.force_llm_plan` が真なら True<br>2. `_LLM_PLAN_MARKERS` のいずれかを含めば True<br>3. `heuristic_complexity >= config.planner.llm_plan_complexity_threshold` を返却 |
+| **Output** | `bool`: LLM計画生成を使うべきか |
+
+**戻り値例**:
+```python
+True
+```
+
+```python
+# 使用例
+planner = Planner()
+use_llm = planner._should_use_llm_plan("最新ニュースを検索して", 0.3)
+print(use_llm)
+# 出力: True
+```
+
+#### メソッド: `_create_rule_based_plan`
+
+**概要**: LLM呼び出しなしで標準2ステップ計画（rag_search → reasoning）を生成する。
+
+```python
+def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan
+```
+
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `query` | str | - | ユーザーの質問 |
+| `complexity` | float | - | ヒューリスティック複雑度 |
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | `query: str`, `complexity: float` |
+| **Process** | 1. step1=rag_search（`collection=None`, `fallback="web_search"`, `timeout_seconds=30`）を作成<br>2. step2=reasoning（`depends_on=[1]`）を作成<br>3. `ExecutionPlan` を構築し `plan_id` を採番 |
+| **Output** | `ExecutionPlan`: 標準2ステップ計画 |
+
+**戻り値例**:
+```python
+{
+    "estimated_steps": 2,
+    "requires_confirmation": False,
+    "steps": [
+        {"step_id": 1, "action": "rag_search", "collection": None, "fallback": "web_search"},
+        {"step_id": 2, "action": "reasoning", "depends_on": [1]}
+    ]
+}
+```
+
+```python
+# 使用例
+planner = Planner()
+plan = planner._create_rule_based_plan("RAGとは？", 0.5)
+print(plan.steps[0].action, plan.steps[1].action)
+# 出力: rag_search reasoning
+```
+
+#### メソッド: `_create_llm_plan`
+
+**概要**: LLM（Anthropic Claude）を使用して計画を生成する。空レスポンス/不完全JSONをリトライ（最大2回）し、失敗時はフォールバック計画を返す。
+
+```python
+def _create_llm_plan(self, query: str) -> ExecutionPlan
+```
+
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `query` | str | - | ユーザーの質問 |
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | `query: str` |
+| **Process** | 1. `_get_available_collections()` でコレクション一覧を取得<br>2. `estimate_complexity_with_llm()` で複雑度を推定<br>3. `PLAN_GENERATION_PROMPT` を構築<br>4. `generate_content()` を最大2回リトライ（空/JSON不完全をガード）<br>5. `ExecutionPlan.model_validate_json()` でパース<br>6. 複雑度・`plan_id` を適用し `validate_plan_dependencies()` で検証<br>7. 例外時は `_create_fallback_plan()` |
+| **Output** | `ExecutionPlan`: LLM生成計画（失敗時はフォールバック計画） |
+
+**戻り値例**:
+```python
+{
+    "original_query": "量子コンピュータと従来型の違いを複数観点で詳しく",
+    "complexity": 0.85,
+    "estimated_steps": 2,
+    "steps": ["..."],
+    "plan_id": "plan_zzzzzzzz"
+}
+```
+
+```python
+# 使用例
+planner = Planner()
+plan = planner._create_llm_plan("最新ニュースを検索して教えて")
+print(plan.complexity)
+# 出力: 0.6
+```
+
+#### メソッド: `_create_fallback_plan`
+
+**概要**: LLMエラー時の安全な代替2ステップ計画を生成する。wikipedia系コレクションがあればそれを使用する。
+
+```python
+def _create_fallback_plan(self, query: str) -> ExecutionPlan
+```
+
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `query` | str | - | ユーザーの質問 |
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | `query: str` |
+| **Process** | 1. `_get_available_collections()` から wikipedia 系コレクションを選択（無ければ None）<br>2. rag_search（`fallback="web_search"`）→ reasoning の2ステップを構築<br>3. `complexity=0.5` で `ExecutionPlan` を生成 |
+| **Output** | `ExecutionPlan`: フォールバック2ステップ計画 |
+
+**戻り値例**:
+```python
+{
+    "complexity": 0.5,
+    "estimated_steps": 2,
+    "steps": [
+        {"step_id": 1, "action": "rag_search", "collection": "wikipedia_ja", "fallback": "web_search"},
+        {"step_id": 2, "action": "reasoning", "depends_on": [1]}
+    ]
+}
+```
+
+```python
+# 使用例
+planner = Planner()
+plan = planner._create_fallback_plan("RAGとは？")
+print(plan.complexity)
+# 出力: 0.5
+```
+
+#### メソッド: `_get_available_collections`
+
+**概要**: Qdrantから利用可能なコレクション名リストを取得する。失敗時は `config.qdrant.search_priority` を返す。
+
+```python
+def _get_available_collections(self) -> list
+```
+
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| なし（selfのみ） | - | - | - |
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | なし（selfのみ） |
+| **Process** | 1. `QdrantClient(url=config.qdrant.url)` を生成<br>2. `get_all_collections(client)` を呼び出し<br>3. 各要素の `name` を抽出<br>4. 例外時は `config.qdrant.search_priority` を返却 |
+| **Output** | `list`: コレクション名のリスト |
+
+**戻り値例**:
+```python
+["wikipedia_ja", "livedoor", "cc_news", "japanese_text"]
+```
+
+```python
+# 使用例
+planner = Planner()
+cols = planner._get_available_collections()
+print(cols)
+# 出力: ["wikipedia_ja", "livedoor", ...]
+```
 
 ### 4.2 ファクトリ関数
 
 #### `create_planner`
 
-**概要**: Plannerインスタンスを作成するファクトリ関数です。設定とモデル名を指定してPlannerを生成します。
+**概要**: Plannerインスタンスを生成するファクトリ関数。
 
 ```python
 def create_planner(
@@ -602,140 +604,59 @@ def create_planner(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `config: Optional[GraceConfig] = None`, `model_name: Optional[str] = None` |
-| **Process** | Plannerコンストラクタを呼び出してインスタンスを生成 |
+| **Process** | `Planner(config=config, model_name=model_name)` を生成して返す |
 | **Output** | `Planner`: Plannerインスタンス |
 
 **戻り値例**:
 ```python
-<Planner instance with model=gemini-2.5-flash>
+# <grace.planner.Planner object at 0x...>
 ```
 
 ```python
 # 使用例
 from grace.planner import create_planner
 
-# デフォルト設定で作成
-planner = create_planner()
-
-# カスタム設定で作成
-from grace.config import get_config
-config = get_config("config/production.yml")
-planner = create_planner(config=config, model_name="gemini-2.5-flash")
+planner = create_planner(model_name="claude-sonnet-4-6")
+plan = planner.create_plan("RAGとは何ですか？")
+print(len(plan.steps))
+# 出力: 2
 ```
 
 ---
 
 ## 5. 設定・定数
 
-### 5.1 PLAN_GENERATION_PROMPT
+### 5.1 PlannerConfig（grace.config）
 
-計画生成用のプロンプトテンプレート。`SEARCH_QUERY_INSTRUCTION`（`services.prompts`から参照）を埋め込み、コレクション選択ルール、検索クエリ作成ルール、複雑度目安、`requires_confirmation`条件を含む包括的な指示を定義します。
-
-```python
-PLAN_GENERATION_PROMPT = f"""
-あなたは計画策定の専門家です。ユーザーの質問を分析し、回答を生成するための実行計画を作成してください。
-
-【利用可能なアクション】
-- rag_search: ベクトルDB（Qdrant）から関連情報を検索（社内ドキュメント・FAQ向け）
-- web_search: Web検索で最新情報や一般的な情報を取得（最新ニュース・外部情報向け）
-- reasoning: 収集した情報を分析・統合して回答を生成
-- ask_user: ユーザーに追加情報や確認を求める
-
-【利用可能なコレクション (rag_search用)】
-{{available_collections}}
-
-【コレクション選択のルール (重要)】
-- `rag_search` の `collection` 引数は、原則として指定しないでください（`null` または省略）。
-   * 特定のコレクションに限定せず、利用可能なすべてのコレクションから網羅的に検索を行うためです。
-   * システム側で自動的に最適なコレクション順序で検索を実行します。
-- 例外: ユーザーが明示的に指定した場合のみ、そのコレクション名を指定してください。
-
-【検索クエリの作成ルール】
-- `rag_search` の `query` 引数は、ユーザーの質問文を極力そのまま使用してください。
-   * 単語の羅列に変換せず、自然言語の文脈を維持することで、ベクトル検索の精度が向上します。
-
-【計画作成のルール (厳守)】
-1. 検索アクション（rag_search）は、可能な限り「1つのステップ」にまとめてください。
-2. `rag_search` の `query` は、ユーザーの元の質問文を「完全一致でコピー」してください。
-3. 依存関係を正しく設定してください（depends_onは先行ステップのIDのみ）。
-4. 失敗時の代替手段（fallback）を検討してください。
-5. 最後のステップは必ず "reasoning" で回答を生成してください
-6. rag_search と web_search の使い分け:
-    * 社内ドキュメント・FAQ・ナレッジベースの情報 → rag_search
-    * 最新ニュース・外部Web情報・一般知識 → web_search
-    * RAGに情報がない可能性がある場合 → rag_search（fallbackに"web_search"を指定）
-    * 両方必要な場合 → rag_search → web_search → reasoning の3ステップ
-
-{SEARCH_QUERY_INSTRUCTION}
-
-【計画の複雑度(complexity)の目安】
-- 0.0-0.3: 単純な質問（1-2ステップ）
-- 0.4-0.6: 中程度の質問（2-3ステップ）
-- 0.7-1.0: 複雑な質問（4ステップ以上）
-
-【requires_confirmationをtrueにする条件】
-- 質問が曖昧で複数の解釈が可能な場合
-- 実行に時間がかかる可能性がある場合
-- 外部リソースへのアクセスが必要な場合
-
-ユーザーの質問: {{query}}
-
-JSON形式で実行計画を出力してください。
-"""
-```
-
-| プレースホルダー | 説明 |
-|----------------|------|
-| `{{available_collections}}` | 利用可能なQdrantコレクション名のリスト（実行時に`.format()`で埋め込み） |
-| `{{query}}` | ユーザーの質問文（実行時に`.format()`で埋め込み） |
-| `{SEARCH_QUERY_INSTRUCTION}` | `services.prompts`から参照される検索クエリ指示（f-stringで静的埋め込み） |
-
-> 📝 **注意**: `{{...}}`はf-string内でのエスケープ（実行時に`.format()`で解決）、`{...}`はf-stringで静的に解決されます。
-
-### 5.2 COMPLEXITY_ESTIMATION_PROMPT
-
-複雑度推定用のプロンプトテンプレート。
+二層計画生成の振り分けを制御する設定。
 
 ```python
-COMPLEXITY_ESTIMATION_PROMPT = """
-以下の質問の複雑度を0.0から1.0の数値で評価してください。
-
-評価基準:
-- 0.0-0.2: 非常に単純（事実確認、定義の質問）
-- 0.3-0.4: 単純（1つのトピックについての説明）
-- 0.5-0.6: 中程度（比較、分析が必要）
-- 0.7-0.8: 複雑（複数のソースからの情報統合が必要）
-- 0.9-1.0: 非常に複雑（専門知識、多段階の推論が必要）
-
-質問: {query}
-
-数値のみを回答してください（例: 0.5）
-"""
+class PlannerConfig(BaseModel):
+    llm_plan_complexity_threshold: float = 0.7
+    force_llm_plan: bool = False
 ```
 
-### 5.3 GraceConfigから使用される設定
+| キー | デフォルト値 | 説明 |
+|-----|-------------|------|
+| `llm_plan_complexity_threshold` | 0.7 | この複雑度未満はルールベース計画で即時生成 |
+| `force_llm_plan` | False | True の場合、複雑度に関わらず常にLLM計画生成を使用 |
 
-Plannerで使用されるGraceConfigの設定項目：
+### 5.2 LLM関連設定（grace.config の LLMConfig）
 
-#### LLMConfig（config.llm）
+| キー | デフォルト値 | 説明 |
+|-----|-------------|------|
+| `provider` | "anthropic" | LLMプロバイダー |
+| `model` | "claude-sonnet-4-6" | 既定モデル（軽量用途は `claude-haiku-4-5-20251001`） |
+| `temperature` | 0.7 | 計画生成時の温度 |
+| `max_tokens` | 4096 | 最大トークン数 |
 
-| 設定パス | 型 | デフォルト | 説明 |
-|---------|-----|----------|------|
-| `llm.provider` | str | `"gemini"` | LLMプロバイダー |
-| `llm.model` | str | 設定ファイル依存 | 使用するLLMモデル |
-| `llm.temperature` | float | `0.7` | 生成時の温度パラメータ（create_plan, refine_planで使用） |
-| `llm.max_tokens` | int | `4096` | 最大出力トークン数（参考値。create_planは8192を明示指定） |
-| `llm.timeout` | int | `30` | タイムアウト秒数 |
+### 5.3 プロンプト・マーカー定数
 
-#### QdrantConfig（config.qdrant）
-
-| 設定パス | 型 | デフォルト | 説明 |
-|---------|-----|----------|------|
-| `qdrant.url` | str | `"http://localhost:6333"` | QdrantサーバーURL |
-| `qdrant.collection_name` | str | `"customer_support_faq"` | デフォルトコレクション名 |
-| `qdrant.search_limit` | int | `5` | 検索結果の最大件数 |
-| `qdrant.score_threshold` | float | `0.35` | 検索スコア閾値 |
-| `qdrant.search_priority` | list | `["wikipedia_ja", "livedoor", "cc_news", "japanese_text"]` | コレクション検索優先順序（フォールバック用） |
+| 定数名 | 説明 |
+|-------|------|
+| `PLAN_GENERATION_PROMPT` | LLM計画生成用テンプレート。`available_collections` / `query` を埋め込み、`SEARCH_QUERY_INSTRUCTION` を含む |
+| `COMPLEXITY_ESTIMATION_PROMPT` | LLM複雑度推定用テンプレート（0.0-1.0の数値のみを要求） |
+| `Planner._LLM_PLAN_MARKERS` | LLM計画生成を強制するマーカー（"最新ニュース", "ニュースを検索", "web検索", "ウェブ検索", "webで検索"） |
 
 ---
 
@@ -746,103 +667,57 @@ Plannerで使用されるGraceConfigの設定項目：
 ```python
 from grace.planner import create_planner
 
-# 1. Plannerインスタンスを作成
+# 1. Planner を生成
 planner = create_planner()
 
-# 2. 計画を生成
-query = "『金色夜叉』の作者は誰ですか？"
-plan = planner.create_plan(query)
+# 2. 実行計画を生成
+plan = planner.create_plan("日本の人口について教えて")
 
 # 3. 計画内容を確認
-print(f"計画ID: {plan.plan_id}")
 print(f"複雑度: {plan.complexity}")
-print(f"ステップ数: {len(plan.steps)}")
-
 for step in plan.steps:
-    print(f"  Step {step.step_id}: {step.action} - {step.description}")
+    print(f"  step{step.step_id}: {step.action} - {step.description}")
 
-# 出力例:
-# 計画ID: plan_20260212_123456_abc123
-# 複雑度: 0.3
-# ステップ数: 2
-#   Step 1: rag_search - 関連情報を検索
-#   Step 2: reasoning - 取得した情報を元に回答を生成
+# 4. 必要なら複雑度をLLMで推定
+score = planner.estimate_complexity_with_llm("複数の事象を比較して")
+print(f"LLM複雑度: {score}")
 ```
 
-### 6.2 カスタム設定での使用
+### 6.2 応用ワークフロー（リファインメント）
 
 ```python
-from grace.planner import create_planner
 from grace.config import get_config
-
-# カスタム設定ファイルを読み込み
-config = get_config("config/production.yml")
-
-# 特定のモデルを指定してPlannerを作成
-planner = create_planner(config=config, model_name="gemini-2.5-flash")
-
-# 複雑な質問の計画を生成
-plan = planner.create_plan("量子コンピュータの原理と従来のコンピュータとの違いを説明してください")
-```
-
-### 6.3 計画の修正（リファインメント）
-
-```python
 from grace.planner import create_planner
 
-planner = create_planner()
+config = get_config()
+config.planner.force_llm_plan = True  # 常にLLM計画を使用
 
-# 初期計画を生成
-initial_plan = planner.create_plan("AIについて教えてください")
+planner = create_planner(config=config)
+plan = planner.create_plan("生成AIの最新動向を詳しく")
 
-# ユーザーフィードバックに基づいて計画を修正
-feedback = "もっと技術的な詳細と、具体的な応用例が欲しいです"
-refined_plan = planner.refine_plan(initial_plan, feedback)
-
-print(f"初期計画のステップ数: {len(initial_plan.steps)}")
-print(f"修正後のステップ数: {len(refined_plan.steps)}")
-```
-
-### 6.4 複雑度の事前推定
-
-```python
-from grace.planner import create_planner
-
-planner = create_planner()
-
-# 複数の質問の複雑度を比較
-questions = [
-    "東京タワーの高さは？",
-    "PythonとJavaの違いを教えてください",
-    "量子コンピュータの原理を詳しく説明し、その応用例を複数挙げてください",
-]
-
-for q in questions:
-    complexity = planner.estimate_complexity_with_llm(q)
-    print(f"複雑度 {complexity:.2f}: {q[:30]}...")
-
-# 出力例:
-# 複雑度 0.15: 東京タワーの高さは？...
-# 複雑度 0.55: PythonとJavaの違いを教えてください...
-# 複雑度 0.85: 量子コンピュータの原理を詳しく説明し、その応...
+# フィードバックに基づき計画を修正
+refined = planner.refine_plan(plan, "もっとステップを分けて、最新事例を含めて")
+print(f"修正後ステップ数: {len(refined.steps)}")
 ```
 
 ---
 
 ## 7. エクスポート
 
-`planner.py`でエクスポートされる要素：
+`planner.py` の `__all__`:
 
 ```python
 __all__ = [
     # クラス
     "Planner",
-    # ファクトリ関数
+    # 関数
     "create_planner",
     # 定数
     "PLAN_GENERATION_PROMPT",
 ]
 ```
+
+`grace/__init__.py` 経由でも `Planner` / `create_planner` がエクスポートされます。
 
 ---
 
@@ -850,13 +725,10 @@ __all__ = [
 
 | バージョン | 変更内容 |
 |-----------|---------|
-| 0.1.0 | 初版作成 |
-| 1.0 | ドキュメント改修: フォーマット統一、IPO詳細・シグネチャ・戻り値例・使用例を追加 |
-| 1.1 | ドキュメント改修: 主な責務・主要機能一覧を追加、IPO詳細に「**概要**:」ラベルを追加 |
-| 1.2 | ドキュメント改修: 目次を追加 |
-| 1.3 | ドキュメント改修: ASCII図をMermaid v9フローチャートに変更、GraceConfig設定情報を詳細化 |
-| 2.0 | コード改修に伴う全面更新: PLAN_GENERATION_PROMPT拡張（コレクション選択ルール・検索クエリ作成ルール・複雑度目安・requires_confirmation条件・SEARCH_QUERY_INSTRUCTION埋め込み）、全LLM呼び出し箇所にAFC無効化追加、create_planにIPOログ出力・API時間計測・max_output_tokens=8192を追加、estimate_complexity_with_llmにNoneガード・API時間計測を追加、refine_planにAPI時間計測を追加、フォーマット仕様v1.4準拠（各責務対応のモジュール テーブル追加） |
-| 3.0 | コード改修に伴う更新: PLAN_GENERATION_PROMPTにweb_searchアクション追加・ルール6（rag_search/web_search使い分け）追加、create_planにリトライロジック（最大2回）・JSON完全性チェック・空レスポンスガードを追加、_create_fallback_planを動的コレクション選択に変更・fallbackをreasoning→web_searchに変更 |
+| 1.0 | 初版作成（LLM計画生成のみ） |
+| 2.0 | 二層方式（ルールベース / LLM）の振り分け、フォールバック計画を追加 |
+| 3.0 | IPO形式に全面再構成 |
+| 3.1 | 2026-06-16: 実装に合わせて改訂。LLMを Anthropic Claude（`llm_compat.create_chat_client` 経由）に統一、`_should_use_llm_plan` / `_create_rule_based_plan` / `_create_llm_plan` / `_get_available_collections` を反映、Mermaid を黒背景・白文字スタイルに統一 |
 
 ---
 
@@ -864,84 +736,43 @@ __all__ = [
 
 ```mermaid
 flowchart LR
-    PLANNER[planner.py]
+    PLANNER["planner.py"]
 
-    subgraph GOOGLE["google-genai"]
-        GENAI[genai.Client]
-        TYPES[genai.types.GenerateContentConfig\ngenai.types.AutomaticFunctionCallingConfig]
+    subgraph ANTHROPIC["anthropic (llm_compat 経由)"]
+        CLIENT["create_chat_client"]
+        CLAUDE["Anthropic Claude"]
+    end
+
+    subgraph GENAI["google-genai"]
+        TYPES["types.GenerateContentConfig"]
     end
 
     subgraph QDRANT["qdrant-client"]
-        QC[QdrantClient]
+        QC["QdrantClient"]
     end
 
     subgraph INTERNAL["内部モジュール"]
-        SCHEMAS[grace.schemas]
-        CONFIG[grace.config]
-        QDRANT_SVC[services.qdrant_service]
-        PROMPTS[services.prompts]
-        REGEX[regex_mecab]
+        SCHEMAS["grace.schemas"]
+        CONFIG["grace.config"]
+        QSVC["services.qdrant_service"]
+        PROMPTS["services.prompts"]
+        MECAB["regex_mecab.KeywordExtractor"]
     end
 
-    PLANNER --> GENAI
+    PLANNER --> CLIENT
+    CLIENT --> CLAUDE
     PLANNER --> TYPES
     PLANNER --> QC
     PLANNER --> SCHEMAS
     PLANNER --> CONFIG
-    PLANNER --> QDRANT_SVC
+    PLANNER --> QSVC
     PLANNER --> PROMPTS
-    PLANNER --> REGEX
-
-    SCHEMAS --> S1[ExecutionPlan]
-    SCHEMAS --> S2[PlanStep]
-    SCHEMAS --> S3[create_plan_id]
-    SCHEMAS --> S4[validate_plan_dependencies]
-
-    CONFIG --> C1[get_config]
-    CONFIG --> C2[GraceConfig]
-
-    QDRANT_SVC --> Q1[get_all_collections]
-
-    PROMPTS --> P1[SEARCH_QUERY_INSTRUCTION]
-
-    REGEX --> R1[KeywordExtractor]
+    PLANNER --> MECAB
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class PLANNER,CLIENT,CLAUDE,TYPES,QC,SCHEMAS,CONFIG,QSVC,PROMPTS,MECAB default
+style ANTHROPIC fill:#1a1a1a,stroke:#fff,color:#fff
+style GENAI fill:#1a1a1a,stroke:#fff,color:#fff
+style QDRANT fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
-
----
-
-## 付録: エラーハンドリング
-
-### LLM生成失敗時
-
-| 状況 | 動作 | ログレベル |
-|-----|------|----------|
-| Gemini API呼び出し失敗 | リトライ（最大2回）→全失敗時は`_create_fallback_plan()` | WARNING / ERROR |
-| 空レスポンス | リトライ（`continue`）→全失敗時は`_create_fallback_plan()` | WARNING |
-| 不完全/無効なJSON | JSON完全性チェックで検出→リトライ（`continue`） | WARNING |
-| JSONパース失敗（Pydantic） | リトライ→全失敗時は`_create_fallback_plan()` | WARNING / ERROR |
-| AFC永続化による空レスポンス | AFC無効化設定により防止 | ― |
-
-### コレクション取得失敗時
-
-| 状況 | 動作 | ログレベル |
-|-----|------|----------|
-| Qdrant接続失敗 | 設定の`search_priority`リストを使用 | WARNING |
-
-### 複雑度推定失敗時
-
-| 状況 | 動作 | ログレベル |
-|-----|------|----------|
-| LLM推定失敗 | `estimate_complexity()`にフォールバック | WARNING |
-| レスポンスがNone/空 | `estimate_complexity()`にフォールバック | WARNING |
-
-### 計画検証エラー時
-
-| 状況 | 動作 | ログレベル |
-|-----|------|----------|
-| 依存関係エラー | 警告のみ出力し、計画はそのまま返却 | WARNING |
-
-### 計画修正失敗時
-
-| 状況 | 動作 | ログレベル |
-|-----|------|----------|
-| refine_plan LLM呼び出し失敗 | 元の計画をそのまま返却 | ERROR |
