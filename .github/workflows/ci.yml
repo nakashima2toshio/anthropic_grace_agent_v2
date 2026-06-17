@@ -96,8 +96,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pydantic pandas numpy \
-            qdrant-client tiktoken scikit-learn pyyaml python-dotenv openai celery
+          # プロジェクトの宣言済み依存（pyproject の dependencies）を一括導入する。
+          # 旧来のハードコード列挙は google-genai / anthropic 等の欠落で
+          # `from google import genai` などが ImportError になり収集が全滅していた。
+          pip install -e .
+          pip install pytest pytest-asyncio
 
       - name: Run unit tests (integration auto-skipped)
         env:
