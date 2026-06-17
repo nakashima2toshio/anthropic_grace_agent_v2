@@ -43,13 +43,65 @@
 
 ## （自律型Agent）grace_chat_page.py
 
-画面： agent_rag.py
+画面（UIエントリポイント）： `streamlit run agent_rag.py`
 
 ![image.png](assets/image.png)
 
 個々のドキュメントは、機能ディレクトリー/doc/*.md を参照あれ。
 
-**Version 4.0** | 最終更新: 2026-06-16
+### Streamlit アプリの起動とページ構成
+
+```bash
+# UI 起動（エントリポイントは agent_rag.py）
+uv run streamlit run agent_rag.py --server.port 8501
+```
+
+`agent_rag.py` のサイドバーメニュー（`main()` の `st.radio`）から以下のページを選択します。
+
+| メニュー表示                          | ページID             | 実装                                                       |
+| ------------------------------------- | -------------------- | ---------------------------------------------------------- |
+| 📖 説明                               | `explanation`        | `ui/pages/explanation_page.py::show_system_explanation_page` |
+| 🔎 Qdrant検索                         | `qdrant_search`      | `ui/pages/qdrant_search_page.py::show_qdrant_search_page`  |
+| 🤖 Agent(ReAct+Reflection)            | `agent_chat`         | `ui/pages/agent_chat_page.py::show_agent_chat_page`        |
+| [最新] 自律型Agent(Plan+Executor)     | `grace_chat`         | `ui/pages/grace_chat_page.py::show_grace_chat_page`        |
+| 📊 未回答ログ                         | `log_viewer`         | `ui/pages/log_viewer_page.py::show_log_viewer_page`        |
+| 📄 RAGデータ作成                      | `rag_data_creation`  | `agent_rag.py::show_rag_data_creation_page`（CLI手順への案内） |
+| 🗄️ QdrantのCRUD                       | `qdrant_crud`        | `agent_rag.py::show_qdrant_crud_page`                      |
+
+RAGデータの作成（チャンク分割 → Q/A生成＋Qdrant登録）は UI からではなく CLI で実行します（後述「RAGデータ作成パイプライン」を参照）。`ui/pages/` には `download_page` / `qa_generation_page` / `qdrant_registration_page` / `qdrant_show_page` も同梱されていますが、現行の `agent_rag.py` メニューには未接続です。
+
+### RAGデータ作成パイプライン（CLI）
+
+```bash
+# (1) チャンク分割（LLMベース 3段階セマンティックチャンキング）
+uv run python -m chunking.csv_text_to_chunks_text_csv \
+  --input-file OUTPUT/cc_news_1per.csv \
+  --output output_chunked
+
+# (2) Q/A生成 ＋ Qdrant登録（統合CLI）
+uv run python qa_qdrant/make_qa_register_qdrant.py \
+  --input output_chunked/cc_news_1per_chunks.csv
+
+# 既存 Q/A CSV を登録のみ行う場合
+uv run python qa_qdrant/register_to_qdrant.py --input qa_output/...csv
+
+# (3) 検索・対話は UI から
+uv run streamlit run agent_rag.py --server.port 8501
+```
+
+詳細手順は [readme_usage_tools.md](./readme_usage_tools.md)、各 CLI の仕様は `chunking/doc/csv_text_to_chunks_text_csv.md` / `qa_qdrant/doc/make_qa_register_qdrant.md` を参照してください。
+
+### 技術スタック
+
+| 役割                              | プロバイダー  | モデル / 設定                                                   |
+| --------------------------------- | ------------- | -------------------------------------------------------------- |
+| LLM（計画策定・実行・応答生成）   | **Anthropic** | デフォルト `claude-sonnet-4-6`（軽量 `claude-haiku-4-5-20251001`）、APIキー `ANTHROPIC_API_KEY`、ルーティングは `grace/llm_compat.py` 経由 |
+| Embedding（Qdrant登録・検索）     | **Gemini**    | `gemini-embedding-001`（3072次元）、APIキー `GOOGLE_API_KEY` / `GEMINI_API_KEY` |
+| ベクトルDB                        | Qdrant        | `http://localhost:6333`                                        |
+
+LLM プロバイダー / モデルは `grace/config.py` の `LLMConfig`（`provider="anthropic"`, `model="claude-sonnet-4-6"`）、Embedding は `EmbeddingConfig`（`provider="gemini"`, `model="gemini-embedding-001"`, `dimensions=3072`）が既定値です。
+
+**Version 4.1** | 最終更新: 2026-06-17
 
 ---
 
@@ -1649,6 +1701,7 @@ Step 3: ✅ success (信頼度: 0.85)
 | **2.0**    | **2025-06-14** | **ReActAgent → Planner + Executor アーキテクチャに全面移行**。主な変更: (1) アーキテクチャ概要を2フェーズ分離型に更新、(2) 画面レイアウトを3 Expander 構成に変更、(3) セッション状態から `grace_agent` / `grace_current_hybrid_search` / `grace_current_collections` を削除し `grace_planner` / `grace_executor` を追加、(4) イベント処理を Generator ベース（ExecutionState + dict yield）に刷新、(5) 依存関係に grace/ パッケージ構成図を追加、(6) エラーハンドリングを3層構造（grace内部自動回復 / UI判定 / 全体try-except）に整理、(7) 使用例を計画策定・実行プロセス・結果サマリの表示例に更新、(8) 付録Bに GraceConfig 設定リファレンスを追加 |
 | **3.0**    | **2026-02-17** | **ドキュメント体系の整備**。主な変更: (1) 冒頭ドキュメント一覧表を5件に拡張（readme_rag.md / readme_react_reflection.md / readme_autonomous_agent.md を追加）、(2) 番号付きリンク表で参照順を明示 |
 | **4.0**    | **2026-06-16** | **技術スタック統一とドキュメント再構築**。主な変更: (1) LLM プロバイダー表記を Gemini → Anthropic Claude に統一（タイトル / 設定クラス `GeminiConfig`→`ModelConfig` / デフォルト `claude-sonnet-4-6`・軽量 `claude-haiku-4-5-20251001` / LLM用APIキー `ANTHROPIC_API_KEY`）。**Embedding は Gemini（`gemini-embedding-001`・3072次元）のまま維持**、(2) アーカイブ済みドキュメント（移行計画 v2・各種 API 移行ガイド・benchmark_todo・grace_react_refactor_todo）を docs/archive/ へのリンクに整理し、壊れた R3 リンク（plan_for_migration.md）を削除、(3) 全 Mermaid 図を黒背景・白文字スタイルに統一（classDef/class/style 付与、sequenceDiagram は init ヘッダー付与） |
+| **4.1**    | **2026-06-17** | **現行コードとの整合更新**。主な変更: (1) UI エントリポイントを `streamlit run agent_rag.py` と明記し、`agent_rag.py::main()` の実際の `st.radio` メニュー（explanation / qdrant_search / agent_chat / grace_chat / log_viewer / rag_data_creation / qdrant_crud）に合わせて付録A.1ページ一覧を修正（旧 `rag_download` / `qa_generation` / `qdrant_registration` / `show_qdrant` は `ui/pages/` に在るが未接続である旨を注記）、(2) RAGデータ作成パイプライン（チャンク分割 → Q/A生成＋Qdrant登録）の CLI コマンドと冒頭技術スタック表を追加（LLM=Anthropic Claude `claude-sonnet-4-6`、ルーティング `grace/llm_compat.py`、Embedding=Gemini `gemini-embedding-001` 3072次元）、(3) ドキュメント索引リンクの実在性を再検証 |
 
 ---
 
@@ -1668,20 +1721,20 @@ page_mapping = {
 }
 ```
 
-**利用可能なページ一覧**:
+**利用可能なページ一覧**（`agent_rag.py::main()` の `st.radio` メニュー順）:
 
 
-| ページID              | 表示名                   | 説明                                 |
-| --------------------- | ------------------------ | ------------------------------------ |
-| `explanation`         | 📖 説明                  | システム説明ページ                   |
-| `agent_chat`          | 🤖 エージェント対話      | ReAct+Reflectionエージェント（旧版） |
-| `grace_chat`          | 🧠 GRACE エージェント    | **本ページ（Planner + Executor）**   |
-| `log_viewer`          | 📊 未回答ログ            | 未回答質問のログ閲覧                 |
-| `rag_download`        | 📥 RAGデータダウンロード | データセットダウンロード             |
-| `qa_generation`       | 🤖 Q/A生成               | Q&Aペア生成                          |
-| `qdrant_registration` | 📥 CSVデータ登録         | Qdrantへのデータ登録                 |
-| `show_qdrant`         | 🗄️ Qdrantデータ管理    | コレクション管理                     |
-| `qdrant_search`       | 🔎 Qdrant検索            | 検索テスト                           |
+| ページID             | 表示名                            | 説明                                                |
+| -------------------- | --------------------------------- | --------------------------------------------------- |
+| `explanation`        | 📖 説明                           | システム説明ページ                                  |
+| `qdrant_search`      | 🔎 Qdrant検索                     | 検索テスト                                          |
+| `agent_chat`         | 🤖 Agent(ReAct+Reflection)        | ReAct+Reflectionエージェント（旧版）                |
+| `grace_chat`         | [最新] 自律型Agent(Plan+Executor) | **本ページ（Planner + Executor）**                  |
+| `log_viewer`         | 📊 未回答ログ                     | 未回答質問のログ閲覧                                |
+| `rag_data_creation`  | 📄 RAGデータ作成                  | RAGデータ作成 CLI 手順とドキュメントへの案内        |
+| `qdrant_crud`        | 🗄️ QdrantのCRUD                   | Qdrant CRUD 操作の説明                              |
+
+> **注**: `ui/pages/` には `download_page` / `qa_generation_page` / `qdrant_registration_page` / `qdrant_show_page` も実装されていますが、現行の `agent_rag.py` メニューには未接続です（RAGデータ作成は CLI パイプラインで実行）。
 
 ### A.2 CLI版エージェント (agent_main.py)
 
@@ -1689,7 +1742,7 @@ page_mapping = {
 
 ```bash
 # CLI版エージェントの実行
-python agent_main.py
+uv run python agent_main.py
 ```
 
 **CLI版の機能**:

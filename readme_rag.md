@@ -1,6 +1,6 @@
 # RAG Q/A 生成・検索システム ドキュメント
 
-**Version 3.1** | 最終更新: 2026-06-16
+**Version 3.2** | 最終更新: 2026-06-17
 
 **Agent Graceの資料へ** [Agent Grace](README.md) | **ReActの資料へ** [ReAct](README_ReAct.md)
 
@@ -34,7 +34,7 @@
 
 パイプラインは以下の **3段階** で構成されます。
 
-- **① チャンキング**: `chunking/csv_text_to_chunks_text_csv.py` — Anthropic Claudeベースの3段階セマンティックチャンキング（文書境界保証・カバレッジ検証・manifest出力）
+- **① チャンキング**: `chunking/csv_text_to_chunks_text_csv.py` — LLMベースの3段階セマンティックチャンキング（段落分割→意味的分割→連続性チェック→最大トークン強制分割）
 - **② Q/A生成**: `qa_generation/`（`QAPipeline` + `SmartQAGenerator`）— チャンク済みCSVからQ/Aペアを自動生成
 - **③ Qdrant登録**: `qa_qdrant/make_qa_register_qdrant.py` → `register_to_qdrant.py` — Gemini Embeddingでベクトル化しQdrantへ登録
 
@@ -42,8 +42,8 @@
 
 ### 主な責務
 
-- テキスト/CSVファイルのClaudeベース意味的チャンク分割（3段階: 段落分割→意味的分割→連続性チェック）。CSVは **1行=1文書** として扱い、文書境界をまたぐ結合を行わない（`doc_id` でトレーサビリティ確保）。
-- チャンクからのQ/Aペア自動生成（`SmartQAGenerator` による Tool Use 構造化出力1回/チャンク、Celery並列処理対応）
+- テキスト/CSVファイルのLLMベース意味的チャンク分割（3段階: 段落分割→意味的分割→連続性チェック）。最終チャンクは `_enforce_max_chunk_tokens()` で `MAX_CHUNK_TOKENS`（512）以下に強制分割される。
+- チャンクからのQ/Aペア自動生成（`SmartQAGenerator` による構造化出力1回/チャンク、Celery並列処理対応）
 - Gemini Embedding（`gemini-embedding-001`, 3072次元）によるベクトル化（※EmbeddingはGemini固定）
 - Qdrantベクトルデータベースへの登録・検索・RAG応答生成
 - カバレージ分析によるQ/A品質評価
@@ -53,7 +53,7 @@
 
 | # | 責務                  | 対応モジュール                            | 説明                                               |
 | - | --------------------- | ----------------------------------------- | -------------------------------------------------- |
-| 1 | Claudeベースチャンク分割 | `chunking/csv_text_to_chunks_text_csv.py` | 3段階非同期パイプライン（段落→意味→連続性）。manifest同時出力 |
+| 1 | LLMベースチャンク分割 | `chunking/csv_text_to_chunks_text_csv.py` | 3段階非同期パイプライン（段落→意味→連続性）＋最大トークン強制分割 |
 | 2 | Q/Aペア自動生成       | `qa_generation/pipeline.py` (`QAPipeline`) | `SmartQAGenerator` 経由でチャンクごとに1回生成 |
 | 3 | 統合CLI（②+③）       | `qa_qdrant/make_qa_register_qdrant.py`    | Phase 1: Q/A生成 → Phase 2: `register_to_qdrant` 委譲 |
 | 4 | Qdrant登録            | `qa_qdrant/register_to_qdrant.py`         | Embedding（Gemini固定）→コレクション作成→アップサート |
@@ -65,15 +65,15 @@
 
 | 機能                       | 説明                                                          |
 | -------------------------- | ------------------------------------------------------------- |
-| `chunks_all_async()`       | テキスト/文書リストを3段階で意味的にチャンク化（asyncio並列処理） |
-| `load_documents_from_csv()` | CSVを1行=1文書として読み込み（`doc_id` 付与・文書境界保持）  |
+| `chunks_all_async()`       | テキストを3段階で意味的にチャンク化（asyncio並列処理）         |
+| `load_text_from_csv()`     | CSVをテキストとして読み込み（`combine_rows` で全行結合可）     |
 | `save_chunks_as_csv()`     | チャンクをメタデータ付きCSV + シンプルCSVで保存               |
 | `QAPipeline`               | Q/A生成パイプライン制御クラス（チャンク済みCSV専用、v3.0）   |
 | `QAPipeline.run()`         | パイプライン実行（データ読込→Q/A生成→カバレージ分析→保存）  |
 | `SmartQAGenerator.analyze_and_generate()` | チャンク分析+Q/A生成を構造化出力1回で実行 |
 | `run_registration()`       | Q/AペアCSVからQdrant登録（`register_to_qdrant` へ委譲）       |
-| `combine_rows_to_chunks()` | CSV複数行を結合してチャンクCSVを作成                          |
-| `AsyncAPIClient`           | Anthropic 非同期クライアント（Tool Use構造化出力・Semaphore並列制御+リトライ・プロンプトキャッシュ） |
+| `register_to_qdrant()`     | CSV→Embedding（Gemini固定）→コレクション作成→アップサート     |
+| `AsyncAPIClient`           | 非同期LLMクライアント（構造化出力・Semaphore並列制御＋指数バックオフ リトライ） |
 | `CheckpointManager`        | 3段階チャンク処理のチェックポイント管理（クラッシュ復旧対応） |
 | `search_collection()`      | Qdrantコレクション検索（Dense/Hybrid、3段階フォールバック）   |
 
@@ -136,11 +136,11 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 
 ### 1.2 データフロー
 
-1. 入力データ（CSV/テキスト）を `csv_text_to_chunks_text_csv.py` で3段階チャンク分割。CSVは1行=1文書（`doc_id`）として扱い、文書境界をまたぐ結合は行わない。出力はチャンクCSV + `*.manifest.json`（カバレッジ・パラメータ記録）。
+1. 入力データ（CSV/テキスト）を `csv_text_to_chunks_text_csv.py` で3段階チャンク分割。CSVは `load_text_from_csv()` でテキスト化（`--combine-rows` で全行結合可）。出力はメタデータ付きチャンクCSV + シンプルCSV。
 2. チャンクCSVを `make_qa_register_qdrant.py` に入力
 3. Phase 1: `QAPipeline` → `SmartQAGenerator` でチャンクごとにQ/Aペアを構造化出力1回で生成（同期/Celery並列処理対応）
 4. Phase 2: `run_registration()` → `register_to_qdrant()` でQ/AペアをGemini Embeddingでベクトル化（Embeddingは常にGemini固定）
-5. Qdrantコレクションにアップサート登録（来歴 payload: question/answer/source/chunk_id 等）
+5. Qdrantコレクションにアップサート登録（payload: question/answer/source 等。ポイントIDは内容ベースで決定的＝べき等）
 6. ユーザー質問 → Embedding → Qdrant検索 → RAG応答生成
 
 ---
@@ -152,25 +152,22 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 
 | ファイル名                       | クラス名            | メソッド/関数名               | 機能概要                                                   |
 | -------------------------------- | ------------------- | ----------------------------- | ---------------------------------------------------------- |
-| `csv_text_to_chunks_text_csv.py` | -                   | `chunks_all_async()`          | テキスト/文書リストを3段階で意味的にチャンク化（メインエントリ） |
-| `csv_text_to_chunks_text_csv.py` | -                   | `load_documents_from_csv()`   | CSVを1行=1文書として読み込み（`doc_id` 付与・文書境界保持） |
-| `csv_text_to_chunks_text_csv.py` | -                   | `load_text_from_csv()`        | CSVをテキストとして読み込み（後方互換・単一文書扱い）       |
+| `csv_text_to_chunks_text_csv.py` | -                   | `chunks_all_async()`          | テキストを3段階で意味的にチャンク化（メインエントリ）       |
+| `csv_text_to_chunks_text_csv.py` | -                   | `load_text_from_csv()`        | CSVをテキストとして読み込み（`combine_rows` で全行結合可）  |
 | `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_csv()`        | チャンクをメタデータ付きCSVで保存（+シンプルCSV同時出力）  |
 | `csv_text_to_chunks_text_csv.py` | -                   | `save_chunks_as_simple_csv()` | チャンクをシンプルCSV（Textカラムのみ）で保存              |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_write_manifest()`           | チャンクCSVと対になる manifest（カバレッジ・パラメータ）を出力 |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_report_coverage()`          | 入力テキストに対するチャンク網羅率を検証（既定閾値0.95）   |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_enforce_max_chunk_tokens()` | 最終チャンクを max_chunk_tokens（既定512）以下に強制分割   |
-| `csv_text_to_chunks_text_csv.py` | -                   | `generate_output_filename()`  | 入力ファイル名から出力ファイル名を自動生成（--timestamp時のみ日時付与） |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_step1_hierarchical_split()` | Step1: 階層構造化（段落分割） — Claudeで空行ベースの段落分離 |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_enforce_max_chunk_tokens()` | 最終チャンクを `MAX_CHUNK_TOKENS`（512）以下に強制分割     |
+| `csv_text_to_chunks_text_csv.py` | -                   | `generate_output_filename()`  | 入力ファイル名から出力ファイル名を自動生成                 |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_step1_hierarchical_split()` | Step1: 階層構造化（段落分割） — LLMで空行ベースの段落分離 |
 | `csv_text_to_chunks_text_csv.py` | -                   | `_step2_semantic_chunking()`  | Step2: 意味的チャンキング — 段落を意味単位に再分割        |
-| `csv_text_to_chunks_text_csv.py` | -                   | `_step3_continuity_check()`   | Step3: 文脈連続性チェック — 同一文書内の隣接チャンク結合（rule/llm/off） |
+| `csv_text_to_chunks_text_csv.py` | -                   | `_step3_continuity_check()`   | Step3: 文脈連続性チェック — 隣接チャンクの連続性判定→結合 |
 | `csv_text_to_chunks_text_csv.py` | -                   | `_normalize_whitespace()`     | テキストの改行・空白を正規化（CSV出力用）                  |
 | `csv_text_to_chunks_text_csv.py` | -                   | `_preprocess_text()`          | テキスト前処理（長い1行を句読点で分割）                    |
 | `csv_text_to_chunks_text_csv.py` | -                   | `_postprocess_paragraph()`    | 段落の後処理（句読点で文を分割し改行区切り）               |
 | `csv_text_to_chunks_text_csv.py` | -                   | `_split_sentences_simple()`   | 簡易的な文分割（日本語対応）                               |
 | `csv_text_to_chunks_text_csv.py` | -                   | `main()`                      | CLIエントリポイント（argparse→チャンク実行）              |
-| `async_api_client.py`            | `AsyncAPIClient`    | `__init__()`                  | Anthropic 非同期クライアント初期化（Semaphore並列制御）    |
-| `async_api_client.py`            | `AsyncAPIClient`    | `generate_content()`          | Tool Use 強制による構造化出力呼び出し（Semaphore制御）     |
+| `async_api_client.py`            | `AsyncAPIClient`    | `__init__()`                  | 非同期LLMクライアント初期化（Semaphore並列制御）           |
+| `async_api_client.py`            | `AsyncAPIClient`    | `generate_content()`          | response_schema による構造化出力呼び出し（Semaphore制御）  |
 | `async_api_client.py`            | `AsyncAPIClient`    | `_execute_with_retry()`       | リトライロジック（指数バックオフ、不完全JSON検出）         |
 | `async_api_client.py`            | `AsyncAPIClient`    | `_is_valid_json()`            | JSONの完全性チェック                                       |
 | `async_api_client.py`            | `AsyncAPIClient`    | `_is_truncated_response()`    | レスポンス切断チェック（stop_reason判定）                  |
@@ -210,9 +207,9 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 | ---------------------------- | -------- | ----------------------------- | --------------------------------------------------------------- |
 | `make_qa_register_qdrant.py` | -        | `main()`                      | 統合パイプライン実行（Phase1: Q/A生成 → Phase2: Qdrant登録）   |
 | `make_qa_register_qdrant.py` | -        | `run_registration()`          | Qdrant登録（`register_to_qdrant.register_to_qdrant()` へ委譲） |
-| `make_qa_register_qdrant.py` | -        | `combine_rows_to_chunks()`    | CSV複数行を結合してチャンクCSVを作成                            |
 | `make_qa_register_qdrant.py` | -        | `normalize_source_filename()` | ファイル名から日時サフィックスを除去して正規化                  |
-| `register_to_qdrant.py`      | -        | `register_to_qdrant()`        | CSV→Embedding（Gemini固定）→コレクション作成→アップサート（件数突合検証付き） |
+| `register_to_qdrant.py`      | -        | `register_to_qdrant()`        | CSV→Embedding（Gemini固定）→コレクション作成→アップサート（UI用CSV出力付き） |
+| `make_qa.py`                 | -        | `main()`                      | Q/A生成のみのCLI（`QAPipeline.run()` を呼び出し）             |
 | `register_to_qdrant.py`      | -        | `main()`                      | 登録専用CLIエントリポイント                                     |
 
 ### Q/A生成パイプライン（qa_generation/）
@@ -231,7 +228,7 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 | `pipeline.py`          | `QAPipeline`       | `run()`                   | パイプライン一括実行（読込→生成→分析→保存）        |
 | `pipeline.py`          | `QAPipeline`       | `_validate_inputs()`      | 入力パラメータの排他制御検証                         |
 | `pipeline.py`          | `QAPipeline`       | `_load_config()`          | データセット/ファイル設定をロード                    |
-| `smart_qa_generator.py` (v3.0) | `SmartQAGenerator` | `analyze_and_generate()` | チャンク分析+Q/A生成を構造化出力1回（Tool Use）で実行 |
+| `smart_qa_generator.py` (v3.0) | `SmartQAGenerator` | `analyze_and_generate()` | チャンク分析+Q/A生成を構造化出力1回で実行 |
 | `smart_qa_generator.py` | `SmartQAResult`   | -                         | 分析+Q/A生成の統合スキーマ（qa_count/key_topics等）  |
 | `smart_qa_generator.py` | `SmartQAPair`     | -                         | Q/Aペア1件のスキーマ（question/answer/topic）        |
 | `evaluation.py` (v3.0) | -                  | `analyze_coverage()`      | カバレージ分析（SemanticCoverage使用）               |
@@ -310,16 +307,15 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 | ファイル名  | クラス名             | メソッド/関数名             | 機能概要                                |
 | ----------- | -------------------- | --------------------------- | --------------------------------------- |
 | `config.py` | `ModelConfig`        | `supports_temperature()`    | モデルのtemperatureサポート判定         |
-| `config.py` | `ModelConfig`        | `get_model_limits()`        | Anthropic Claudeモデルのトークン制限を取得 |
-| `config.py` | `ModelConfig`        | `get_model_pricing()`       | Anthropic Claudeモデルの料金を取得      |
-| `config.py` | `ModelConfig`        | `supports_thinking_level()` | 思考レベルサポート判定                  |
+| `config.py` | `ModelConfig`        | `get_model_limits()`        | LLMモデルのトークン制限を取得           |
+| `config.py` | `ModelConfig`        | `get_model_pricing()`       | LLMモデルの料金を取得                   |
 | `config.py` | `DatasetInfo`        | -                           | データセット情報（dataclass）           |
 | `config.py` | `DatasetConfig`      | `get_dataset()`             | データセット設定を取得                  |
 | `config.py` | `DatasetConfig`      | `get_dataset_dict()`        | データセット設定を辞書形式で取得        |
 | `config.py` | `DatasetConfig`      | `get_all_dataset_names()`   | 全データセット名を取得                  |
 | `config.py` | `QAGenerationConfig` | -                           | Q/A生成設定（質問タイプ階層、閾値等）   |
-| `config.py` | `QdrantConfig`       | -                           | Qdrant接続設定（HOST/PORT/VECTOR_SIZE=3072） |
-| `config.py` | `GeminiConfig`       | -                           | Gemini Embedding設定（EMBEDDING_MODEL/EMBEDDING_DIMS） |
+| `config.py` | `QdrantConfig`       | -                           | Qdrant接続設定（HOST/PORT/DEFAULT_VECTOR_SIZE=3072） |
+| `config.py` | `GeminiConfig`       | `supports_thinking_level()` | Gemini LLM/Embedding設定（EMBEDDING_MODEL/EMBEDDING_DIMS=3072・思考レベル判定） |
 | `config.py` | `CeleryConfig`       | -                           | Celery並列処理設定                      |
 | `config.py` | `PathConfig`         | `ensure_dirs()`             | 必要なディレクトリを一括作成            |
 | `config.py` | `AgentConfig`        | -                           | RAGエージェント設定（検索閾値等）       |
@@ -403,7 +399,7 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 | `anthropic`     | Anthropic Claude LLM API（チャンク分割・Q/A生成・Agent応答） |
 | `google-genai`  | Gemini Embedding API（gemini-embedding-001） |
 | `qdrant-client` | Qdrantベクトルデータベース操作       |
-| `pydantic`      | レスポンススキーマ定義（Tool Use構造化出力） |
+| `pydantic`      | レスポンススキーマ定義（構造化出力 `response_schema`） |
 | `pandas`        | CSV入出力・データ処理                |
 | `tiktoken`      | トークン数計算                       |
 | `celery[redis]` | 並列タスク処理                       |
@@ -414,7 +410,7 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 
 | モジュール                         | 用途                                |
 | ---------------------------------- | ----------------------------------- |
-| `chunking.async_api_client`        | Anthropic 非同期呼び出し（チャンク分割・Tool Use） |
+| `chunking.async_api_client`        | 非同期LLM呼び出し（チャンク分割・構造化出力） |
 | `chunking.checkpoint_manager`      | チェックポイント永続化              |
 | `chunking.models`                  | Pydanticスキーマ（段落/連続性判定） |
 | `chunking.prompts`                 | 3段階チャンク用プロンプト           |
@@ -440,18 +436,15 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 
 | 関数名                                                     | 概要                                                  |
 | ---------------------------------------------------------- | ----------------------------------------------------- |
-| `chunks_all_async(text=None, documents=None, model, ...)`  | テキスト/文書リストを3段階で意味的にチャンク化（メインエントリ） |
-| `load_documents_from_csv(csv_path, ...)`                   | CSVを1行=1文書として読み込み（`doc_id` 付与）          |
-| `load_text_from_csv(csv_path, ...)`                        | CSVをテキストとして読み込み（後方互換）                |
+| `chunks_all_async(text, model, max_workers, block_size, ...)` | テキストを3段階で意味的にチャンク化（メインエントリ） |
+| `load_text_from_csv(csv_path, text_column, max_rows, combine_rows)` | CSVをテキストとして読み込み（`combine_rows` で全行結合） |
 | `save_chunks_as_csv(chunks, output_file, ...)`             | チャンクをメタデータ付きCSVで保存                     |
 | `save_chunks_as_simple_csv(chunks, output_file, ...)`      | チャンクをシンプルCSV（Textのみ）で保存               |
-| `generate_output_filename(input_file, output_dir, ...)`    | 出力ファイル名の自動生成（--timestamp時のみ日時付与） |
-| `_step1_hierarchical_split(documents, client, model, ...)` | Step1: 階層構造化（段落分割）                         |
+| `generate_output_filename(input_file, output_dir, ...)`    | 出力ファイル名の自動生成（`{ステム}_chunks.csv`）     |
+| `_step1_hierarchical_split(text, client, model, block_size, ...)` | Step1: 階層構造化（段落分割）                  |
 | `_step2_semantic_chunking(paragraphs, client, model, ...)` | Step2: 意味的チャンキング                             |
-| `_step3_continuity_check(chunks, ..., continuity_mode)`    | Step3: 文脈連続性チェック（rule/llm/off、同一文書内のみ） |
-| `_enforce_max_chunk_tokens(chunks, max_tokens)`            | チャンクを max_chunk_tokens 以下に強制分割            |
-| `_report_coverage(...)`                                    | 入力カバレッジ検証（既定閾値0.95）                    |
-| `_write_manifest(...)`                                     | チャンクCSVと対の manifest.json を出力                |
+| `_step3_continuity_check(chunks, client, model, ...)`      | Step3: 文脈連続性チェック（隣接チャンク結合）          |
+| `_enforce_max_chunk_tokens(chunks, max_tokens)`            | チャンクを `MAX_CHUNK_TOKENS`（512）以下に強制分割    |
 | `_normalize_whitespace(text)`                              | テキストの改行・空白を正規化                          |
 | `_preprocess_text(text)`                                   | テキスト前処理（長い1行を句読点で分割）               |
 | `_postprocess_paragraph(paragraph)`                        | 段落の後処理（句読点で文を分割し改行区切り）          |
@@ -464,17 +457,16 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 | 関数名                                                     | 概要                                                          |
 | ---------------------------------------------------------- | ------------------------------------------------------------- |
 | `main()`                                                   | 統合パイプライン実行（Phase1: Q/A生成 → Phase2: Qdrant登録） |
-| `run_registration(csv_path, collection_name, recreate, batch_size, ui_output_dir)` | `register_to_qdrant.register_to_qdrant()` へ委譲 |
-| `combine_rows_to_chunks(df, text_column, block_size, ...)` | CSV複数行を結合してチャンクCSVを作成                          |
-| `normalize_source_filename(filename)`                      | ファイル名から日時サフィックスを除去                          |
+| `run_registration(csv_path, collection_name, recreate, batch_size, provider, ui_output_dir)` | `register_to_qdrant.register_to_qdrant()` へ委譲 |
+| `normalize_source_filename(filename)`                      | ファイル名から日時サフィックス（`_YYYYMMDD_HHMMSS`）を除去     |
 
-### 3.3 AsyncAPIClient クラス（Anthropic）
+### 3.3 AsyncAPIClient クラス
 
 
 | メソッド                                                  | 概要                                          |
 | --------------------------------------------------------- | --------------------------------------------- |
-| `__init__(api_key, max_workers, max_retries, max_output_tokens)` | コンストラクタ（AsyncAnthropic接続、Semaphore初期化） |
-| `generate_content(model, contents, response_schema, ...)` | Tool Use 強制による構造化出力呼び出し（Semaphore制御） |
+| `__init__(api_key, max_workers, max_retries, max_output_tokens)` | コンストラクタ（LLMクライアント接続、Semaphore初期化） |
+| `generate_content(model, contents, response_schema, ...)` | `response_schema` による構造化出力呼び出し（Semaphore制御） |
 | `get_stats()`                                             | リクエスト統計（トークン使用量・キャッシュ含む） |
 | `reset_stats()`                                           | 統計情報をリセット                            |
 
@@ -509,12 +501,12 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 
 | メソッド/属性                              | 概要                                                 |
 | ------------------------------------------ | ---------------------------------------------------- |
-| `__init__(model="claude-sonnet-4-6", api_key=None)` | LLMクライアント初期化（モデル名からプロバイダー自動判定） |
-| `analyze_and_generate(chunk, ...)`         | チャンク分析+Q/A生成を構造化出力（Tool Use）1回で実行 |
-| `SmartQAResult`（スキーマ）                | qa_count(0-5)/key_topics/importance_score/complexity/qa_pairs |
+| `__init__(model="claude-sonnet-4-6", api_key=None)` | LLMクライアント初期化（`model` でモデル指定） |
+| `analyze_and_generate(chunk_text)`         | チャンク分析+Q/A生成を構造化出力1回で実行 |
+| `SmartQAResult`（スキーマ）                | qa_count(0-5)/key_topics/importance_score/complexity/reasoning/qa_pairs |
 | `SmartQAPair`（スキーマ）                  | question/answer/topic                                |
 
-> **v3.0 注記**: 旧実装の「分析→生成」2段階方式を廃止し、`analyze_and_generate()` による **チャンク1件=LLM呼び出し1回** に統合（Markdownフェンス手剥がしの脆弱なパースを排除）。プロバイダーはモデル名から自動判定されます（`claude-*`→anthropic / `gemini-*`→gemini / その他→openai）。
+> **v3.0 注記**: 旧実装の「分析→生成」2段階方式を廃止し、`analyze_and_generate()` による **チャンク1件=LLM呼び出し1回** に統合（脆弱なテキストパースを排除し `response_schema` 構造化出力に一本化）。`SmartQAResult.qa_count` は 0〜5 に制約され、`importance_score` は 0.0〜1.0。
 
 ---
 
@@ -522,11 +514,11 @@ style CONFIG_PKG fill:#1a1a1a,stroke:#fff,color:#fff
 
 ### 4.1 chunks_all_async()
 
-**概要**: テキストまたは文書リストを3段階（段落分割→意味的分割→連続性チェック）で意味的にチャンク化する非同期メイン関数。CSV由来の `documents`（1行=1文書）を渡すと文書境界をまたいだ結合を行わない。
+**概要**: テキストを3段階（段落分割→意味的分割→連続性チェック）で意味的にチャンク化する非同期メイン関数。チャンク後は `_enforce_max_chunk_tokens()` により `MAX_CHUNK_TOKENS`（512）以下へ強制分割される。
 
 ```python
 async def chunks_all_async(
-    text: Optional[str] = None,
+    text: str,
     model: str = "claude-sonnet-4-6",
     max_workers: int = 8,
     block_size: int = 1000,
@@ -534,33 +526,27 @@ async def chunks_all_async(
     output_file: Optional[str] = None,
     dataset_type: str = "custom",
     source_file: Optional[str] = None,
-    documents: Optional[List[Dict]] = None,
-    continuity_mode: str = "rule",
-    max_chunk_tokens: int = 512,
 ) -> List[str]
 ```
 
 
 | パラメータ           | 型                          | デフォルト               | 説明                             |
 | -------------------- | --------------------------- | ------------------------ | -------------------------------- |
-| `text`               | Optional[str]               | None                     | 入力テキスト（単一文書扱い。documentsと排他） |
-| `documents`          | Optional[List[Dict]]        | None                     | 文書リスト `[{'doc_id':.., 'text':..}, ...]` |
-| `model`              | str                         | "claude-sonnet-4-6"      | 使用するAnthropic Claudeモデル   |
+| `text`               | str                         | -                        | 入力テキスト（`load_text_from_csv()` で生成） |
+| `model`              | str                         | "claude-sonnet-4-6"      | 使用するLLMモデル（軽量用途は `claude-haiku-4-5-20251001`） |
 | `max_workers`        | int                         | 8                        | 非同期並列ワーカー数（Semaphore上限） |
 | `block_size`         | int                         | 1000                     | Step1ブロックサイズ（文字数）    |
-| `continuity_mode`    | str                         | "rule"                   | Step3モード（rule/llm/off）      |
-| `max_chunk_tokens`   | int                         | 512                      | チャンク最大トークン数（Embedding入力上限2048未満） |
 | `checkpoint_manager` | Optional[CheckpointManager] | None                     | チェックポイント管理             |
-| `output_file`        | Optional[str]               | None                     | 出力ファイルパス（CSV）。指定時は manifest も出力 |
+| `output_file`        | Optional[str]               | None                     | 出力ファイルパス（CSV）          |
 | `dataset_type`       | str                         | "custom"                 | データセット種別                 |
 | `source_file`        | Optional[str]               | None                     | 元ファイル名                     |
 
 
 | 項目        | 内容                                                                                                                                                                                                                                                                                                                           |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Input**   | `text` または `documents`（排他）, `model: str`, `max_workers: int`                                                                                                                                                                                                                                                            |
-| **Process** | 1. ANTHROPIC_API_KEY検証、AsyncAPIClient初期化<br>2. Step1: `_step1_hierarchical_split()` — 文書をブロック分割→Claudeで段落分離<br>3. Step2: `_step2_semantic_chunking()` — 段落を意味単位にチャンク化<br>4. `_enforce_max_chunk_tokens()` で上限強制<br>5. Step3: `_step3_continuity_check()` — 同一文書内の隣接チャンク連続性判定→マージ<br>6. `_report_coverage()` でカバレッジ検証<br>7. output_file指定時はCSV + manifest.json 保存 |
-| **Output**  | `List[str]`: 最終チャンクリスト（doc_id等のメタデータは出力CSVに含まれる）                                                                                                                                                                                                                                                     |
+| **Input**   | `text: str`, `model: str`, `max_workers: int`                                                                                                                                                                                                                                                                                  |
+| **Process** | 1. APIキー検証、AsyncAPIClient初期化<br>2. Step1: `_step1_hierarchical_split()` — テキストをブロック分割→LLMで段落分離<br>3. Step2: `_step2_semantic_chunking()` — 段落を意味単位にチャンク化<br>4. `_enforce_max_chunk_tokens()` で `MAX_CHUNK_TOKENS`（512）以下へ強制分割<br>5. Step3: `_step3_continuity_check()` — 隣接チャンクの連続性判定→マージ<br>6. output_file指定時はメタデータ付きCSV + シンプルCSVを保存 |
+| **Output**  | `List[str]`: 最終チャンクリスト（メタデータは出力CSVに含まれる）                                                                                                                                                                                                                                                               |
 
 **戻り値例**:
 
@@ -575,16 +561,14 @@ async def chunks_all_async(
 ```python
 # 使用例
 import asyncio
-from chunking.csv_text_to_chunks_text_csv import chunks_all_async, load_documents_from_csv
+from chunking.csv_text_to_chunks_text_csv import chunks_all_async, load_text_from_csv
 
-documents = load_documents_from_csv("OUTPUT/document.csv")
+text = load_text_from_csv("OUTPUT/document.csv", combine_rows=True)
 chunks = asyncio.run(chunks_all_async(
-    documents=documents,
+    text=text,
     model="claude-sonnet-4-6",
     max_workers=8,
     block_size=1000,
-    continuity_mode="rule",
-    max_chunk_tokens=512,
     output_file="output_chunked/result.csv"
 ))
 print(f"生成チャンク数: {len(chunks)}")
@@ -592,16 +576,17 @@ print(f"生成チャンク数: {len(chunks)}")
 
 ---
 
-### 4.2 load_documents_from_csv() / load_text_from_csv()
+### 4.2 load_text_from_csv()
 
-**概要**: CSVファイルからテキストを読み込む。`load_documents_from_csv()` は **1行=1文書**（`doc_id` 付き）として読み込み文書境界を保持する（CLIの既定経路）。`load_text_from_csv()` は全行を結合して1テキストとして返す後方互換関数。
+**概要**: CSVファイルからテキストを読み込む。テキストカラムを自動検出し、`combine_rows=True` の場合は全行を結合して1テキストとして返す。
 
 ```python
-def load_documents_from_csv(
+def load_text_from_csv(
     csv_path: str,
     text_column: Optional[str] = None,
-    max_rows: Optional[int] = None
-) -> List[Dict]   # -> [{'doc_id': int, 'text': str}, ...]
+    max_rows: Optional[int] = None,
+    combine_rows: bool = False
+) -> str
 ```
 
 
@@ -610,19 +595,20 @@ def load_documents_from_csv(
 | `csv_path`     | str           | -          | CSVファイルパス                      |
 | `text_column`  | Optional[str] | None       | テキストカラム名（None時は自動検出） |
 | `max_rows`     | Optional[int] | None       | 最大処理行数                         |
+| `combine_rows` | bool          | False      | 全行を結合して1テキストにするか      |
 
 
 | 項目        | 内容                                                                                                                                    |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | **Input**   | `csv_path: str`（CSVファイルパス）                                                                                                      |
-| **Process** | 1. CSV読み込み（pandas）<br>2. テキストカラム自動検出（text, Content, Combined_Text等）<br>3. 空行フィルタリング<br>4. 各行を `{'doc_id': 行番号, 'text': ..}` として返す |
-| **Output**  | `List[Dict]`: 文書リスト（`doc_id` でトレーサビリティ確保）                                                                              |
+| **Process** | 1. CSV読み込み（pandas）<br>2. テキストカラム自動検出（text, Content, Combined_Text等）<br>3. 空行フィルタリング<br>4. `combine_rows` 指定時は全行を結合 |
+| **Output**  | `str`: テキスト                                                                                                                         |
 
 ---
 
 ### 4.3 save_chunks_as_csv()
 
-**概要**: チャンクをメタデータ付きCSVで保存。オプションでシンプルCSV（Textカラムのみ）も同時出力。出力CSVには `chunk_id, text, tokens, chunk_idx, doc_id` 等が含まれる。
+**概要**: チャンクをメタデータ付きCSVで保存。オプションでシンプルCSV（Textカラムのみ）も同時出力。出力CSVには `chunk_id, text, tokens, chunk_idx, dataset_type, type, sentence_count, source_file` が含まれる。
 
 ```python
 def save_chunks_as_csv(
@@ -649,18 +635,18 @@ def save_chunks_as_csv(
 | 項目        | 内容                                                                                                                                                           |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Input**   | `chunks: List[str]`, `output_file: str`                                                                                                                        |
-| **Process** | 1. 各チャンクの改行正規化（オプション）<br>2. メタデータ付きCSV生成（chunk_id, text, tokens, chunk_idx, doc_id等）<br>3. `save_simple_csv=True`時、`_simple.csv`も出力 |
+| **Process** | 1. 各チャンクの改行正規化（オプション）<br>2. メタデータ付きCSV生成（chunk_id, text, tokens, chunk_idx, dataset_type, type, sentence_count, source_file）<br>3. `save_simple_csv=True`時、シンプルCSVも出力 |
 | **Output**  | `str`: 保存したCSVファイルパス                                                                                                                                 |
 
 ---
 
-### 4.4 AsyncAPIClient クラス（Anthropic）
+### 4.4 AsyncAPIClient クラス
 
-Anthropic APIへの非同期呼び出しを管理。`anthropic.AsyncAnthropic` を使い、Semaphoreで並列数を制御、指数バックオフでリトライする。構造化出力は **Tool Use 強制**（`tool_choice` でツールを必須化し `tool_use` ブロックの入力を取得）で実現。固定指示文は `cache_control: ephemeral` でプロンプトキャッシュされる。
+LLM APIへの非同期呼び出しを管理。Semaphoreで並列数を制御し、指数バックオフでリトライする。構造化出力は `response_schema`（Pydanticモデル）と `response_mime_type="application/json"` 指定で実現し、不完全/切断レスポンスを検出して再試行する。
 
 #### コンストラクタ: `__init__`
 
-**概要**: Anthropic APIクライアントの初期化。並列数制御用Semaphoreとリトライ設定を構成する。
+**概要**: 非同期LLMクライアントの初期化。並列数制御用Semaphoreとリトライ設定を構成する。
 
 ```python
 AsyncAPIClient(
@@ -674,7 +660,7 @@ AsyncAPIClient(
 
 | パラメータ          | 型  | デフォルト | 説明                    |
 | ------------------- | --- | ---------- | ----------------------- |
-| `api_key`           | str | -          | Anthropic API Key       |
+| `api_key`           | str | -          | LLM API Key             |
 | `max_workers`       | int | 8          | 並列数（Semaphore上限） |
 | `max_retries`       | int | 3          | リトライ回数            |
 | `max_output_tokens` | int | 8192       | 出力トークン制限        |
@@ -683,12 +669,12 @@ AsyncAPIClient(
 | 項目        | 内容                                                  |
 | ----------- | ----------------------------------------------------- |
 | **Input**   | `api_key: str`, `max_workers: int`                    |
-| **Process** | AsyncAnthropic初期化、Semaphore作成、統計カウンタ初期化 |
+| **Process** | クライアント初期化、Semaphore作成、統計カウンタ初期化 |
 | **Output**  | AsyncAPIClientインスタンス                            |
 
 #### メソッド: `generate_content`
 
-**概要**: Semaphoreで並列数を制御しながらAnthropic API呼び出し。Tool Use強制による構造化出力、不完全JSONの検出とリトライ機能を含む。
+**概要**: Semaphoreで並列数を制御しながらLLM APIを呼び出す。`response_schema` による構造化出力、不完全JSONの検出とリトライ機能を含む。
 
 ```python
 async def generate_content(
@@ -700,11 +686,11 @@ async def generate_content(
 ```
 
 
-| 項目        | 内容                                                                                                                                                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**   | `model: str`, `contents: str`, `response_schema: Type[BaseModel]`                                                                                                                                                             |
-| **Process** | 1. Semaphore取得<br>2. Pydanticスキーマを Tool として定義し `tool_choice` で強制<br>3. `tool_use` ブロックの `input` を取得しJSON文字列化<br>4. レスポンス切断チェック（stop_reason）<br>5. JSON完全性チェック<br>6. 失敗時は指数バックオフでリトライ（最大3回） |
-| **Output**  | `Optional[str]`: JSONレスポンス文字列、全リトライ失敗時はNone                                                                                                                                                                 |
+| 項目        | 内容                                                                                                                                                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Input**   | `model: str`, `contents: str`, `response_schema: Type[BaseModel]`                                                                                                                                            |
+| **Process** | 1. Semaphore取得<br>2. Pydanticスキーマを `response_schema` に指定し JSON出力を強制<br>3. レスポンステキストを取得<br>4. レスポンス切断チェック<br>5. JSON完全性チェック<br>6. 失敗時は指数バックオフでリトライ（最大3回） |
+| **Output**  | `Optional[str]`: JSONレスポンス文字列、全リトライ失敗時はNone                                                                                                                                                 |
 
 ---
 
@@ -764,7 +750,7 @@ def get_resume_point() -> tuple[Optional[str], Optional[List[str]]]
 
 ### 4.6 run_registration()（make_qa_register_qdrant.py）
 
-**概要**: Q/AペアCSVをQdrantに登録する。実処理は `qa_qdrant.register_to_qdrant.register_to_qdrant()` に委譲され、登録後の件数突合検証・来歴payload（chunk_id等）にも対応する。**EmbeddingはGemini（gemini-embedding-001, 3072次元）固定** のため、プロバイダー引数は受け取らない。
+**概要**: Q/AペアCSVをQdrantに登録する。実処理は `qa_qdrant.register_to_qdrant.register_to_qdrant()` に委譲される。Embeddingの既定プロバイダーは **Gemini（gemini-embedding-001, 3072次元）** で、`provider` 引数で切り替え可能。
 
 ```python
 def run_registration(
@@ -772,6 +758,7 @@ def run_registration(
     collection_name: str,
     recreate: bool,
     batch_size: int,
+    provider: str,
     ui_output_dir: str = "qa_output"
 ) -> bool
 ```
@@ -783,13 +770,14 @@ def run_registration(
 | `collection_name` | str  | -           | Qdrantコレクション名       |
 | `recreate`        | bool | -           | コレクションを再作成するか |
 | `batch_size`      | int  | -           | Embeddingバッチサイズ      |
+| `provider`        | str  | -           | Embeddingプロバイダー（既定: gemini） |
 | `ui_output_dir`   | str  | "qa_output" | UI用正規化CSVの出力先      |
 
 
 | 項目        | 内容                                                                                                                                                                                                                                                         |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Input**   | `csv_path: str`, `collection_name: str`                                                                                                                                                                                                                      |
-| **Process** | `register_to_qdrant()` へ委譲: 1. CSV読み込み、question+answerを結合してベクトル化対象テキスト作成<br>2. Gemini Embeddingでベクトル化、コレクション作成/再作成<br>3. バッチアップサート（来歴payload付き）<br>4. 登録件数の突合検証<br>5. UI用正規化CSV出力 |
+| **Input**   | `csv_path: str`, `collection_name: str`, `provider: str`                                                                                                                                                                                                     |
+| **Process** | `register_to_qdrant()` へ委譲: 1. CSV読み込み、question+answerを結合してベクトル化対象テキスト作成<br>2. Gemini Embeddingでベクトル化、コレクション作成/再作成<br>3. バッチアップサート（payload付き・内容ベース決定的ID）<br>4. UI用正規化CSV出力 |
 | **Output**  | `bool`: 成功時True、失敗時False                                                                                                                                                                                                                              |
 
 ---
@@ -809,8 +797,7 @@ def run(
     concurrency: int = 8,
     batch_chunks: int = 3,
     analyze_coverage: bool = True,
-    coverage_threshold: Optional[float] = None,
-    use_smart_generation: bool = True
+    coverage_threshold: Optional[float] = None
 ) -> Dict
 ```
 
@@ -818,10 +805,11 @@ def run(
 | パラメータ             | 型   | デフォルト | 説明                         |
 | ---------------------- | ---- | ---------- | ---------------------------- |
 | `use_celery`           | bool | False      | Celery並列処理を使用するか   |
+| `celery_workers`       | int  | 1          | Celeryワーカープロセス数（チェック用、非推奨） |
 | `concurrency`          | int  | 8          | 並列タスク数                 |
 | `batch_chunks`         | int  | 3          | 1回のAPIで処理するチャンク数 |
 | `analyze_coverage`     | bool | True       | カバレージ分析を実行するか   |
-| `use_smart_generation` | bool | True       | スマートQ/A生成を使用するか  |
+| `coverage_threshold`   | Optional[float] | None | カバレージ判定の類似度閾値（None時は既定値） |
 
 
 | 項目        | 内容                                                                                                                                                                                                                         |
@@ -843,25 +831,33 @@ def run(
 
 ---
 
-### 4.8 combine_rows_to_chunks()（make_qa_register_qdrant.py）
+### 4.8 register_to_qdrant()（register_to_qdrant.py）
 
-**概要**: CSVの複数行を結合してチャンクCSVを作成する。
+**概要**: Q/AペアCSVをEmbeddingでベクトル化しQdrantへ登録する実体関数。Embeddingプロバイダーは既定 `gemini`（gemini-embedding-001, 3072次元）。ポイントIDは内容ベースで決定的に生成され、再実行時もべき等。
 
 ```python
-def combine_rows_to_chunks(
-    df: pd.DataFrame,
-    text_column: str,
-    block_size: int,
-    output_dir: str
-) -> str
+def register_to_qdrant(
+    input_file: str,
+    collection_name: str,
+    recreate: bool = False,
+    batch_size: int = 100,
+    text_col: Optional[str] = None,
+    domain: Optional[str] = None,
+    max_docs: Optional[int] = None,
+    provider: str = "gemini",
+    normalize_filename: bool = True,
+    create_ui_csv: bool = True,
+    ui_output_dir: str = "qa_output",
+    embed_workers: int = 2,
+) -> bool
 ```
 
 
 | 項目        | 内容                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **Input**   | `df: pd.DataFrame`, `text_column: str`, `block_size: int`                                                                           |
-| **Process** | 1. block_size行ごとにテキストを結合<br>2. 空行フィルタリング<br>3. チャンクCSV出力（chunk_id, text, start_row, end_row, row_count） |
-| **Output**  | `str`: 作成されたチャンクCSVのパス                                                                                                  |
+| **Input**   | `input_file: str`, `collection_name: str`, `provider: str = "gemini"`                                                               |
+| **Process** | 1. CSV読み込み（question/answer列）<br>2. question+answer結合→Gemini Embeddingでベクトル化（`embed_workers` 並列）<br>3. コレクション作成/再作成<br>4. 決定的IDでバッチアップサート<br>5. UI用正規化CSV出力（`create_ui_csv`） |
+| **Output**  | `bool`: 成功時True、失敗時False                                                                                                     |
 
 ---
 
@@ -963,14 +959,14 @@ uv run streamlit run agent_rag.py
 ### 6.4 CLIでの実行（3段階パイプライン）
 
 ```bash
-# Step 1: チャンク分割（チャンクは claude-haiku-4-5-20251001 で十分）
+# Step 1: チャンク分割（軽量用途は claude-haiku-4-5-20251001）
 uv run python -m chunking.csv_text_to_chunks_text_csv \
   --input-file OUTPUT/cc_news_2per.csv \
   --output output_chunked \
   --model claude-haiku-4-5-20251001 \
   --workers 2
 
-# Step 2+3: Q/A生成 + Qdrant登録（Embeddingは常にGemini固定）
+# Step 2+3: Q/A生成 + Qdrant登録（Embeddingは既定でGemini）
 uv run python qa_qdrant/make_qa_register_qdrant.py \
   --input-file output_chunked/cc_news_2per_chunks.csv \
   --collection cc_news_2per_anthropic \
@@ -980,7 +976,7 @@ uv run python qa_qdrant/make_qa_register_qdrant.py \
   --recreate
 ```
 
-> チャンク出力は既定で **固定ファイル名**（`cc_news_2per_chunks.csv`）。日時サフィックスが必要な場合のみ `--timestamp` を付与する。チャンクCSVと対になる `*.manifest.json`（カバレッジ・パラメータ記録）も同時出力される。
+> チャンク出力は入力ファイル名から **固定ファイル名**（`{入力ステム}_chunks.csv`）として生成される（例: `cc_news_2per.csv` → `cc_news_2per_chunks.csv`）。`save_chunks_as_csv()` はメタデータ付きCSVとシンプルCSVを同時出力する。
 
 ### 6.5 動作確認
 
@@ -1047,24 +1043,30 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 
 ## 8. 設定・定数
 
-### 8.1 ModelConfig（Anthropic LLM）
+### 8.1 ModelConfig（LLM）
 
-Anthropic Claude API関連の設定（`config.py`）。
+LLMモデル設定（`config.py`）。料金・トークン制限を保持し、`supports_temperature()` / `get_model_limits()` / `get_model_pricing()` を提供する。本ドキュメントでは推奨LLMとして **Anthropic Claude** を採用する。
 
 ```python
 class ModelConfig:
     DEFAULT_MODEL = "claude-sonnet-4-6"   # 推奨デフォルト（バランス型）
-    # 利用可能: claude-opus-4-7, claude-opus-4-6, claude-sonnet-4-5,
-    #           claude-haiku-4-5-20251001（高速・低コスト。チャンク用途に推奨）
-    DEFAULT_THINKING_LEVEL = "low"
-    DEFAULT_TEMPERATURE = 1.0
+    # 軽量用途（チャンク分割等）には claude-haiku-4-5-20251001 を推奨
+
+    @classmethod
+    def supports_temperature(cls, model: str) -> bool: ...
+    @classmethod
+    def get_model_limits(cls, model: str) -> Dict[str, int]: ...
+    @classmethod
+    def get_model_pricing(cls, model: str) -> Dict[str, float]: ...
 ```
 
 
 | キー                     | デフォルト値             | 説明                                      |
 | ------------------------ | ------------------------ | ----------------------------------------- |
-| `DEFAULT_MODEL`          | "claude-sonnet-4-6"      | デフォルトLLMモデル                       |
-| `DEFAULT_THINKING_LEVEL` | "low"                    | 思考レベル（low/high）                    |
+| `DEFAULT_MODEL`          | "claude-sonnet-4-6"      | 推奨デフォルトLLMモデル                   |
+| `AVAILABLE_MODELS`       | （モデル一覧）           | 利用可能モデル一覧                        |
+
+> 思考レベル（`DEFAULT_THINKING_LEVEL`）・`DEFAULT_TEMPERATURE` は `GeminiConfig` 側に定義される。
 
 ### 8.2 GeminiConfig（Embedding）
 
@@ -1108,7 +1110,7 @@ Celery並列処理設定。
 | 定数                          | 値   | 用途                                                          |
 | ----------------------------- | ---- | ------------------------------------------------------------- |
 | `MAX_CHUNK_TOKENS`            | 512  | チャンク最大トークン数（Step3結合上限・最終強制分割上限）     |
-| `EMBEDDING_INPUT_TOKEN_LIMIT` | 2048 | Embedding入力上限。max_chunk_tokens がこれ以上だと警告        |
+| `EMBEDDING_INPUT_TOKEN_LIMIT` | 2048 | Embedding入力トークン上限の目安（MAX_CHUNK_TOKENS=512 はこの範囲内） |
 
 3段階チャンク処理で使用するプロンプト（`chunking/prompts.py`）:
 
@@ -1117,7 +1119,7 @@ Celery並列処理設定。
 | ----------------------------- | ------------------------------------------------- |
 | `PARAGRAPH_SEPARATION_PROMPT` | Step1: 空行ベースの段落分割ルール                 |
 | `SEMANTIC_CHUNKING_PROMPT`    | Step2: 意味のまとまり（トピック）ベースの再構成   |
-| `CONTINUITY_CHECK_PROMPT`     | Step3: 隣接チャンクの文脈連続性判定（True/False。continuity_mode=llm 時のみ使用） |
+| `CONTINUITY_CHECK_PROMPT`     | Step3: 隣接チャンクの文脈連続性判定（`is_connected` True/False） |
 
 ### 8.6 カバレージ分析の閾値（evaluation.py v3.0）
 
@@ -1159,48 +1161,64 @@ Celery並列処理設定。
 ```python
 # 使用例: チャンク分割をPythonから実行
 import asyncio
-from chunking import chunks_all_async, load_documents_from_csv
+from chunking import chunks_all_async, load_text_from_csv
 
-# CSVを1行=1文書として読み込み（文書境界を保持）
-documents = load_documents_from_csv("OUTPUT/cc_news_1per.csv")
+# CSVをテキストとして読み込み（必要なら全行結合）
+text = load_text_from_csv("OUTPUT/cc_news_1per.csv", combine_rows=True)
 
 # チャンク分割
 chunks = asyncio.run(chunks_all_async(
-    documents=documents,
+    text=text,
     model="claude-sonnet-4-6",
     max_workers=8,
-    continuity_mode="rule",
+    block_size=1000,
     output_file="output_chunked/result.csv"
 ))
 print(f"生成チャンク数: {len(chunks)}")
 ```
 
-### 9.3 応用ワークフロー（テキストファイルからの一括処理）
+### 9.3 Q/A生成のみ / 登録のみ（個別CLI）
 
 ```bash
-# テキストファイルから直接Q/A生成+登録
-uv run python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file data/document.txt \
+# Q/A生成のみ（qa_qdrant/make_qa.py → QAPipeline.run()）
+uv run python qa_qdrant/make_qa.py \
+  --input-file output_chunked/cc_news_2per_chunks.csv \
+  --model claude-sonnet-4-6 \
+  --use-celery \
+  --concurrency 8 \
+  --analyze-coverage
+
+# 既存Q/AペアCSVをQdrant登録のみ（register_to_qdrant.py）
+uv run python qa_qdrant/register_to_qdrant.py \
+  --input-file qa_output/pipeline/qa_pairs.csv \
   --collection my_collection \
+  --provider gemini \
+  --recreate
+```
+
+### 9.4 データセット指定・テキストカラム指定
+
+```bash
+# 登録済みデータセット定義から実行（--dataset と --input-file は排他）
+uv run python qa_qdrant/make_qa_register_qdrant.py \
+  --dataset wikipedia_ja \
+  --collection wikipedia_ja_anthropic \
   --model claude-sonnet-4-6 \
   --use-celery \
   --concurrency 8 \
   --recreate
-```
 
-### 9.4 CSV行結合オプション
-
-```bash
-# CSV行を結合してチャンク化（大量の短い行がある場合）
+# テキストカラムを明示指定（既定は "text"）
 uv run python qa_qdrant/make_qa_register_qdrant.py \
   --input-file OUTPUT/cc_news_5per.csv \
   --collection cc_news_5per \
-  --use-celery \
   --text-column text \
-  --combine-rows \
-  --block-size 400 \
+  --provider gemini \
+  --batch-size 100 \
   --recreate
 ```
+
+> 主なCLIフラグ: `--input-file`/`--dataset`（排他）, `--text-column`(既定 text), `--model`, `--use-celery`, `-c/--concurrency`(既定 8), `--batch-chunks`(既定 3), `--collection`(必須), `--recreate`, `--batch-size`(既定 100), `--provider`(既定 gemini), `--output`, `--ui-output`。
 
 ---
 
@@ -1226,8 +1244,8 @@ anthropic_grace_agent/
 │
 ├── chunking/                         # ★ チャンク分割パッケージ
 │   ├── __init__.py                   # パッケージエクスポート
-│   ├── csv_text_to_chunks_text_csv.py  # ★ メイン: 3段階チャンク分割（Anthropic）
-│   ├── async_api_client.py           # Anthropic 非同期クライアント（Tool Use）
+│   ├── csv_text_to_chunks_text_csv.py  # ★ メイン: 3段階チャンク分割（LLMベース）
+│   ├── async_api_client.py           # 非同期LLMクライアント（構造化出力）
 │   ├── checkpoint_manager.py         # チェックポイント管理
 │   ├── models.py                     # Pydanticモデル定義
 │   ├── prompts.py                    # 3種のプロンプト定義
@@ -1236,7 +1254,7 @@ anthropic_grace_agent/
 │
 ├── qa_generation/                    # ★ Q/A生成パッケージ（v3.0）
 │   ├── pipeline.py                   # QAPipelineクラス（チャンク済みCSV専用）
-│   ├── smart_qa_generator.py         # SmartQAGenerator（Tool Use構造化出力）
+│   ├── smart_qa_generator.py         # SmartQAGenerator（構造化出力1回）
 │   ├── evaluation.py                 # カバレージ分析（統一閾値）
 │   ├── semantic.py                   # SemanticCoverage
 │   ├── data_io.py                    # データ入出力
@@ -1267,7 +1285,7 @@ anthropic_grace_agent/
 ├── docker-compose/                   # Docker設定
 │   └── docker-compose.yml
 │
-├── output_chunked/                   # チャンク分割出力（CSV + manifest.json）
+├── output_chunked/                   # チャンク分割出力（メタCSV + シンプルCSV）
 ├── qa_output/                        # 生成されたQ/Aデータ
 ├── OUTPUT/                           # 前処理済みデータ
 ├── logs/                             # ログ
@@ -1322,15 +1340,16 @@ __all__ = [
     "SentenceUnit", "ParagraphUnit", "StructuralResult", "ContinuityResult",
     # Prompts
     "PARAGRAPH_SEPARATION_PROMPT", "SEMANTIC_CHUNKING_PROMPT", "CONTINUITY_CHECK_PROMPT",
-    # API Client（Anthropic）
+    # API Client
     "AsyncAPIClient",
     # Checkpoint
     "CheckpointManager",
     # Main Processor
-    "chunks_all_async", "load_documents_from_csv", "load_text_from_csv",
-    "save_chunks_as_csv", "save_chunks_as_simple_csv",
+    "chunks_all_async", "load_text_from_csv",
+    "save_chunks_as_csv", "save_chunks_as_text",
     # Utils
     "show_paragraphs", "setup_logging", "format_time", "format_size", "estimate_api_calls",
+    "__version__",
 ]
 ```
 
@@ -1338,14 +1357,22 @@ __all__ = [
 
 ```python
 __all__ = [
-    # クライアント
-    "QdrantHealthChecker", "create_qdrant_client", "get_qdrant_client",
+    # 定数・プロバイダー設定
+    "QDRANT_CONFIG", "DEFAULT_EMBEDDING_MODEL", "DEFAULT_VECTOR_SIZE",
+    "DEFAULT_EMBEDDING_PROVIDER", "PROVIDER_DEFAULTS",
+    # クライアント・ヘルスチェック
+    "QdrantHealthChecker", "QdrantDataFetcher", "create_qdrant_client", "get_qdrant_client",
     # コレクション管理
-    "create_or_recreate_collection", "get_collection_stats", "get_all_collections",
-    # 埋め込み
-    "embed_texts_unified", "embed_query_unified",
-    # ポイント操作
-    "build_points", "upsert_points",
+    "create_or_recreate_collection", "create_collection_for_provider",
+    "get_collection_stats", "get_all_collections", "delete_all_collections",
+    "get_provider_vector_size",
+    # 埋め込み（抽象化版 + レガシー）
+    "embed_texts_unified", "embed_query_unified", "embed_texts", "embed_query",
+    "get_embedding_client", "get_cached_sparse_embedding_client",
+    "embed_sparse_texts_unified", "embed_sparse_query_unified",
+    # データ・ポイント操作
+    "load_csv_for_qdrant", "build_inputs_for_embedding",
+    "stable_point_id", "build_points", "upsert_points", "batched",
     # 検索
     "search_collection",
 ]
@@ -1363,6 +1390,7 @@ __all__ = [
 | 2.0        | フォーマット仕様書準拠で全面再構成。LLMベース3段階チャンク分割（csv_text_to_chunks_text_csv.py）導入。Gemini Embedding（gemini-embedding-001, 3072次元）に統一。make_qa_register_qdrant.py統合パイプライン追加。IPO詳細追加。 |
 | 3.0        | 最新化（2026-06-12）。チャンキングをAnthropic（`AsyncAPIClient` の Tool Use 構造化出力・`ANTHROPIC_API_KEY`）へ統一、CLI/シグネチャを実装に追従（`documents`/`continuity_mode`/`max_chunk_tokens=512`、`load_documents_from_csv` による文書境界保証・`doc_id`・カバレッジ検証・manifest出力、`--timestamp`/`--max-chunk-tokens`/`--continuity-mode` 等）。3段階パイプライン（チャンキング/Q/A生成/Qdrant登録）として整理。`QAPipeline` v3.0（チャンク処理分離）・`SmartQAGenerator` v3.0（`analyze_and_generate()` 構造化出力1回）・`evaluation.py` v3.0（統一閾値）を反映。`run_registration()` は `register_to_qdrant` へ委譲（Embedding=Gemini固定）。存在しないファイル参照（setup.py / server.py / a-prefixed scripts）を削除。Mermaid黒背景スタイル準拠に修正。`GeminiConfig` を追記、uv 実行に統一。 |
 | 3.1        | 最新化（2026-06-16）。技術スタック表記をAnthropic Claude（LLM）へ統一して再確認（LLM用途のGemini表記なし・既定 `claude-sonnet-4-6` / 軽量 `claude-haiku-4-5-20251001`・LLM設定クラス `ModelConfig`・LLM鍵 `ANTHROPIC_API_KEY`）。Embedding=Gemini（`gemini-embedding-001`, 3072次元, `GeminiConfig`, `GOOGLE_API_KEY`/`GEMINI_API_KEY`）は意図的に維持。全Mermaid図の黒背景・白文字スタイル準拠を再検証。 |
+| 3.2        | 最新化（2026-06-17）。現行ソースへシグネチャ/CLI/既定値を追従。`chunks_all_async(text, model, max_workers, block_size, ...)` の実シグネチャに修正（存在しない `documents`/`continuity_mode`/`max_chunk_tokens` 引数・`load_documents_from_csv`/`_report_coverage`/`_write_manifest`/manifest出力・`--timestamp` の記述を削除）。`load_text_from_csv(..., combine_rows)`・出力CSV列（chunk_id/text/tokens/chunk_idx/dataset_type/type/sentence_count/source_file）・出力命名 `{ステム}_chunks.csv` を反映。`AsyncAPIClient` を `response_schema` 構造化出力（Tool Use/プロンプトキャッシュ記述を撤廃）として記述。`register_to_qdrant()` 実シグネチャ（`provider="gemini"`/`embed_workers` 等）・`run_registration(..., provider, ...)`・`make_qa_register_qdrant.py` のCLIフラグ（`--provider`/`--text-column`/`--batch-chunks` 等、`--combine-rows`/`--block-size` は非対応）を追加し、実在しない `combine_rows_to_chunks()` を削除。`QAPipeline.run()` から非対応の `use_smart_generation` を除去。`__init__` エクスポート（`save_chunks_as_text`・`load_text_from_csv`）と `qdrant_client_wrapper` の `__all__` を実体へ追従。`ModelConfig`/`GeminiConfig` のメソッド帰属を訂正（`supports_thinking_level` は `GeminiConfig`）。LLM=Anthropic Claude（`claude-sonnet-4-6`）・Embedding=Gemini（`gemini-embedding-001`, 3072次元）の方針は維持。 |
 
 ---
 
@@ -1375,7 +1403,7 @@ flowchart LR
     REG["register_to_qdrant.py"]
 
     subgraph ANTHROPIC["anthropic"]
-        ANT_LLM["AsyncAnthropic LLM生成（Tool Use）"]
+        ANT_LLM["Anthropic Claude LLM生成（構造化出力）"]
     end
 
     subgraph GOOGLE["google-genai"]
