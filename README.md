@@ -41,6 +41,31 @@
 
 ---
 
+## ドキュメント ↔ 対応コード 対応表
+
+各ドキュメントが「どのソースコードを説明・対象としているか」の対応表です。ドキュメントを最新化する際は、対応するコードを精読して整合させてください。
+
+| # | ドキュメント | 主な対応コード | 補助的に参照するコード |
+|---|---|---|---|
+| 0 | [README.md](./README.md)（プロジェクト全体・UIエントリ） | `agent_rag.py`（Streamlit エントリ） | `ui/app.py`, `ui/pages/*`, `ui/components/*`、および全パイプライン（`grace/`, `chunking/`, `qa_qdrant/`, `qa_generation/`, `services/`, `helper/`） |
+| 1 | [docs/setup_and_install.md](./docs/setup_and_install.md)（セットアップ・インストール） | `pyproject.toml`, `uv.lock`, `requirements.txt`, `docker-compose/docker-compose.yml` | `config.py` / `config.yml`, `.env`, `helper/helper_llm.py`, `helper/helper_embedding.py`（APIキー確認） |
+| 2 | [readme_make_env.md](./readme_make_env.md)（Mac環境構築） | `requirements.txt`, `pyproject.toml`, `docker-compose/docker-compose.yml`, `.env` | `config.py`（`GraceConfig`）, `config.yml` |
+| 3 | [docs/uv_install.md](./docs/uv_install.md)（uv パッケージ管理） | `pyproject.toml`, `uv.lock` | `requirements.txt` |
+| 4 | [down_load_non_qa_rag_data_from_huggingface.md](./down_load_non_qa_rag_data_from_huggingface.md)（RAGデータ取得） | `down_load_non_qa_rag_data_from_huggingface.py` | `datasets/` 配下 |
+| 5 | [readme_usage_tools.md](./readme_usage_tools.md)（RAGツール操作手順） | `chunking/csv_text_to_chunks_text_csv.py`, `qa_qdrant/make_qa_register_qdrant.py`, `qa_qdrant/register_to_qdrant.py` | `chunking/*`（`async_api_client.py`, `checkpoint_manager.py`, `prompts.py` 等）, `qa_qdrant/make_qa.py` |
+| 6 | [readme_rag.md](./readme_rag.md)（RAG Q/A生成・検索システム設計） | `chunking/`, `qa_generation/`（`semantic.py`, `smart_qa_generator.py`, `pipeline.py`, `evaluation.py`）, `qa_qdrant/`, `qdrant_client_wrapper.py` | `helper/helper_rag*.py`, `helper/helper_embedding*.py`, `services/qdrant_service.py`, `models.py` |
+| 7 | [docs/agent_rag.md](./docs/agent_rag.md)（Streamlitアプリ設計書） | `agent_rag.py` | `ui/app.py`, `ui/pages/*`（`grace_chat_page.py`, `agent_chat_page.py`, `qdrant_*` 等）, `ui/components/*` |
+| 8 | [readme_react_reflection.md](./readme_react_reflection.md)（ReAct+Reflectionエージェント） | `services/agent_service.py`（`ReActAgent`） | `agent_main.py`, `agent_tools.py`, `agent_parallel_search.py`, `agent_cache.py`, `ui/pages/agent_chat_page.py`, `services/qa_service.py`, `services/qdrant_service.py`, `helper/helper_llm.py`, `helper/helper_embedding*.py` |
+| 9 | [readme_autonomous_agent.md](./readme_autonomous_agent.md)（自律型Agent — GRACE） | `grace/` パッケージ（`planner.py`, `executor.py`, `confidence.py`, `intervention.py`, `replan.py`, `calibration.py`, `llm_compat.py`, `schemas.py`, `config.py`, `tools.py`） | `grace/benchmark.py`, `ui/pages/grace_chat_page.py`, `ui/components/grace_components.py` |
+
+**補足:**
+
+- `agent_rag.py` は Streamlit アプリのエントリで、`ui/pages/` 配下の各ページを束ねます。README.md（#0）と docs/agent_rag.md（#7）はこのアプリ層が主対象です。
+- #8（ReAct+Reflection）と #9（GRACE）は別系統のエージェントです。ReAct は `services/agent_service.py`（google-genai 直叩き＋Reflection フェーズ・レガシー経路で、モデル名は Gemini 系へ自動フォールバック）、GRACE は `grace/` パッケージ（Plan→Execute→Confidence→Intervention→Replan、`grace/llm_compat.py` 経由で Anthropic Claude 既定）。
+- 技術スタック規約：LLM = Anthropic Claude（`claude-sonnet-4-6`、`grace/llm_compat.py` 経由）、Embedding = Gemini（`gemini-embedding-001`・3072次元）。ただしチャンキング/Q&A 生成の CLI ツール（`chunking/`・`qa_qdrant/`）は argparse 既定が `gemini-2.5-flash` で、`--model claude-sonnet-4-6` で上書き可能。
+
+---
+
 ## （自律型Agent）grace_chat_page.py
 
 画面（UIエントリポイント）： `streamlit run agent_rag.py`
@@ -101,7 +126,7 @@ uv run streamlit run agent_rag.py --server.port 8501
 
 LLM プロバイダー / モデルは `grace/config.py` の `LLMConfig`（`provider="anthropic"`, `model="claude-sonnet-4-6"`）、Embedding は `EmbeddingConfig`（`provider="gemini"`, `model="gemini-embedding-001"`, `dimensions=3072`）が既定値です。
 
-**Version 4.1** | 最終更新: 2026-06-17
+**Version 4.2** | 最終更新: 2026-06-17
 
 ---
 
@@ -1702,6 +1727,7 @@ Step 3: ✅ success (信頼度: 0.85)
 | **3.0**    | **2026-02-17** | **ドキュメント体系の整備**。主な変更: (1) 冒頭ドキュメント一覧表を5件に拡張（readme_rag.md / readme_react_reflection.md / readme_autonomous_agent.md を追加）、(2) 番号付きリンク表で参照順を明示 |
 | **4.0**    | **2026-06-16** | **技術スタック統一とドキュメント再構築**。主な変更: (1) LLM プロバイダー表記を Gemini → Anthropic Claude に統一（タイトル / 設定クラス `GeminiConfig`→`ModelConfig` / デフォルト `claude-sonnet-4-6`・軽量 `claude-haiku-4-5-20251001` / LLM用APIキー `ANTHROPIC_API_KEY`）。**Embedding は Gemini（`gemini-embedding-001`・3072次元）のまま維持**、(2) アーカイブ済みドキュメント（移行計画 v2・各種 API 移行ガイド・benchmark_todo・grace_react_refactor_todo）を docs/archive/ へのリンクに整理し、壊れた R3 リンク（plan_for_migration.md）を削除、(3) 全 Mermaid 図を黒背景・白文字スタイルに統一（classDef/class/style 付与、sequenceDiagram は init ヘッダー付与） |
 | **4.1**    | **2026-06-17** | **現行コードとの整合更新**。主な変更: (1) UI エントリポイントを `streamlit run agent_rag.py` と明記し、`agent_rag.py::main()` の実際の `st.radio` メニュー（explanation / qdrant_search / agent_chat / grace_chat / log_viewer / rag_data_creation / qdrant_crud）に合わせて付録A.1ページ一覧を修正（旧 `rag_download` / `qa_generation` / `qdrant_registration` / `show_qdrant` は `ui/pages/` に在るが未接続である旨を注記）、(2) RAGデータ作成パイプライン（チャンク分割 → Q/A生成＋Qdrant登録）の CLI コマンドと冒頭技術スタック表を追加（LLM=Anthropic Claude `claude-sonnet-4-6`、ルーティング `grace/llm_compat.py`、Embedding=Gemini `gemini-embedding-001` 3072次元）、(3) ドキュメント索引リンクの実在性を再検証 |
+| **4.2**    | **2026-06-17** | **「ドキュメント ↔ 対応コード 対応表」を追加**。10ドキュメント（README 含む）が対象とするソースコードの対応関係を一覧化し、ReAct（`services/agent_service.py`・google-genai 直叩き）と GRACE（`grace/`・`llm_compat` 経由 Anthropic Claude）の系統差、CLI ツールの既定モデル（`gemini-2.5-flash`、`--model` 上書き可）を注記 |
 
 ---
 
