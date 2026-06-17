@@ -1,6 +1,6 @@
-# make_qa_register_qdrant.py - Q/A生成+Qdrant登録 統合CLIツール ドキュメント
+# make_qa_register_qdrant.py - Q/A生成からQdrant登録までを完結する統合CLIツール ドキュメント
 
-**Version 1.0** | 最終更新: 2025-01-29
+**Version 2.0** | 最終更新: 2026-06-17
 
 ---
 
@@ -11,40 +11,49 @@
 3. [モジュール構成図](#2-モジュール構成図)
 4. [クラス・関数一覧表](#3-クラス関数一覧表)
 5. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
-6. [CLI引数仕様](#5-cli引数仕様)
+6. [設定・定数](#5-設定定数)
 7. [使用例](#6-使用例)
-8. [変更履歴](#7-変更履歴)
-9. [付録: 依存関係図](#付録-依存関係図)
+8. [エクスポート](#7-エクスポート)
+9. [変更履歴](#8-変更履歴)
+10. [付録: 依存関係図](#付録-依存関係図)
 
 ---
 
 ## 概要
 
-`make_qa_register_qdrant.py`は、チャンクCSVまたはテキストファイルからQ/Aペアを生成し、Qdrantベクトルデータベースに登録するまでを一括で行う統合CLIツール。Celery並列処理に対応し、大規模データの効率的な処理が可能。
+`make_qa_register_qdrant.py`は、チャンク済みCSV（またはテキストファイル/事前定義データセット）から **Q/Aペアを自動生成**（`QAPipeline` 経由・`SmartQAGenerator` の構造化出力1回、Celery 並列対応）し、続けて **Qdrant ベクトルDBへ登録**するまでを一気通貫で実行する統合 CLI ツールです。
+
+LLM は `Anthropic Claude`（`claude-sonnet-4-6`）、Embedding は `Gemini Embedding`（`gemini-embedding-001`、3072次元）を利用し、Celery+Redis による並列タスク実行に対応します。
 
 ### 主な責務
 
-- 入力ファイル（CSV/TXT）の読み込みと形式判定
-- CSVの複数行を結合してチャンク化（オプション）
-- `QAPipeline`によるQ/Aペア生成
-- 生成されたQ/AペアのQdrantへの登録
-- UI用正規化CSVの自動生成
-- Celery並列処理によるスケーラブルな処理
+- 入力ソース（事前定義データセット / `.txt` / `.csv`）の判定と検証
+- ファイル形式・CSV カラム構成に応じた処理分岐（Q/A 生成スキップ判定）
+- `QAPipeline` を用いた Q/A ペア生成（Phase 1）
+- 生成 Q/A ペアCSVの Qdrant コレクションへの登録（Phase 2）
+- ベクトル化対象テキストの正規化（`question` のみベクトル化、検索クエリとの対称性確保）
+- UI 参照用の正規化済み Q/A CSV の出力
+- Celery 並列処理（`--concurrency`）の制御とログ通知
+
+### 各責務対応のモジュール
+
+| # | 責務 | 対応モジュール | 説明 |
+|---|------|--------------|------|
+| 1 | 入力ソース判定・検証 | `make_qa_register_qdrant.py`（`main`） | `--dataset` / `--input-file` 排他チェック、APIキー検証 |
+| 2 | ファイル形式分岐 | `make_qa_register_qdrant.py`（`main`） | `.txt`/`.csv` 判定、`question`+`answer`/テキストカラム判定 |
+| 3 | Q/Aペア生成 | `qa_generation.pipeline.QAPipeline` | スマート生成（構造化出力1回・0〜5個動的決定） |
+| 4 | Qdrant登録 | `make_qa_register_qdrant.py`（`run_registration`） | Embedding バッチ生成 → Point 構築 → Upsert |
+| 5 | ベクトル化テキスト正規化 | `services.qdrant_service` | `embed_texts_for_qdrant` / `build_points_for_qdrant` |
+| 6 | UI 用 CSV 出力 | `make_qa_register_qdrant.py`（`run_registration`） | 正規化ファイル名で `question`/`answer` を保存 |
+| 7 | Celery 並列制御 | `qa_generation.pipeline.QAPipeline.run` | `use_celery` / `concurrency` を委譲 |
 
 ### 主要機能一覧
 
 | 機能 | 説明 |
 |------|------|
-| `normalize_source_filename()` | ファイル名から日時サフィックスを除去 |
-| `combine_rows_to_chunks()` | CSVの複数行を結合してチャンクCSVを作成 |
-| `run_registration()` | Q/AペアCSVをQdrantに登録 |
-| `main()` | CLIエントリーポイント（2フェーズ統合処理） |
-
-### 前提条件
-
-- Qdrant Dockerコンテナが起動していること（`docker-compose up -d`）
-- `GOOGLE_API_KEY` 環境変数が設定されていること
-- Celery使用時は事前にワーカーを起動（`./start_celery.sh restart -c 8`）
+| `normalize_source_filename()` | ファイル名から日時サフィックス（`_YYYYMMDD_HHMMSS`）を除去して UI 参照名を安定化 |
+| `run_registration()` | Phase 2: Q/A ペアCSV を読み込み Qdrant に Upsert（UI 用 CSV も出力） |
+| `main()` | CLI エントリーポイント（引数解析 → Phase 1 → Phase 2 → サマリー） |
 
 ---
 
@@ -54,70 +63,70 @@
 
 ```mermaid
 flowchart TB
-    subgraph CLI["CLIレイヤー"]
-        USER[ユーザー]
-        TERMINAL[ターミナル]
+    subgraph CLIENT["クライアント層"]
+        USER["ユーザー / CLI"]
+        SH["start_celery.sh"]
     end
 
-    subgraph ENTRY["エントリーポイント"]
-        MAIN[make_qa_register_qdrant.py]
+    subgraph MODULE["make_qa_register_qdrant.py"]
+        MAIN["main()"]
+        NORM["normalize_source_filename()"]
+        RUNREG["run_registration()"]
     end
 
-    subgraph PHASE1["Phase 1: Q/A生成"]
-        PIPELINE[QAPipeline]
-        SMART_GEN[SmartQAGenerator]
-        CELERY[Celery Workers]
-    end
-
-    subgraph PHASE2["Phase 2: Qdrant登録"]
-        REG_FUNC[run_registration]
-        QDRANT_SVC[qdrant_service.py]
+    subgraph INTERNAL["内部依存モジュール"]
+        PIPE["qa_generation.pipeline.QAPipeline"]
+        SMART["SmartQAGenerator"]
+        QSVC["services.qdrant_service"]
+        QCW["qdrant_client_wrapper"]
+        CFG["config.DATASET_CONFIGS"]
     end
 
     subgraph EXTERNAL["外部サービス層"]
-        GEMINI_LLM[Gemini LLM API]
-        GEMINI_EMB[Gemini Embedding API]
-        QDRANT[(Qdrant Vector DB)]
+        CLAUDE["Anthropic Claude (claude-sonnet-4-6)"]
+        GEMINI["Gemini Embedding (gemini-embedding-001 / 3072d)"]
+        QDRANT[("Qdrant (localhost:6333)")]
+        BROKER["Celery + Redis (localhost:6379)"]
     end
 
-    subgraph STORAGE["ストレージ層"]
-        INPUT[入力ファイル<br>CSV/TXT]
-        QA_CSV[Q/AペアCSV]
-        UI_CSV[UI用CSV]
-    end
-
-    USER --> TERMINAL
-    TERMINAL --> MAIN
-    MAIN --> PIPELINE
-    PIPELINE --> SMART_GEN
-    PIPELINE -.->|use_celery| CELERY
-    CELERY --> GEMINI_LLM
-    SMART_GEN --> GEMINI_LLM
-    PIPELINE --> QA_CSV
-
-    MAIN --> REG_FUNC
-    REG_FUNC --> QDRANT_SVC
-    QDRANT_SVC --> GEMINI_EMB
-    QDRANT_SVC --> QDRANT
-    REG_FUNC --> UI_CSV
-
-    INPUT --> MAIN
-    QA_CSV --> REG_FUNC
+    USER --> MAIN
+    SH --> BROKER
+    MAIN --> NORM
+    MAIN --> RUNREG
+    MAIN --> PIPE
+    MAIN --> CFG
+    PIPE --> SMART
+    PIPE -.->|use_celery| BROKER
+    SMART --> CLAUDE
+    RUNREG --> QSVC
+    RUNREG --> QCW
+    QSVC --> GEMINI
+    QSVC --> QDRANT
+    QCW --> QDRANT
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class USER,SH,MAIN,NORM,RUNREG,PIPE,SMART,QSVC,QCW,CFG,CLAUDE,GEMINI,QDRANT,BROKER default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
 
-1. ユーザーがCLI引数（入力ファイル、コレクション名等）を指定して実行
-2. **Phase 1**: 入力ファイルを判定し、`QAPipeline`でQ/Aペアを生成
-3. **Phase 2**: 生成されたQ/AペアCSVをQdrantに登録
-4. UI用正規化CSVを生成して完了
+1. ユーザーが CLI 引数（`--input-file` または `--dataset`、`--collection` 等）を指定して実行
+2. **Phase 1**: 入力ファイル形式を判定し、`QAPipeline.run()` で Q/A ペア CSV を生成（Celery 並列可）
+3. **Phase 2**: `run_registration()` が CSV を読み込み、`question` のみを Gemini Embedding でベクトル化
+4. `services.qdrant_service` 経由でコレクションを作成（必要なら再作成）し、ポイントを Upsert
+5. UI 参照用に正規化ファイル名で `question`/`answer` CSV を `qa_output/` に出力
+6. 完了サマリーをログ出力
 
 ### 1.3 処理フェーズ
 
 | フェーズ | 処理内容 | 主要モジュール |
 |---------|---------|---------------|
-| Phase 1 | Q/A生成 | `QAPipeline`, `SmartQAGenerator` |
-| Phase 2 | Qdrant登録 | `run_registration()`, `qdrant_service` |
+| Phase 1 | Q/A 生成（スマート生成・構造化出力1回） | `QAPipeline`, `SmartQAGenerator`, Celery |
+| Phase 2 | Embedding 生成・Qdrant Upsert・UI CSV 出力 | `run_registration()`, `services.qdrant_service` |
 
 ---
 
@@ -127,86 +136,82 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph MAIN_MODULE["make_qa_register_qdrant.py"]
-        MAIN[main]
-        RUN_REG[run_registration]
-        COMBINE[combine_rows_to_chunks]
-        NORMALIZE[normalize_source_filename]
+    subgraph CONST["定数・ロガー"]
+        LOGGER["logger (logging.getLogger)"]
     end
 
-    subgraph MAIN_FLOW["main() 処理フロー"]
-        ARGPARSE[引数解析]
-        VALIDATE[入力検証]
-        DETECT_TYPE[ファイル形式判定]
-        PHASE1[Phase 1: Q/A生成]
-        PHASE2[Phase 2: Qdrant登録]
-        SUMMARY[完了サマリー]
+    subgraph UTIL["ユーティリティ関数"]
+        NORM["normalize_source_filename()"]
     end
 
-    subgraph FILE_TYPE["ファイル形式別処理"]
-        TXT_FLOW[TXT: チャンク作成+Q/A生成]
-        CSV_QA[CSV+Q/Aカラム: 登録のみ]
-        CSV_TEXT[CSV+テキストカラム: Q/A生成+登録]
+    subgraph CORE["コア処理関数"]
+        RUNREG["run_registration()"]
+        MAIN["main()"]
     end
 
-    MAIN --> ARGPARSE
-    ARGPARSE --> VALIDATE
-    VALIDATE --> DETECT_TYPE
-    DETECT_TYPE --> TXT_FLOW
-    DETECT_TYPE --> CSV_QA
-    DETECT_TYPE --> CSV_TEXT
+    subgraph DEPS["内部依存"]
+        PIPE["QAPipeline"]
+        QSVC["qdrant_service.*"]
+        QCW["create_qdrant_client"]
+        CFG["DATASET_CONFIGS"]
+    end
 
-    TXT_FLOW --> PHASE1
-    CSV_TEXT --> COMBINE
-    COMBINE --> PHASE1
-    PHASE1 --> PHASE2
-    CSV_QA --> PHASE2
-    PHASE2 --> RUN_REG
-    RUN_REG --> SUMMARY
+    MAIN --> CFG
+    MAIN --> PIPE
+    MAIN --> RUNREG
+    RUNREG --> NORM
+    RUNREG --> QCW
+    RUNREG --> QSVC
+    CORE --> LOGGER
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class LOGGER,NORM,RUNREG,MAIN,PIPE,QSVC,QCW,CFG default
+style CONST fill:#1a1a1a,stroke:#fff,color:#fff
+style UTIL fill:#1a1a1a,stroke:#fff,color:#fff
+style CORE fill:#1a1a1a,stroke:#fff,color:#fff
+style DEPS fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
 
 | ライブラリ | バージョン | 用途 |
 |-----------|-----------|------|
-| `argparse` | 標準 | CLI引数解析 |
+| `pandas` | - | CSV 読み込み・DataFrame 操作 |
+| `argparse` | 標準 | CLI 引数解析 |
 | `logging` | 標準 | ログ出力 |
-| `re` | 標準 | 正規表現（ファイル名正規化） |
-| `pandas` | - | CSV読み込み・データフレーム操作 |
+| `re` | 標準 | ファイル名の日時サフィックス除去 |
 | `pathlib` | 標準 | パス操作 |
-| `tempfile` | 標準 | 一時ファイル処理 |
+| `os` / `sys` | 標準 | 環境変数取得・パス追加・終了制御 |
 
 ### 2.3 内部依存モジュール
 
-| モジュール | インポート | 用途 |
-|-----------|-----------|------|
-| `qa_generation.pipeline` | `QAPipeline` | Q/A生成パイプライン |
-| `config` | `DATASET_CONFIGS` | 事前定義データセット設定 |
-| `services.qdrant_service` | `create_or_recreate_collection_for_qdrant` | コレクション作成 |
-| `services.qdrant_service` | `embed_texts_for_qdrant` | テキストベクトル化 |
-| `services.qdrant_service` | `upsert_points_to_qdrant` | ポイントアップサート |
-| `services.qdrant_service` | `build_points_for_qdrant` | ポイント構築 |
-| `qdrant_client_wrapper` | `create_qdrant_client` | Qdrantクライアント作成 |
+| モジュール | インポート要素 | 用途 |
+|-----------|--------------|------|
+| `config` | `DATASET_CONFIGS` | 事前定義データセットの選択肢 |
+| `qa_generation.pipeline` | `QAPipeline` | Phase 1: Q/A 生成パイプライン |
+| `qdrant_client_wrapper` | `create_qdrant_client` | Qdrant クライアント生成 |
+| `services.qdrant_service` | `build_points_for_qdrant`, `create_or_recreate_collection_for_qdrant`, `embed_texts_for_qdrant`, `upsert_points_to_qdrant` | コレクション準備・Embedding・Point 構築・Upsert |
 
 ---
 
 ## 3. クラス・関数一覧表
 
-### 3.1 関数一覧
+本モジュールにクラスは定義されていません（CLI スクリプト）。
+
+### 3.1 関数一覧（カテゴリ別）
 
 #### ユーティリティ関数
 
 | 関数名 | 概要 |
 |-------|------|
-| `normalize_source_filename(filename)` | ファイル名から日時サフィックスを除去 |
-| `combine_rows_to_chunks(df, text_column, block_size, output_dir)` | CSVの複数行を結合してチャンクCSVを作成 |
+| `normalize_source_filename(filename)` | ファイル名から `_YYYYMMDD_HHMMSS` 形式の日時サフィックスを除去 |
 
-#### メイン処理関数
+#### コア処理関数
 
 | 関数名 | 概要 |
 |-------|------|
-| `run_registration(...)` | Q/AペアCSVをQdrantに登録（Phase 2） |
-| `main()` | CLIエントリーポイント（Phase 1 + Phase 2 統合） |
+| `run_registration(csv_path, collection_name, recreate, batch_size, provider, ui_output_dir)` | Phase 2: Q/A ペアCSV を Qdrant に Upsert し、UI 用 CSV を出力 |
+| `main()` | CLI エントリーポイント（Phase 1 + Phase 2 統合実行） |
 
 ---
 
@@ -216,7 +221,7 @@ flowchart TB
 
 #### `normalize_source_filename`
 
-**概要**: ファイル名から日時サフィックス（例: `_20251230_232641`）を除去して正規化する。UI（agent_rag.py）での参照を安定させるための処理。
+**概要**: ファイル名から日時サフィックス（例: `_20251230_232641`）を除去し、UI（`agent_rag.py`）からの参照を安定化する。
 
 ```python
 def normalize_source_filename(filename: str) -> str
@@ -224,87 +229,35 @@ def normalize_source_filename(filename: str) -> str
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `filename` | str | - | 元のファイル名 |
+| `filename` | str | - | 正規化対象の元ファイル名 |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `filename: str` |
-| **Process** | 正規表現`_\d{8}_\d{6}`にマッチする部分を空文字に置換 |
-| **Output** | `str`: 正規化されたファイル名 |
+| **Process** | 正規表現 `_\d{8}_\d{6}` にマッチする部分を空文字へ置換 |
+| **Output** | `str`: 日時サフィックスを除いた正規化済みファイル名 |
 
 **戻り値例**:
 ```python
-# 入力
-"qa_pairs_cc_news_20251230_123456.csv"
-# 出力
 "qa_pairs_cc_news.csv"
-```
-
----
-
-#### `combine_rows_to_chunks`
-
-**概要**: CSVの複数行を結合してチャンクCSVを作成する。大量の短い行を持つCSVを効率的に処理するための前処理。
-
-```python
-def combine_rows_to_chunks(
-    df: pd.DataFrame,
-    text_column: str,
-    block_size: int,
-    output_dir: str
-) -> str
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `df` | pd.DataFrame | - | 入力DataFrame |
-| `text_column` | str | - | テキストカラム名 |
-| `block_size` | int | - | 結合する行数 |
-| `output_dir` | str | - | 出力ディレクトリ |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `df`, `text_column`, `block_size`, `output_dir` |
-| **Process** | 1. 指定カラムの存在確認<br>2. `block_size`行ごとにテキストを結合<br>3. 空行をフィルタリング<br>4. チャンクCSVを出力 |
-| **Output** | `str`: 作成されたチャンクCSVのパス |
-
-**出力CSVカラム**:
-
-| カラム | 説明 |
-|--------|------|
-| `chunk_id` | チャンク連番 |
-| `text` | 結合されたテキスト |
-| `start_row` | 結合開始行番号 |
-| `end_row` | 結合終了行番号 |
-| `row_count` | 結合行数 |
-
-**戻り値例**:
-```python
-"qa_output/pipeline/combined_chunks_20251230_123456.csv"
 ```
 
 ```python
 # 使用例
-import pandas as pd
+from qa_qdrant.make_qa_register_qdrant import normalize_source_filename
 
-df = pd.read_csv("input.csv")
-chunk_csv = combine_rows_to_chunks(
-    df=df,
-    text_column="text",
-    block_size=400,
-    output_dir="qa_output/pipeline"
-)
-print(chunk_csv)
-# 出力: qa_output/pipeline/combined_chunks_20251230_123456.csv
+normalized = normalize_source_filename("qa_pairs_cc_news_20251230_232641.csv")
+print(normalized)
+# 出力: qa_pairs_cc_news.csv
 ```
 
 ---
 
-### 4.2 メイン処理関数
+### 4.2 コア処理関数
 
 #### `run_registration`
 
-**概要**: Q/AペアCSVをQdrantコレクションに登録する（Phase 2）。
+**概要**: Q/A ペア CSV を読み込み、`question` のみを Gemini Embedding でベクトル化して Qdrant に Upsert する。完了後、UI 参照用に正規化名で `question`/`answer` CSV を出力する。
 
 ```python
 def run_registration(
@@ -313,39 +266,60 @@ def run_registration(
     recreate: bool,
     batch_size: int,
     provider: str,
-    ui_output_dir: str = "qa_output"
+    ui_output_dir: str = "qa_output",
 ) -> bool
 ```
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `csv_path` | str | - | Q/AペアCSVのパス |
-| `collection_name` | str | - | Qdrantコレクション名 |
-| `recreate` | bool | - | コレクションを再作成するか |
-| `batch_size` | int | - | Embeddingバッチサイズ |
-| `provider` | str | - | Embeddingプロバイダー |
-| `ui_output_dir` | str | `"qa_output"` | UI用CSVの出力ディレクトリ |
+| `csv_path` | str | - | Q/A ペアCSV のパス（`question`/`answer` カラム必須） |
+| `collection_name` | str | - | Qdrant コレクション名 |
+| `recreate` | bool | - | True の場合コレクションを再作成 |
+| `batch_size` | int | - | Embedding バッチサイズ |
+| `provider` | str | - | Embedding プロバイダー識別子（既定 `gemini`） |
+| `ui_output_dir` | str | `"qa_output"` | UI 用正規化 CSV の出力先ディレクトリ |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | 上記パラメータ全て |
-| **Process** | 1. CSVファイル読み込み<br>2. `question` + `answer`を結合してベクトル化対象テキスト作成<br>3. Qdrantクライアント初期化・コレクション準備<br>4. バッチ処理ループ（ベクトル化→ポイント構築→アップサート）<br>5. UI用正規化CSVを作成 |
-| **Output** | `bool`: 成功時`True`、失敗時`False` |
+| **Input** | `csv_path`, `collection_name`, `recreate`, `batch_size`, `provider`, `ui_output_dir` |
+| **Process** | 1. CSV を読み込み `question`/`answer` カラムを検証<br>2. `question` のみベクトル化対象テキスト化（検索クエリとの対称性確保）<br>3. `create_qdrant_client()` でクライアント生成、`create_or_recreate_collection_for_qdrant` でコレクション準備<br>4. `batch_size` 単位で `embed_texts_for_qdrant` → `build_points_for_qdrant`（`domain=collection_name`, `source_file=正規化名`, `start_index=i`）<br>5. ペイロード `source` を正規化名で再設定し `upsert_points_to_qdrant` で Upsert<br>6. `question`/`answer` のみを `ui_output_dir/<正規化名>` に CSV 出力 |
+| **Output** | `bool`: 成功時 `True` / 失敗時 `False`（ファイル不在・カラム不足・例外時） |
 
-**ペイロード構造**:
+**ペイロード（Point.payload）の主なフィールド**:
 
 | フィールド | 説明 |
 |-----------|------|
-| `source` | 正規化されたファイル名 |
-| `domain` | コレクション名 |
+| `source` | 正規化された元ファイル名 |
+| `domain` | コレクション名（`collection_name`） |
 | `question` | 質問文 |
 | `answer` | 回答文 |
+
+**戻り値例**:
+```python
+True
+```
+
+```python
+# 使用例
+from qa_qdrant.make_qa_register_qdrant import run_registration
+
+ok = run_registration(
+    csv_path="qa_output/pipeline/qa_pairs.csv",
+    collection_name="cc_news_1per",
+    recreate=True,
+    batch_size=100,
+    provider="gemini",
+    ui_output_dir="qa_output",
+)
+print(ok)
+# 出力: True
+```
 
 ---
 
 #### `main`
 
-**概要**: CLI引数を解析し、Phase 1（Q/A生成）とPhase 2（Qdrant登録）を統合実行するエントリーポイント。
+**概要**: CLI 引数を解析し、Phase 1（`QAPipeline` による Q/A 生成）と Phase 2（`run_registration` による Qdrant 登録）を統合実行するエントリーポイント。
 
 ```python
 def main() -> None
@@ -353,117 +327,122 @@ def main() -> None
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | CLI引数（`sys.argv`経由） |
-| **Process** | 1. 引数解析・検証<br>2. APIキー確認<br>3. ファイル形式判定（TXT/CSV）<br>4. **Phase 1**: Q/A生成（`QAPipeline.run()`）<br>5. **Phase 2**: Qdrant登録（`run_registration()`）<br>6. 完了サマリー出力 |
-| **Output** | `None`（終了コードで結果を返す） |
+| **Input** | CLI 引数（`sys.argv` 経由） |
+| **Process** | 1. `argparse` で引数解析（入力/CSV/QA/Qdrant/出力の各グループ）<br>2. `--dataset` と `--input-file` の排他性を検証<br>3. `GOOGLE_API_KEY` の存在を検証（未設定なら exit 1）<br>4. Q/A 生成モード（スマート生成）と Celery 並列設定をログ出力<br>5. **Phase 1**: `.txt` ならチャンク+生成、`.csv` なら `question`+`answer` 検出時はスキップ、テキストカラム/`Combined_Text` 検出時は生成、`--dataset` 指定時はデータセット名で `QAPipeline.run()`<br>6. **Phase 2**: 生成された CSV を `run_registration()` に渡し Qdrant 登録<br>7. 完了サマリー（コレクション名・件数・CSV パス・UI CSV パス）をログ出力 |
+| **Output** | `None`（成功時 exit 0 / エラー時 exit 1） |
 
-**ファイル形式別処理フロー**:
+**ファイル形式別の処理分岐**:
 
-| 入力形式 | 条件 | 処理 |
-|---------|------|------|
-| `.txt` | - | チャンク作成 → Q/A生成 → 登録 |
-| `.csv` | `question`+`answer`カラム存在 | Q/A生成スキップ → 登録のみ |
-| `.csv` | テキストカラム存在 + `--combine-rows` | 行結合 → Q/A生成 → 登録 |
-| `.csv` | テキストカラム存在 | Q/A生成 → 登録 |
+| 入力 | 条件 | 処理 |
+|------|------|------|
+| `--input-file *.txt` | - | `QAPipeline.run()` でチャンク作成 + Q/A 生成 → 登録 |
+| `--input-file *.csv` | `question`+`answer` カラム存在 | Phase 1 スキップ → 登録のみ |
+| `--input-file *.csv` | `--text-column` または `Combined_Text` カラム存在 | `QAPipeline.run()` で Q/A 生成 → 登録 |
+| `--input-file *.csv` | いずれにも該当せず | エラー終了（exit 1） |
+| `--input-file *.xxx` | 拡張子が `.txt`/`.csv` 以外 | 未対応形式エラー（exit 1） |
+| `--dataset <name>` | - | `QAPipeline(dataset_name=...).run()` → 登録 |
 
 **終了コード**:
 
 | コード | 説明 |
 |--------|------|
 | `0` | 正常終了 |
-| `1` | エラー終了（APIキー未設定、ファイル不在、処理失敗等） |
+| `1` | 入力検証失敗 / APIキー未設定 / ファイル不在 / Q/A 生成失敗 / 登録失敗 / 例外 |
+
+**戻り値例**:
+```python
+None  # ※ 結果は終了コードで通知
+```
+
+```python
+# 使用例（CLI）
+# $ python qa_qdrant/make_qa_register_qdrant.py \
+#     --input-file output_chunked/cc_news_1per_chunks.csv \
+#     --collection cc_news_1per \
+#     --use-celery -c 8 --recreate
+```
 
 ---
 
-## 5. CLI引数仕様
+## 5. 設定・定数
 
-### 5.1 入力ソース（いずれか1つ必須）
+本モジュールには公開定数はありません。CLI 引数で挙動を制御します。
 
-| 引数 | 型 | 説明 |
-|------|------|------|
-| `--dataset` | str | 事前定義されたデータセット名（`DATASET_CONFIGS`のキー） |
-| `--input-file` | str | 入力ファイルのパス（`.txt`, `.csv`） |
+### 5.1 CLI 引数（argparse グループ別）
 
-### 5.2 CSV処理オプション（`--input-file`がCSVの場合）
+#### 5.1.1 Input Source Options（いずれか1つ必須）
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|------|-----------|------|
-| `--text-column` | str | `text` | テキストカラム名 |
-| `--combine-rows` | flag | `False` | 複数行を結合してチャンク化 |
-| `--block-size` | int | `400` | 結合する行数 |
+| `--dataset` | str | - | 事前定義データセット名（`config.DATASET_CONFIGS` のキーから選択） |
+| `--input-file` | str | - | 入力ファイルのパス（`.txt`, `.csv`） |
 
-### 5.3 Q/A生成オプション
+#### 5.1.2 CSV Processing Options
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|------|-----------|------|
-| `--model` | str | `gemini-2.0-flash` | 使用するLLMモデル |
+| `--text-column` | str | `text` | テキストカラム名（CSV 入力時） |
+
+> 📝 **注意**: チャンキングは専用ツール `chunking/csv_text_to_chunks_text_csv.py` に一本化されています。本ツールではチャンク済み CSV を入力する前提です。
+
+#### 5.1.3 QA Generation Options
+
+| 引数 | 型 | デフォルト | 説明 |
+|------|------|-----------|------|
+| `--model` | str | `gemini-2.5-flash` | Q/A 生成に使う LLM モデル（コード既定値。プロジェクト規約上は `claude-sonnet-4-6` を推奨） |
 | `--max-docs` | int | `None` | 処理する最大文書数 |
-| `--use-celery` | flag | `False` | Celery並列処理を使用 |
-| `-c`, `--concurrency` | int | `8` | 並列タスク数 |
-| `--celery-workers` | int | `1` | ⚠️ 非推奨。`--concurrency`を使用 |
-| `--batch-chunks` | int | `3` | 1回のAPIで処理するチャンク数 |
-| `--merge-chunks` | flag | `True` | 小さいチャンクを統合する |
-| `--overlap-tokens` | int | `0` | チャンク間の重複トークン数 |
-| `--use-similarity` | flag | `False` | ベクトル類似度によるセマンティック分割 |
-| `--similarity-threshold` | float | `0.7` | セマンティック分割の類似度閾値 |
-| `--use-smart-generation` | flag | `True` | スマートQ/A生成を使用（デフォルト有効） |
-| `--no-smart-generation` | flag | - | 従来方式のQ/A生成を使用 |
+| `--use-celery` | flag | `False` | Celery 並列処理を使用 |
+| `-c`, `--concurrency` | int | `8` | 並列タスク数（`start_celery.sh -c` と同値を推奨） |
+| `--celery-workers` | int | `1` | ⚠️ 非推奨。`--concurrency` を使用 |
+| `--batch-chunks` | int | `3` | 1回の API 呼び出しで処理するチャンク数 |
 
-### 5.4 Qdrant登録オプション
+> 📝 **注意**: Q/A 生成は `SmartQAGenerator`（構造化出力1回・0〜5個動的決定）に一本化されています。
+
+#### 5.1.4 Qdrant Registration Options
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|------|-----------|------|
-| `--collection` | str | **必須** | Qdrantコレクション名 |
+| `--collection` | str | **必須** | Qdrant コレクション名 |
 | `--recreate` | flag | `False` | コレクションを再作成 |
-| `--batch-size` | int | `100` | Embeddingバッチサイズ |
-| `--provider` | str | `gemini` | Embeddingプロバイダー |
+| `--batch-size` | int | `100` | Embedding バッチサイズ |
+| `--provider` | str | `gemini` | Embedding プロバイダー |
 
-### 5.5 出力オプション
+#### 5.1.5 Output Options
 
 | 引数 | 型 | デフォルト | 説明 |
 |------|------|-----------|------|
-| `--output` | str | `qa_output/pipeline` | Q/AペアCSVの出力ディレクトリ |
-| `--ui-output` | str | `qa_output` | UI用正規化CSVの出力ディレクトリ |
+| `--output` | str | `qa_output/pipeline` | Q/AペアCSV の出力ディレクトリ |
+| `--ui-output` | str | `qa_output` | UI 用正規化 CSV の出力ディレクトリ |
+
+### 5.2 環境変数
+
+| 変数 | 必須 | 用途 |
+|------|:----:|------|
+| `GOOGLE_API_KEY` | ✅ | Gemini Embedding API キー（`main()` で存在チェック） |
+| `ANTHROPIC_API_KEY` | ✅ | Anthropic Claude API キー（`QAPipeline` 内部で使用） |
+| `QDRANT_HOST` / `QDRANT_PORT` | - | Qdrant 接続先（既定 `localhost:6333`） |
+| `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | - | Celery + Redis 接続先 |
 
 ---
 
 ## 6. 使用例
 
-### 6.1 Celery並列処理（推奨）+ 行結合オプション
+### 6.1 基本ワークフロー（Celery 並列・推奨）
 
 ```bash
-# 1. Celeryワーカー起動（別ターミナル）
+# 1. Celery ワーカー起動（別ターミナル）
 ./start_celery.sh restart -c 8 --flower
 
-# 2. Q/A生成 + Qdrant登録
+# 2. チャンク済みCSV → Q/A生成 + Qdrant登録
 python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file output_chunked/cc_news_5per_chunks.csv \
-  --collection cc_news_5per \
+  --input-file output_chunked/cc_news_1per_chunks.csv \
+  --collection cc_news_1per \
   --use-celery \
-  --model gemini-2.5-flash \
   --concurrency 8 \
-  --text-column text \
-  --combine-rows \
-  --block-size 1200 \
   --recreate
 ```
 
-### 6.2 Wikipedia用設定（小さいblock-size）
-
-```bash
-python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file output_chunked/wikipedia_ja_5per_chunked.csv \
-  --collection wikipedia_ja_5per \
-  --use-celery \
-  --model gemini-2.5-flash \
-  --concurrency 3 \
-  --text-column text \
-  --combine-rows \
-  --block-size 400 \
-  --recreate
-```
-
-### 6.3 並列数を指定（行結合なし）
+### 6.2 並列数を 4 に変更
 
 ```bash
 python qa_qdrant/make_qa_register_qdrant.py \
@@ -474,7 +453,7 @@ python qa_qdrant/make_qa_register_qdrant.py \
   --recreate
 ```
 
-### 6.4 Celery不使用（同期処理）
+### 6.3 Celery 不使用（同期処理）
 
 ```bash
 python qa_qdrant/make_qa_register_qdrant.py \
@@ -483,7 +462,7 @@ python qa_qdrant/make_qa_register_qdrant.py \
   --recreate
 ```
 
-### 6.5 テキストファイルから（チャンク作成 + Q/A生成 + 登録）
+### 6.4 テキストファイルから一括（チャンク + 生成 + 登録）
 
 ```bash
 python qa_qdrant/make_qa_register_qdrant.py \
@@ -494,18 +473,7 @@ python qa_qdrant/make_qa_register_qdrant.py \
   --recreate
 ```
 
-### 6.6 従来方式のQ/A生成（スマート生成を無効化）
-
-```bash
-python qa_qdrant/make_qa_register_qdrant.py \
-  --input-file output_chunked/cc_news_5per_chunks.csv \
-  --collection cc_news_5per \
-  --use-celery \
-  --no-smart-generation \
-  --recreate
-```
-
-### 6.7 事前定義データセットを使用
+### 6.5 事前定義データセットを利用
 
 ```bash
 python qa_qdrant/make_qa_register_qdrant.py \
@@ -516,13 +484,30 @@ python qa_qdrant/make_qa_register_qdrant.py \
   --recreate
 ```
 
+### 6.6 Q/A ペアCSV を直接登録（Phase 1 スキップ）
+
+```bash
+# CSV に question/answer カラムが既に存在する場合
+python qa_qdrant/make_qa_register_qdrant.py \
+  --input-file qa_output/pipeline/qa_pairs.csv \
+  --collection my_qa \
+  --recreate
+```
+
 ---
 
-## 7. 変更履歴
+## 7. エクスポート
 
-| バージョン | 変更内容 |
-|-----------|---------|
-| 1.0 | 初版作成 |
+本モジュールに `__all__` は未定義です。CLI スクリプトとして実行される前提のため、外部からの import を想定した公開APIは規定されていません（関数 `normalize_source_filename` / `run_registration` / `main` は通常の Python import で参照可能）。
+
+---
+
+## 8. 変更履歴
+
+| バージョン | 日付 | 変更内容 |
+|-----------|------|---------|
+| 1.0 | 2025-01-29 | 初版作成 |
+| 2.0 | 2026-06-17 | 実コードに合わせて全面改訂。廃止された `combine_rows_to_chunks` / `--combine-rows` / `--block-size` / `--merge-chunks` / `--overlap-tokens` / `--use-similarity` / `--similarity-threshold` / `--use-smart-generation` / `--no-smart-generation` を削除。ベクトル化対象を `question` のみに修正（検索対称性）。技術スタックを Anthropic Claude + Gemini Embedding + Qdrant + Celery/Redis に統一。Mermaid を黒背景・白文字スタイルに刷新。 |
 
 ---
 
@@ -530,135 +515,55 @@ python qa_qdrant/make_qa_register_qdrant.py \
 
 ```mermaid
 flowchart LR
-    MAIN[make_qa_register_qdrant.py]
+    MAIN["make_qa_register_qdrant.py"]
 
     subgraph STDLIB["標準ライブラリ"]
-        SYS[sys]
-        OS[os]
-        ARGPARSE[argparse]
-        LOGGING[logging]
-        RE[re]
-        PATHLIB[pathlib]
-        TEMPFILE[tempfile]
+        OS["os"]
+        SYS["sys"]
+        ARGPARSE["argparse"]
+        LOGGING["logging"]
+        RE["re"]
+        PATHLIB["pathlib"]
     end
 
-    subgraph EXTERNAL["外部ライブラリ"]
-        PANDAS[pandas]
+    subgraph EXTLIB["外部ライブラリ"]
+        PANDAS["pandas"]
     end
 
     subgraph INTERNAL["内部モジュール"]
-        PIPELINE[qa_generation.pipeline]
-        CONFIG[config]
-        QDRANT_SVC[services.qdrant_service]
-        WRAPPER[qdrant_client_wrapper]
+        CFG["config.DATASET_CONFIGS"]
+        PIPE["qa_generation.pipeline.QAPipeline"]
+        QCW["qdrant_client_wrapper.create_qdrant_client"]
+        QSVC["services.qdrant_service"]
     end
 
-    MAIN --> SYS
+    subgraph QSVC_FN["qdrant_service 関数"]
+        FN1["build_points_for_qdrant"]
+        FN2["create_or_recreate_collection_for_qdrant"]
+        FN3["embed_texts_for_qdrant"]
+        FN4["upsert_points_to_qdrant"]
+    end
+
     MAIN --> OS
+    MAIN --> SYS
     MAIN --> ARGPARSE
     MAIN --> LOGGING
     MAIN --> RE
     MAIN --> PATHLIB
-    MAIN --> TEMPFILE
     MAIN --> PANDAS
-    MAIN --> PIPELINE
-    MAIN --> CONFIG
-    MAIN --> QDRANT_SVC
-    MAIN --> WRAPPER
-
-    PIPELINE --> QA_PIPE[QAPipeline]
-    CONFIG --> DATASET[DATASET_CONFIGS]
-    QDRANT_SVC --> CREATE_COLL[create_or_recreate_collection_for_qdrant]
-    QDRANT_SVC --> EMBED[embed_texts_for_qdrant]
-    QDRANT_SVC --> UPSERT[upsert_points_to_qdrant]
-    QDRANT_SVC --> BUILD[build_points_for_qdrant]
-    WRAPPER --> CLIENT[create_qdrant_client]
+    MAIN --> CFG
+    MAIN --> PIPE
+    MAIN --> QCW
+    MAIN --> QSVC
+    QSVC --> FN1
+    QSVC --> FN2
+    QSVC --> FN3
+    QSVC --> FN4
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class MAIN,OS,SYS,ARGPARSE,LOGGING,RE,PATHLIB,PANDAS,CFG,PIPE,QCW,QSVC,FN1,FN2,FN3,FN4 default
+style STDLIB fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTLIB fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
+style QSVC_FN fill:#1a1a1a,stroke:#fff,color:#fff
 ```
-
----
-
-## 付録: 処理フローチャート
-
-```mermaid
-flowchart TD
-    START([開始]) --> PARSE[引数解析]
-    PARSE --> VALIDATE{入力検証}
-    VALIDATE -->|エラー| ERROR1[エラー終了]
-    VALIDATE -->|OK| CHECK_KEY{APIキー確認}
-
-    CHECK_KEY -->|未設定| ERROR2[エラー終了]
-    CHECK_KEY -->|OK| CHECK_FILE{入力ファイル存在?}
-
-    CHECK_FILE -->|不在| ERROR3[エラー終了]
-    CHECK_FILE -->|存在| DETECT_TYPE{ファイル形式判定}
-
-    DETECT_TYPE -->|.txt| TXT_FLOW[テキストファイル処理]
-    DETECT_TYPE -->|.csv| CSV_CHECK{CSVカラム判定}
-    DETECT_TYPE -->|その他| ERROR4[未対応形式エラー]
-
-    CSV_CHECK -->|Q/Aカラム存在| SKIP_QA[Phase 1スキップ]
-    CSV_CHECK -->|テキストカラム存在| COMBINE_CHECK{--combine-rows?}
-    CSV_CHECK -->|該当なし| ERROR5[カラムエラー]
-
-    COMBINE_CHECK -->|Yes| COMBINE[行結合処理]
-    COMBINE_CHECK -->|No| QA_GEN
-    COMBINE --> QA_GEN
-
-    TXT_FLOW --> QA_GEN[Phase 1: Q/A生成]
-    QA_GEN --> CHECK_QA{Q/A生成成功?}
-    CHECK_QA -->|失敗| ERROR6[エラー終了]
-    CHECK_QA -->|成功| PHASE2
-
-    SKIP_QA --> PHASE2[Phase 2: Qdrant登録]
-    PHASE2 --> RUN_REG[run_registration実行]
-    RUN_REG --> CHECK_REG{登録成功?}
-
-    CHECK_REG -->|失敗| ERROR7[エラー終了]
-    CHECK_REG -->|成功| SUMMARY[完了サマリー出力]
-    SUMMARY --> END([正常終了])
-
-    ERROR1 --> EXIT1([exit 1])
-    ERROR2 --> EXIT1
-    ERROR3 --> EXIT1
-    ERROR4 --> EXIT1
-    ERROR5 --> EXIT1
-    ERROR6 --> EXIT1
-    ERROR7 --> EXIT1
-```
-
----
-
-## 付録: 並列処理について
-
-### 推奨設定
-
-| 環境 | concurrency | 備考 |
-|------|-------------|------|
-| M2 MacBook Air (8 vCPU) | 8 | 最適 |
-| 一般的なPC (4 vCPU) | 4 | 推奨 |
-| メモリ制限環境 | 2-3 | 安定性重視 |
-
-### Celeryワーカーとの整合性
-
-```bash
-# start_celery.sh と同じ値を指定することを推奨
-./start_celery.sh restart -c 8 --flower
-
-python qa_qdrant/make_qa_register_qdrant.py \
-  --use-celery \
-  -c 8  # ← start_celery.sh -c と同じ値
-  ...
-```
-
----
-
-## 不足情報・確認事項
-
-> 📝 **注意**: 以下の情報について確認が必要です。
-
-| 項目 | 現状 | 確認事項 |
-|------|------|---------|
-| バージョン情報 | 仮で1.0を設定 | 正式なバージョン番号 |
-| `pipeline.run()`引数 | `merge_chunks`, `overlap_tokens`, `use_similarity`, `similarity_threshold`を渡している | `pipeline.py v3.0`では削除された引数のため、互換性確認が必要 |
-| Celeryタイムアウト | 明記なし | 大規模データ処理時のタイムアウト設定 |
-| エラーリトライ | なし | Embedding API失敗時のリトライロジック |
