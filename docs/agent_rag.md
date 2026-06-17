@@ -1,6 +1,6 @@
 ## agent_rag.py - Streamlit メインアプリケーション ドキュメント
 
-**Version 3.1** | 最終更新: 2026-06-16
+**Version 3.2** | 最終更新: 2026-06-17
 
 
 | Phase | モジュール | subgraph |
@@ -50,8 +50,18 @@
 
 実行コマンド：
 ```bash
-streamlit run agent_rag.py --server.port 8501
+uv run streamlit run agent_rag.py --server.port 8501
 ```
+
+### 技術スタック
+
+| 役割 | プロバイダー | モデル / キー |
+|---|---|---|
+| LLM（Planner・Executor・Agent 応答） | **Anthropic Claude** | 既定 `claude-sonnet-4-6`（軽量用途 `claude-haiku-4-5-20251001`）。`ANTHROPIC_API_KEY`。`grace/llm_compat.py` の `create_chat_client()` 経由で呼び出す |
+| Embedding（Qdrant 登録・検索） | **Gemini（Google）** | `gemini-embedding-001`（3072次元） |
+| ベクトルDB | Qdrant | `http://localhost:6333` |
+
+> 📝 **モデル選択 UI について**: `grace_chat_page` / `agent_chat_page` のサイドバー `st.selectbox` は表示候補として `config.GeminiConfig.AVAILABLE_MODELS` を列挙しますが、実際の LLM 呼び出しは `grace/llm_compat.py` の `create_chat_client()` がプロバイダーを **Anthropic Claude** に解決します（既定 `claude-sonnet-4-6`）。LLM 既定値の正本は `grace/config.py` の `LLMConfig`（`provider="anthropic"`, `model="claude-sonnet-4-6"`）です。
 
 ### 主な責務
 
@@ -66,7 +76,7 @@ streamlit run agent_rag.py --server.port 8501
 | # | 責務 | 対応モジュール | 説明 |
 |---|------|--------------|------|
 | 1 | ページ設定・ルーティング | `agent_rag.py` (`main()`) | `st.set_page_config` + `st.radio` によるページ切替 |
-| 2 | システム説明ページ | `ui/pages/system_explanation_page.py` | プロジェクト概要の表示 |
+| 2 | システム説明ページ | `ui/pages/explanation_page.py` (`show_system_explanation_page`) | プロジェクト概要の表示 |
 | 3 | Qdrant検索ページ | `ui/pages/qdrant_search_page.py` | ベクトルDB検索 + LLM回答生成 |
 | 4 | Agent(ReAct+Reflection)チャット | `ui/pages/agent_chat_page.py` | 旧型エージェントチャット |
 | 5 | 自律型Agent(GRACE)チャット | `ui/pages/grace_chat_page.py` | Planner+Executor 2フェーズエージェント |
@@ -145,7 +155,7 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 2. `main()` が `st.set_page_config` でページ設定を初期化
 3. サイドバーの `st.radio` でユーザーがページを選択
 4. `page_mapping` 辞書から対応する関数を取得して呼び出し
-5. 選択されたページが Anthropic Claude API / Qdrant / ローカルファイルと連携して結果を表示
+5. 選択されたページが Anthropic Claude（`create_chat_client()` 経由）/ Gemini Embedding / Qdrant / ローカルファイルと連携して結果を表示
 
 ---
 
@@ -251,7 +261,7 @@ def main() -> None
 | 項目 | 内容 |
 |------|------|
 | **Input** | なし（Streamlitセッション状態から取得） |
-| **Process** | 1. `st.set_page_config` でページ設定（タイトル: "Agent RAG(Anthropic Claude)", アイコン: 🤖, レイアウト: wide）<br>2. `st.sidebar` 内にタイトル・メニューを描画<br>3. `st.radio` で7つのページ選択肢を表示（`format_func` でラベル変換）<br>4. `page_mapping` 辞書から選択されたページの関数を取得<br>5. 対応する関数を呼び出してメインエリアに描画 |
+| **Process** | 1. `st.set_page_config` でページ設定（アイコン: 🤖, レイアウト: wide）<br>2. `st.sidebar` 内にタイトル・メニュー・GitHub リンクを描画<br>3. `st.radio` で7つのページ選択肢を表示（`format_func` でラベル変換）<br>4. `page_mapping` 辞書から選択されたページの関数を取得<br>5. 対応する関数を呼び出してメインエリアに描画 |
 | **Output** | なし（画面描画のみ） |
 
 **ページルーティング定義**:
@@ -420,6 +430,7 @@ sudo systemctl restart streamlit-app
 | 2.0 | GRACE自律型エージェントページ追加。ログビューアページ追加 |
 | 3.0 | RAGデータ作成ページ追加。Qdrant CRUDページ追加（仮実装）。メニュー構成を7ページに拡張 |
 | 3.1 | LLM 技術スタックを Anthropic Claude（`claude-sonnet-4-6`）に統一。Mermaid 図を黒背景スタイルに準拠（2026-06-16） |
+| 3.2 | 現行コードとの整合性更新（2026-06-17）。システム説明ページのモジュール名を `explanation_page.py` に修正。技術スタック表を追加し、LLM 既定値の正本が `grace/config.py` の `LLMConfig`（`claude-sonnet-4-6` / 軽量 `claude-haiku-4-5-20251001` / `ANTHROPIC_API_KEY`）であること、UI の `st.selectbox` 候補（`GeminiConfig.AVAILABLE_MODELS`）と実呼び出し（`create_chat_client()` → Anthropic Claude）の関係を明記。Embedding は Gemini `gemini-embedding-001`（3072次元）。`main()` の `set_page_config` 説明を実装に合わせて修正 |
 
 ---
 
@@ -434,7 +445,7 @@ flowchart LR
     end
 
     subgraph UI_PAGES["ui/pages/"]
-        EXPLAIN["system_explanation_page"]
+        EXPLAIN["explanation_page"]
         SEARCH["qdrant_search_page"]
         GRACE["grace_chat_page"]
         AGENT_CHAT["agent_chat_page"]

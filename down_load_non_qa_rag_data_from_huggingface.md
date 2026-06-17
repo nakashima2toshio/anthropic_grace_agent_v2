@@ -1,6 +1,6 @@
 # down_load_non_qa_rag_data_from_huggingface.py - 非Q&A型RAGデータ処理ツール ドキュメント
 
-**Version 1.0** | 最終更新: 2026-02-16
+**Version 1.1** | 最終更新: 2026-06-17
 
 ---
 
@@ -71,16 +71,16 @@
 ```mermaid
 flowchart TB
     subgraph CLIENT["クライアント層"]
-        BROWSER[Webブラウザ]
-        UPLOAD[CSVファイルアップロード]
+        BROWSER["Webブラウザ"]
+        UPLOAD["CSVファイルアップロード"]
     end
 
     subgraph MODULE["down_load_non_qa_rag_data_from_huggingface.py"]
         MAIN["main - Streamlit UI"]
-        CONFIG_CLS[NonQARAGConfig]
-        VALIDATE[検証関数群]
-        EXTRACT[extract_text_content]
-        LIVEDOOR[Livedoor処理関数]
+        CONFIG_CLS["NonQARAGConfig"]
+        VALIDATE["検証関数群"]
+        EXTRACT["extract_text_content"]
+        LIVEDOOR["Livedoor処理関数"]
         IMPORT_HF["_import_hf_load_dataset"]
     end
 
@@ -90,7 +90,7 @@ flowchart TB
     end
 
     subgraph EXTERNAL["外部サービス層"]
-        HF[HuggingFace Hub]
+        HF["HuggingFace Hub"]
         RONDHUIT["rondhuit.com - Livedoor"]
         FS["datasets / OUTPUT フォルダ"]
     end
@@ -107,6 +107,13 @@ flowchart TB
     IMPORT_HF --> HF
     LIVEDOOR --> RONDHUIT
     MAIN --> FS
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class BROWSER,UPLOAD,MAIN,CONFIG_CLS,VALIDATE,EXTRACT,LIVEDOOR,IMPORT_HF,HELPER,GEMINI_CFG,HF,RONDHUIT,FS default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
@@ -126,18 +133,18 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph CONST["設定・定数"]
-        DATASET_CONFIGS[DATASET_CONFIGS辞書]
+        DATASET_CONFIGS["DATASET_CONFIGS辞書"]
     end
 
     subgraph NONQA["NonQARAGConfig クラス"]
-        GET_CFG[get_config]
-        GET_ALL[get_all_datasets]
+        GET_CFG["get_config"]
+        GET_ALL["get_all_datasets"]
     end
 
     subgraph UI_UTIL["UI ユーティリティ関数"]
-        SEL_MODEL[select_model]
-        SHOW_INFO[show_model_info]
-        EST_TOKEN[estimate_token_usage]
+        SEL_MODEL["select_model"]
+        SHOW_INFO["show_model_info"]
+        EST_TOKEN["estimate_token_usage"]
     end
 
     subgraph IMPORT_FN["インポート関数"]
@@ -145,24 +152,24 @@ flowchart TB
     end
 
     subgraph VALIDATE["検証関数群"]
-        V_WIKI[validate_wikipedia_data_specific]
-        V_NEWS[validate_news_data_specific]
-        V_SCI[validate_scientific_data_specific]
-        V_CODE[validate_code_data_specific]
-        V_SO[validate_stackoverflow_data_specific]
+        V_WIKI["validate_wikipedia_data_specific"]
+        V_NEWS["validate_news_data_specific"]
+        V_SCI["validate_scientific_data_specific"]
+        V_CODE["validate_code_data_specific"]
+        V_SO["validate_stackoverflow_data_specific"]
     end
 
     subgraph LIVEDOOR["Livedoor処理関数"]
-        DL_LIVE[download_livedoor_corpus]
-        LD_LIVE[load_livedoor_corpus]
+        DL_LIVE["download_livedoor_corpus"]
+        LD_LIVE["load_livedoor_corpus"]
     end
 
     subgraph PROCESS["データ処理関数"]
-        EXTRACT[extract_text_content]
+        EXTRACT["extract_text_content"]
     end
 
     subgraph ENTRY["エントリーポイント"]
-        MAIN_FN[main]
+        MAIN_FN["main"]
     end
 
     CONST --> NONQA
@@ -173,6 +180,17 @@ flowchart TB
     MAIN_FN --> LIVEDOOR
     MAIN_FN --> PROCESS
     EXTRACT --> NONQA
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class DATASET_CONFIGS,GET_CFG,GET_ALL,SEL_MODEL,SHOW_INFO,EST_TOKEN,IMPORT_HF,V_WIKI,V_NEWS,V_SCI,V_CODE,V_SO,DL_LIVE,LD_LIVE,EXTRACT,MAIN_FN default
+style CONST fill:#1a1a1a,stroke:#fff,color:#fff
+style NONQA fill:#1a1a1a,stroke:#fff,color:#fff
+style UI_UTIL fill:#1a1a1a,stroke:#fff,color:#fff
+style IMPORT_FN fill:#1a1a1a,stroke:#fff,color:#fff
+style VALIDATE fill:#1a1a1a,stroke:#fff,color:#fff
+style LIVEDOOR fill:#1a1a1a,stroke:#fff,color:#fff
+style PROCESS fill:#1a1a1a,stroke:#fff,color:#fff
+style ENTRY fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
@@ -848,6 +866,7 @@ print(f"取得: {len(df_processed)}件")
 
 | バージョン | 変更内容 |
 |-----------|---------|
+| 1.1 | 現行コードに整合（登録データセット `wikipedia_ja` / `japanese_text` / `cc_news` / `livedoor` を確認）。全 Mermaid 図に黒背景・白文字スタイル（`classDef default` / `classDef subgraphStyle` / 各サブグラフ `style`）を適用し、特殊文字ラベルをダブルクォートで統一。 |
 | 1.0 | 初版作成 |
 
 ---
@@ -859,20 +878,20 @@ flowchart LR
     MODULE["down_load_non_qa_rag_data_from_huggingface.py"]
 
     subgraph EXT["外部ライブラリ"]
-        ST[streamlit]
-        PD[pandas]
+        ST["streamlit"]
+        PD["pandas"]
         HF_DS["datasets - HuggingFace"]
     end
 
     subgraph STDLIB["標準ライブラリ"]
-        JSON_LIB[json]
-        IO_LIB[io]
+        JSON_LIB["json"]
+        IO_LIB["io"]
         URL_LIB["urllib.request"]
-        TAR_LIB[tarfile]
-        DT_LIB[datetime]
+        TAR_LIB["tarfile"]
+        DT_LIB["datetime"]
         PATH_LIB["pathlib.Path"]
-        LOG_LIB[logging]
-        TYPING[typing]
+        LOG_LIB["logging"]
+        TYPING["typing"]
     end
 
     subgraph INTERNAL["内部モジュール"]
@@ -894,11 +913,17 @@ flowchart LR
     MODULE --> HELPER
     MODULE --> GEMINI_CFG
 
-    HELPER --> H1[validate_data]
-    HELPER --> H2[save_files_to_output]
-    HELPER --> H3[clean_text]
-    HELPER --> H4[safe_execute]
-    GEMINI_CFG --> G1[AVAILABLE_MODELS]
-    GEMINI_CFG --> G2[get_model_pricing]
-    GEMINI_CFG --> G3[get_model_limits]
+    HELPER --> H1["validate_data"]
+    HELPER --> H2["save_files_to_output"]
+    HELPER --> H3["clean_text"]
+    HELPER --> H4["safe_execute"]
+    GEMINI_CFG --> G1["AVAILABLE_MODELS"]
+    GEMINI_CFG --> G2["get_model_pricing"]
+    GEMINI_CFG --> G3["get_model_limits"]
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class MODULE,ST,PD,HF_DS,JSON_LIB,IO_LIB,URL_LIB,TAR_LIB,DT_LIB,PATH_LIB,LOG_LIB,TYPING,HELPER,GEMINI_CFG,H1,H2,H3,H4,G1,G2,G3 default
+style EXT fill:#1a1a1a,stroke:#fff,color:#fff
+style STDLIB fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```

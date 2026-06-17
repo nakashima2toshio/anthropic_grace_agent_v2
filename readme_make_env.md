@@ -2,7 +2,7 @@
 
 **開発マシン:** MacBook Air M2 / 24GB メモリ / macOS
 
-**Version 1.1** | **最終更新:** 2026-06-16
+**Version 1.2** | **最終更新:** 2026-06-17
 
 ---
 
@@ -37,10 +37,10 @@ style BG fill:#1a1a1a,stroke:#fff,color:#fff
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 1.2 Python 3.13
+### 1.2 Python 3.11 以上
 
-本プロジェクトは `pyproject.toml` で `requires-python = ">=3.13,<3.14"` を指定しています。
-Python 3.13 系を用意してください（パッケージ管理は後述の uv が自動で解決します）。
+本プロジェクトは `pyproject.toml` で `requires-python = ">=3.11"` を指定しています。
+Python 3.11 以上（動作確認・推奨は 3.13 系）を用意してください（パッケージ管理は後述の uv が自動で解決します）。
 
 ```bash
 brew install python@3.13
@@ -138,35 +138,35 @@ source .venv/bin/activate
 
 ```txt
 # === Web UI ===
-streamlit==1.48.1
-fastapi==0.115.6
+streamlit==1.52.1
+fastapi>=0.116.0
 gradio==5.44.1
 
 # === Anthropic API (LLM: チャンク分割 / Q&A生成 / Agent応答) ===
 anthropic>=0.40.0
 
-# === Gemini API (Embedding: Qdrant登録・検索用) ===
-google-genai>=1.74.0
+# === Gemini API (Embedding: Qdrant登録・検索用。from google import genai) ===
+google-genai==1.52.0
 
 # === ベクトルDB (Qdrant) ===
-qdrant-client==1.15.1
+qdrant-client==1.16.1
 
 # === 非同期タスク (Celery + Redis) ===
 celery==5.5.3
-redis==6.2.0
+redis==7.1.0
 flower==2.0.1
 
 # === データセット ===
-datasets==4.4.1
+datasets>=4.1.1
 
 # === ユーティリティ ===
-python-dotenv==1.1.1
-pandas==2.3.1
-numpy==2.3.2
+python-dotenv==1.2.1
+pandas==2.3.3
+numpy==2.3.5
 requests==2.32.5
 tqdm==4.67.1
 tiktoken==0.12.0
-pydantic==2.11.7
+pydantic==2.12.5
 
 # === MeCab（オプション: キーワード抽出） ===
 mecab-python3>=1.0.12
@@ -308,6 +308,11 @@ GOOGLE_API_KEY=your_gemini_api_key_here
 # === Cohere API（オプション: Rerank 用） ===
 COHERE_API_KEY=your_cohere_api_key_here
 
+# === Web 検索（オプション: grace/tools.py の backend に応じて設定） ===
+# SERPAPI_KEY=your_serpapi_key_here            # backend=serpapi
+# GOOGLE_CSE_API_KEY=your_cse_api_key_here     # backend=google_cse
+# GOOGLE_CSE_ENGINE_ID=your_cse_engine_id
+
 # === Qdrant ===
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
@@ -326,6 +331,8 @@ CELERY_RESULT_BACKEND=redis://localhost:6379/0
 | Anthropic API Key | https://console.anthropic.com/settings/keys | LLM（Q&A生成・Agent応答） |
 | Gemini API Key | https://aistudio.google.com/apikey | Embedding（Qdrant登録・検索） |
 | Cohere API Key | https://dashboard.cohere.com/api-keys | Rerank（オプション） |
+| SerpAPI Key | https://serpapi.com/ | Web 検索（オプション・backend=serpapi） |
+| Google CSE Key / Engine ID | https://programmablesearchengine.google.com/ | Web 検索（オプション・backend=google_cse） |
 
 ---
 
@@ -369,7 +376,7 @@ docker compose -f docker-compose/docker-compose.yml down
 ## 8. 動作確認チェックリスト
 
 ```
-[ ] Python 3.13 系がインストールされている
+[ ] Python 3.11 以上（推奨 3.13 系）がインストールされている
 [ ] uv がインストールされている
 [ ] uv sync が正常完了（.venv 作成 + 依存インストール）
 [ ] Docker Desktop が起動している

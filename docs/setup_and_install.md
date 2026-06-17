@@ -3,9 +3,9 @@
 **プロジェクト**: anthropic_grace_agent（GRACE Agent + RAG システム）  
 **LLM**: Anthropic Claude API（`claude-sonnet-4-6`）  
 **Embedding**: Gemini Embedding API（`gemini-embedding-001`）  
-**バージョン**: 1.1  
+**バージョン**: 1.2  
 **作成日**: 2026-05-26  
-**最終更新**: 2026-06-16
+**最終更新**: 2026-06-17
 
 ---
 
@@ -15,7 +15,7 @@
 2. [動作環境・前提条件](#2-動作環境前提条件)
 3. [必要ソフトウェアのインストール](#3-必要ソフトウェアのインストール)
    - [3.1 Homebrew（macOS）](#31-homebrewmacos)
-   - [3.2 Python 3.13](#32-python-313)
+   - [3.2 Python 3.11 以上](#32-python-311-以上)
    - [3.3 uv（パッケージマネージャー）](#33-uvパッケージマネージャー)
    - [3.4 Docker Desktop](#34-docker-desktop)
    - [3.5 MeCab（オプション）](#35-mecabオプション)
@@ -117,7 +117,7 @@ style BG fill:#1a1a1a,stroke:#fff,color:#fff
 
 | ソフトウェア | バージョン | 用途 |
 |------------|----------|------|
-| Python | **3.13.x**（必須） | アプリ実行環境 |
+| Python | **3.11 以上**（3.13 を推奨） | アプリ実行環境 |
 | uv | 最新版 | パッケージ管理 |
 | Docker Desktop | 最新版 | Qdrant / Redis |
 | Git | 2.x 以上 | リポジトリ操作 |
@@ -130,8 +130,12 @@ style BG fill:#1a1a1a,stroke:#fff,color:#fff
 | `GOOGLE_API_KEY` | Embedding（Gemini） | https://aistudio.google.com/ |
 | `GEMINI_API_KEY` | Embedding（代替設定名） | https://aistudio.google.com/ |
 | `COHERE_API_KEY` | Rerank（オプション） | https://dashboard.cohere.com/ |
+| `SERPAPI_KEY` | Web 検索（オプション・`web_search` backend=serpapi 時） | https://serpapi.com/ |
+| `GOOGLE_CSE_API_KEY` / `GOOGLE_CSE_ENGINE_ID` | Web 検索（オプション・backend=google_cse 時） | https://programmablesearchengine.google.com/ |
 
 > LLM 用に `ANTHROPIC_API_KEY`、Embedding 用に `GOOGLE_API_KEY`（または `GEMINI_API_KEY`）を設定してください。`GOOGLE_API_KEY` と `GEMINI_API_KEY` は同じキーを設定して構いません。
+>
+> Web 検索ツール（`grace/tools.py`）を利用する場合のみ、選択した backend に応じて `SERPAPI_KEY` または `GOOGLE_CSE_API_KEY` / `GOOGLE_CSE_ENGINE_ID` を設定します。未設定でも RAG 検索・LLM 応答は動作します。
 
 ---
 
@@ -154,9 +158,9 @@ brew --version   # → Homebrew 4.x.x
 
 ---
 
-### 3.2 Python 3.13
+### 3.2 Python 3.11 以上
 
-本プロジェクトは **Python 3.13 専用**（`pyproject.toml` の `requires-python = ">=3.13,<3.14"`）。
+本プロジェクトは **Python 3.11 以上**（`pyproject.toml` の `requires-python = ">=3.11"`）が必要です。動作確認は 3.13 系で行っており、3.13 の利用を推奨します。
 
 #### macOS（Homebrew）
 
@@ -280,21 +284,24 @@ uv sync --all-groups
 
 インストール確認:
 ```bash
-uv run python -c "import streamlit, qdrant_client, anthropic, google.generativeai; print('OK')"
+uv run python -c "import streamlit, qdrant_client, anthropic; from google import genai; print('OK')"
 # → OK
 ```
 
-主要パッケージバージョン（`pyproject.toml` より）:
+主要パッケージバージョン（`requirements.txt` 準拠。`uv.lock` でバージョン固定）:
 
 | パッケージ | バージョン | 用途 |
 |----------|----------|------|
 | anthropic | >=0.40.0 | Anthropic Claude API クライアント（LLM） |
-| google-generativeai | >=0.8.0 | Gemini API クライアント（Embedding） |
-| streamlit | 1.48.1 | Web UI |
-| qdrant-client | 1.15.1 | ベクトル DB クライアント |
+| google-genai | 1.52.0 | Gemini API クライアント（Embedding。`from google import genai`） |
+| streamlit | 1.52.1 | Web UI |
+| qdrant-client | 1.16.1 | ベクトル DB クライアント |
 | celery | 5.5.3 | タスクキュー |
-| redis | 6.2.0 | Celery ブローカー |
-| pydantic | 2.11.7 | データバリデーション |
+| redis | 7.1.0 | Celery ブローカー |
+| pydantic | 2.12.5 | データバリデーション |
+| tiktoken | 0.12.0 | トークン数カウント |
+
+> Embedding クライアントは新パッケージ **`google-genai`**（`from google import genai`）を使用します。旧 `google-generativeai` には依存していません。
 
 ---
 
@@ -324,6 +331,13 @@ GEMINI_API_KEY=your-google-api-key-here
 # Rerank（オプション）: Cohere
 # ============================================================
 # COHERE_API_KEY=your-cohere-api-key-here
+
+# ============================================================
+# Web 検索（オプション）: grace/tools.py の web_search backend に応じて設定
+# ============================================================
+# SERPAPI_KEY=your-serpapi-key-here          # backend=serpapi の場合
+# GOOGLE_CSE_API_KEY=your-cse-api-key-here   # backend=google_cse の場合
+# GOOGLE_CSE_ENGINE_ID=your-cse-engine-id
 
 # ============================================================
 # Qdrant（Docker で起動する場合はデフォルトで動作）
@@ -436,10 +450,15 @@ http://localhost:5555
 
 Qdrant にベクトルデータを登録します（初回または再構築時）。
 
-### 6.1 チャンク済みデータを Qdrant に登録
+### 6.1 Q/A 生成 + Qdrant 登録（統合 CLI）
+
+チャンク済み CSV から Q/A を生成し、Embedding（Gemini）化して Qdrant に登録します。
 
 ```bash
-uv run python a30_qdrant_registration.py --recreate --limit 100
+uv run python qa_qdrant/make_qa_register_qdrant.py \
+    --input-file output_chunked/cc_news_5per_chunks.csv \
+    --collection cc_news_5per \
+    --recreate
 ```
 
 ### 6.2 Celery 経由で並列 Q/A 生成 + 登録
@@ -524,7 +543,7 @@ docker compose -f docker-compose/docker-compose.yml down
 ### ソフトウェア
 
 ```
-[ ] python3 --version  →  Python 3.13.x
+[ ] python3 --version  →  Python 3.11 以上（3.13 推奨）
 [ ] uv --version       →  uv 0.x.x
 [ ] docker --version   →  Docker version 27.x.x
 ```
@@ -536,7 +555,7 @@ docker compose -f docker-compose/docker-compose.yml down
 [ ] .env に GOOGLE_API_KEY が設定されている（Embedding）
 [ ] .env に GEMINI_API_KEY が設定されている（Embedding 代替名）
 [ ] uv run python -c "import anthropic; anthropic.Anthropic(api_key='test')" がエラーなく動作
-[ ] uv run python -c "import google.generativeai as genai; genai.configure(api_key='test')" がエラーなく動作
+[ ] uv run python -c "from google import genai; genai.Client(api_key='test')" がエラーなく動作
 ```
 
 ### サービス起動
@@ -620,7 +639,7 @@ export PYTHONPATH="$(pwd):$(pwd)/helper"
 ### `uv sync` が Python バージョンエラーで失敗する
 
 ```bash
-# Python 3.13 を明示指定
+# Python 3.13 を明示指定（最小要件は 3.11）
 uv sync --python 3.13
 
 # .python-version ファイルで固定
@@ -688,12 +707,12 @@ anthropic_grace_agent/
 ├── logs/                     # Celery ログ
 │
 └── docs/
-    ├── llm_api_comparison_v2.md     # LLM API 比較表（v2）
-    ├── plan_for_migration_v2.md     # 移行計画（v2）
-    ├── plan_for_migration.md        # 移行計画（v1）
-    ├── llm_api_comparison.md        # LLM API 比較表（v1）
-    ├── uv_install.md                # pip → uv 移行手順
-    └── setup_and_install.md         # 本ファイル
+    ├── llm_api_comparison_v2.md                       # LLM API 比較表（v2）
+    ├── grace_agent_performance_comparison_spec.md     # GRACE 性能比較スペック
+    ├── agent_rag.md                                   # agent_rag.py IPO 仕様
+    ├── uv_install.md                                  # pip → uv 移行手順
+    ├── setup_and_install.md                           # 本ファイル
+    └── archive/                                       # 旧移行計画・API 移行メモ
 ```
 
 ---
@@ -703,9 +722,10 @@ anthropic_grace_agent/
 | ドキュメント | 内容 |
 |------------|------|
 | `docs/llm_api_comparison_v2.md` | Gemini / Anthropic / OpenAI API 比較表（v2） |
-| `docs/plan_for_migration_v2.md` | 移行計画・設計方針（v2） |
-| `docs/plan_for_migration.md` | 移行計画（v1） |
+| `docs/grace_agent_performance_comparison_spec.md` | GRACE エージェント性能比較スペック |
+| `docs/agent_rag.md` | `agent_rag.py` の IPO 仕様 |
 | `docs/uv_install.md` | pip → uv 移行手順 |
+| `readme_make_env.md` | Mac 向け環境構築手順 |
 | `readme_rag.md` | RAG システム概要 |
 | `readme_autonomous_agent.md` | GRACE 自律エージェント概要 |
 | `readme_react_reflection.md` | ReAct + Reflection エージェント概要 |
@@ -713,4 +733,4 @@ anthropic_grace_agent/
 
 ---
 
-*最終更新: 2026-06-16*
+*最終更新: 2026-06-17*

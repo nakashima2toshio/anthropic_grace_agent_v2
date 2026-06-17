@@ -2,9 +2,9 @@
 
 **環境**: Mac / zsh / Anthropic Claude API（LLM）＋ Gemini Embedding API（Embedding）  
 **プロジェクト**: `anthropic_grace_agent`  
-**バージョン**: 1.1  
+**バージョン**: 1.2  
 **作成日**: 2026-05-26  
-**最終更新**: 2026-06-16
+**最終更新**: 2026-06-17
 
 ---
 
@@ -48,7 +48,7 @@ uv init --no-workspace
 # 現在のバージョン確認
 python --version
 
-# Python 3.13 を使う（本プロジェクト必須）
+# Python 3.13 を使う（pyproject.toml の最小要件は 3.11、推奨は 3.13）
 uv python pin 3.13
 ```
 
@@ -57,23 +57,17 @@ uv python pin 3.13
 ## Step 4: requirements.txt から移行
 
 本プロジェクトは **Anthropic Claude API**（LLM）と **Gemini Embedding API**（Embedding）を使用します。  
-`anthropic` と `google-generativeai` が必要で、`openai` パッケージは不要です。
+LLM 用に `anthropic`、Embedding 用に新パッケージ `google-genai`（`from google import genai`）が必要です。  
+（`openai` も `requirements.txt` には含まれますが、本プロジェクトの LLM/Embedding 経路では未使用です。）
 
 ```zsh
-# openai を除いた requirements を生成
-grep -vE "^openai" requirements.txt > requirements_anthropic.txt
-
-# 確認（openai が含まれていないこと）
-grep -E "^openai" requirements_anthropic.txt
-# → 何も表示されなければOK
-
-# 確認（anthropic / google-generativeai が含まれていること）
-grep -E "^anthropic|^google-generativeai" requirements_anthropic.txt
-# → 両方表示されればOK
-
-# 仮想環境を作成して一括インストール
+# 仮想環境を作成して requirements.txt から一括インストール
 uv venv
-uv pip install -r requirements_anthropic.txt
+uv pip install -r requirements.txt
+
+# 確認（anthropic / google-genai が含まれていること）
+grep -E "^anthropic|^google-genai" requirements.txt
+# → 両方表示されればOK
 ```
 
 ---
@@ -93,12 +87,8 @@ uv sync
 # uv から正式な requirements.txt を再生成
 uv export --format requirements-txt > requirements.txt
 
-# openai が含まれていないか確認
-grep -E "^openai" requirements.txt
-# → 何も表示されなければOK
-
-# anthropic / google-generativeai が含まれているか確認
-grep -E "^anthropic|^google-generativeai" requirements.txt
+# anthropic / google-genai が含まれているか確認
+grep -E "^anthropic|^google-genai" requirements.txt
 # → 両方表示されればOK
 ```
 
@@ -108,10 +98,10 @@ grep -E "^anthropic|^google-generativeai" requirements.txt
 
 | 操作 | pip（変更前） | uv（変更後） |
 |---|---|---|
-| パッケージ追加 | `pip install google-generativeai` | `uv add google-generativeai` |
-| パッケージ削除 | `pip uninstall google-generativeai` | `uv remove google-generativeai` |
+| パッケージ追加 | `pip install google-genai` | `uv add google-genai` |
+| パッケージ削除 | `pip uninstall google-genai` | `uv remove google-genai` |
 | 一括インストール | `pip install -r requirements.txt` | `uv sync` |
-| アップデート | `pip install --upgrade google-generativeai` | `uv add google-generativeai --upgrade` |
+| アップデート | `pip install --upgrade google-genai` | `uv add google-genai --upgrade` |
 | 仮想環境作成 | `python -m venv .venv` | `uv venv` |
 | スクリプト実行 | `python script.py` | `uv run python script.py` |
 | Streamlit 起動 | `streamlit run app.py` | `uv run streamlit run app.py` |
@@ -217,7 +207,7 @@ Settings → Project → Python Interpreter
 anthropic_grace_agent/
 ├── pyproject.toml     ← uv の設定ファイル（新規）
 ├── uv.lock            ← lock ファイル（新規・コミット推奨）
-├── requirements.txt   ← anthropic + google-generativeai（openai 除外済み）
+├── requirements.txt   ← anthropic（LLM）+ google-genai（Embedding）
 ├── .python-version    ← Python バージョン固定（新規）
 ├── .env               ← ANTHROPIC_API_KEY + GOOGLE_API_KEY + GEMINI_API_KEY
 └── .venv/             ← 仮想環境（.gitignore に追加）
@@ -234,14 +224,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh && source ~/.zshrc
 # ② プロジェクトへ移動
 cd /Users/nakashima_toshio/PycharmProjects/anthropic_grace_agent
 
-# ③ openai を除いた requirements を作成
-grep -vE "^openai" requirements.txt > requirements_anthropic.txt
+# ③ 仮想環境作成 + requirements.txt から一括インストール
+uv venv && uv pip install -r requirements.txt
 
-# ④ 仮想環境作成 + インストール
-uv venv && uv pip install -r requirements_anthropic.txt
-
-# ⑤ lock ファイル生成
-uv lock
+# ④ lock ファイル生成 + 同期
+uv lock && uv sync
 
 # ⑥ .env の確認
 cat .env | grep -E "ANTHROPIC_API_KEY|GOOGLE_API_KEY|GEMINI_API_KEY"
@@ -256,4 +243,4 @@ uv run streamlit run agent_rag.py --server.port 8501
 
 ---
 
-*最終更新: 2026-06-16*
+*最終更新: 2026-06-17*
