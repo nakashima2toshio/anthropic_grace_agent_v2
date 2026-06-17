@@ -60,12 +60,20 @@ class _GenaiCompatResponse:
 
 
 def _extract_config(config: Any) -> dict[str, Any]:
-    """types.GenerateContentConfig から必要な設定を取り出す。"""
+    """生成設定から必要なキーを取り出す。
+
+    LLM テキスト生成は Anthropic 専用へ移行したため、呼び出し側は
+    google-genai の `types.GenerateContentConfig` ではなく **plain dict** で
+    設定を渡す。後方互換のため属性アクセス（旧 GenerateContentConfig 等）にも対応する。
+    """
     if config is None:
         return {}
     out: dict[str, Any] = {}
     for key in ("temperature", "max_output_tokens", "response_mime_type", "response_schema"):
-        out[key] = getattr(config, key, None)
+        if isinstance(config, dict):
+            out[key] = config.get(key)
+        else:
+            out[key] = getattr(config, key, None)
     return out
 
 

@@ -7,7 +7,6 @@ GRACE Planner - 計画生成エージェント
 import logging
 from typing import Optional
 
-from google.genai import types
 from qdrant_client import QdrantClient
 
 from regex_mecab import KeywordExtractor
@@ -300,16 +299,13 @@ class Planner:
                     response = self.client.models.generate_content(
                         model=self.model_name,
                         contents=prompt,
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            # Python SDK: types.GenerateContentConfig では response_schema にPydanticクラスを直接渡す
-                            response_schema=ExecutionPlan,
-                            temperature=self.config.llm.temperature,
-                            max_output_tokens=8192,
-                            # AFC無効化: AFC永続化 + JSON mode で空レスポンスまたはJSON途切れが発生するバグを防止
-                            # See: https://github.com/googleapis/python-genai/issues/1818
-                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                        )
+                        config={
+                            "response_mime_type": "application/json",
+                            # response_schema には Pydantic クラスを直接渡す
+                            "response_schema": ExecutionPlan,
+                            "temperature": self.config.llm.temperature,
+                            "max_output_tokens": 8192,
+                        }
                     )
                     elapsed = _time.time() - t0
                     logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
@@ -487,12 +483,10 @@ class Planner:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=10,
-                    # AFC無効化: 前のリクエストで有効化されたまま永続化し、空レスポンスを返すバグを防止
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 10,
+                }
             )
             elapsed = _time.time() - t0
             logger.info(f"[API時間] estimate_complexity_with_llm: {elapsed:.1f}秒")
@@ -544,14 +538,12 @@ class Planner:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=refine_prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    # Python SDK: types.GenerateContentConfig では response_schema にPydanticクラスを直接渡す
-                    response_schema=ExecutionPlan,
-                    temperature=self.config.llm.temperature,
-                    # AFC無効化
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "response_mime_type": "application/json",
+                    # response_schema には Pydantic クラスを直接渡す
+                    "response_schema": ExecutionPlan,
+                    "temperature": self.config.llm.temperature,
+                }
             )
             elapsed = _time.time() - t0
             logger.info(f"[API時間] refine_plan LLM: {elapsed:.1f}秒")
