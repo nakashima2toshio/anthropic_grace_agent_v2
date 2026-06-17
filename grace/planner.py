@@ -369,31 +369,6 @@ class Planner:
             logger.info("Falling back to simple plan")
             return self._create_fallback_plan(query)
 
-    def _create_plan_legacy(self, query: str) -> ExecutionPlan:
-        """
-        質問から実行計画を生成（Legacy Agent委譲版 - バックアップ）
-        """
-        return ExecutionPlan(
-            original_query=query,
-            complexity=0.1,
-            estimated_steps=1,
-            requires_confirmation=False,
-            steps=[
-                PlanStep(
-                    step_id=1,
-                    action="run_legacy_agent",
-                    description="Legacy Agent (ReAct) を実行して回答を生成",
-                    query=query,
-                    collection=None,
-                    expected_output="ユーザーへの回答",
-                    fallback=None,
-                    timeout_seconds=30
-                )
-            ],
-            success_criteria="ユーザーの質問に適切に回答できている",
-            plan_id=create_plan_id()
-        )
-
     def _get_available_collections(self) -> list:
         """利用可能なQdrantコレクションを取得"""
         try:
