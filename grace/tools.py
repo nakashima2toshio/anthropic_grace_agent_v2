@@ -857,14 +857,30 @@ class CodeExecuteTool(BaseTool):
 
     @staticmethod
     def _apply_limits(cpu_seconds: int, mem_bytes: int):
-        """子プロセスで resource 制限を適用する（POSIX のみ）。"""
+        """子プロセスで resource 制限を適用する（POSIX のみ・best-effort）。
+
+        preexec_fn 内で例外を送出するとサブプロセス生成自体が
+        "Exception occurred in preexec_fn." で失敗するため、各制限は
+        個別に try/except で保護する。特に macOS(Darwin) では RLIMIT_AS を
+        設定すると Python 子プロセスの起動（mmap 予約）が阻害される/設定不可の
+        ことがあるため適用しない（メモリ制限は best-effort で諦める）。
+        """
         import resource
-        # CPU 時間（秒）
-        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        # アドレス空間（メモリ）
-        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+        import sys
+
+        def _safe_setrlimit(res_id, soft_hard) -> None:
+            try:
+                resource.setrlimit(res_id, soft_hard)
+            except (ValueError, OSError, AttributeError):
+                pass  # 当該プラットフォームで未対応でも他の制限は適用を続ける
+
+        # CPU 時間（秒）— 無限ループ等を確実に停止させる主要ガード
+        _safe_setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+        # アドレス空間（メモリ）— Darwin では Python 起動を妨げるため除外
+        if sys.platform != "darwin":
+            _safe_setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
         # 生成ファイルサイズ上限（1MB）
-        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+        _safe_setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
 
     def execute(self, code: Optional[str] = None, query: Optional[str] = None,
                 **kwargs) -> ToolResult:
