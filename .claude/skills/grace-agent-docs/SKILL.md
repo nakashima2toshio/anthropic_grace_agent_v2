@@ -1,20 +1,34 @@
 ---
 name: grace-agent-docs
 description: >-
-  Author or update Japanese module documentation for the *_grace_agent repos
-  (anthropic/openai/gemini/ollama). Use when writing or modernizing docs under
-  <package>/doc/*.md or the top-level readme_*.md / docs/*.md, when asked to
-  follow `a_class_method_md_format.md`, or when adding Mermaid diagrams to these
-  repos. Encodes the IPO doc format, the mandatory black-background Mermaid
-  style, and the unified tech-stack terminology.
+  Author or update Japanese module/page documentation for the *_grace_agent
+  repos (anthropic/openai/gemini/ollama). Use when writing or modernizing docs
+  under <package>/doc/*.md, ui/pages docs, or the top-level readme_*.md /
+  docs/*.md, when asked to follow `a_class_method_md_format.md` (modules/classes)
+  or `a_pages_md_format.md` (Streamlit UI pages), or when adding Mermaid diagrams
+  to these repos. Encodes the IPO doc format, the Streamlit page format
+  (layout/session-state/user-flow), the mandatory black-background Mermaid style,
+  and the unified tech-stack terminology.
 ---
 
 # grace_agent ドキュメント作成スキル
 
-日本語RAG/GRACEプロジェクト群（`anthropic_grace_agent` ほか）のモジュールドキュメントを、
+日本語RAG/GRACEプロジェクト群（`anthropic_grace_agent` ほか）のモジュール／画面ドキュメントを、
 プロジェクト規約どおりに作成・最新化するための知見。
 
-## 1. フォーマット仕様（必読）
+## 0. どのフォーマット仕様を使うか（必ず先に判定）
+
+対象によって**使う仕様書が異なる**。いずれもリポジトリ直下にあり、書く前に該当仕様を**実際に読むこと**。
+
+| 対象 | 使う仕様書 | 中心構造 | 主なドキュメント所在 |
+|------|-----------|---------|------------------|
+| コード・モジュール（クラス/関数） | `a_class_method_md_format.md` | IPO（Input-Process-Output） | `<package>/doc/<module>.md` |
+| Streamlit 画面・ページ | `a_pages_md_format.md` | 画面レイアウト＋セッション状態＋操作フロー | `ui/pages/doc/<page>.md`（無ければ対象に準ずる） |
+| 単体テスト | `a_test_md_format.md` | SAE（Setup-Action-Expected） | grace-agent-tests スキル参照 |
+
+> テスト仕様（SAE）は **grace-agent-tests** スキルが担当。本スキルはモジュール（IPO）と画面（ページ）を担当する。
+
+## 1. モジュール仕様（`a_class_method_md_format.md`・IPO形式）— 必読
 - 仕様書はリポジトリ直下 `a_class_method_md_format.md`（IPO形式）。**先に読むこと**。
 - タイトル: `# <module>.py - <説明> ドキュメント` → 次行 `**Version X.X** | 最終更新: YYYY-MM-DD`。
 - 必須セクション順:
@@ -30,6 +44,28 @@ description: >-
   10. 変更履歴（表。版を上げたら必ず追記）
   11. 付録: 依存関係図（Mermaid）
 - 横断的な「まとめ」ドキュメントは IPO を各モジュール doc に委ね、本文はアーキテクチャ＋データフロー＋リンク集に徹してよい（例: `grace/doc/agent_rag_grace.md`）。
+
+## 1B. 画面・ページ仕様（`a_pages_md_format.md`・Streamlit UI）— 必読
+
+`ui/pages/*.py`（`show_*_page()` 中心の Streamlit 画面）は IPO ではなく**画面特化フォーマット**を使う。
+タイトルは `# <page>.py - <説明> ドキュメント` → `**Version X.X** | 最終更新: YYYY-MM-DD`。
+
+- 必須セクション順:
+  1. 目次
+  2. 概要（`### 主な責務`＝ユーザー視点の機能 → `### 主要機能一覧` 表。※モジュール仕様の「各責務対応のモジュール」表は不要）
+  3. 画面レイアウト図（Mermaid・全体レイアウト＋コンポーネント配置図。`st.*` を明記）
+  4. UIコンポーネント詳細（サイドバー／メインエリア／エキスパンダー／ダイアログを表で。`種類`列は `st.selectbox` 等）
+  5. セッション状態管理（`st.session_state` の状態一覧表＝キー/型/初期値/説明/リセット条件 ＋ 状態遷移図(Mermaid) ＋ 初期化・リセット条件）
+  6. ユーザー操作フロー（操作フロー図(Mermaid flowchart) ＋ 操作シーケンス図(Mermaid sequenceDiagram)）
+  7. 関数一覧表（メイン関数＝`show_*_page()` ／ ヘルパー関数＝インポート元モジュール付き）
+  8. 関数 IPO詳細（メイン関数は概要/シグネチャ/IPO表/主要処理フロー。外部関数は「**参照**: <module>」で簡略可）
+  9. 依存関係（外部ライブラリ／内部モジュール／サービス層の3表）
+  10. イベント処理（ボタン／入力／リアルタイム更新の表。`log`/`tool_call`/`tool_result`/`final_answer` 等のイベント種別）
+  11. エラーハンドリング（エラー種別／表示＝`st.error`/`st.warning`/`st.info`/`st.toast`）
+  12. 使用例（画面操作手順・典型質問例。スクショは任意）
+  13. 変更履歴
+- 状態遷移図・操作フローは flowchart、操作シーケンスは sequenceDiagram（黒背景ルールは §2 と同じ）。
+- 実装整合: `st.session_state` のキー・`should_reinitialize` 等の再初期化条件・各 `st.*` 呼び出しを**実コードと突合**する。
 
 ## 2. Mermaid 黒背景・白文字（CLAUDE.md §7 / 仕様書 §16.5）— 必須
 - flowchart/graph はブロック末尾に必ず:
@@ -56,9 +92,10 @@ description: >-
 - 現行パイプラインは3段階（チャンキング→Q/A生成→Qdrant登録）。チャンキングは文書境界保証（`load_documents_from_csv`/`doc_id`）・`continuity_mode="rule"`・`max_chunk_tokens=512`・manifest出力。
 
 ## 5. ドキュメントの所在
-- モジュール個別ドキュメント: `<package>/doc/<module>.md`（例 `chunking/doc/`, `qa_generation/doc/`, `grace/doc/`, `qa_qdrant/doc/`）。
+- モジュール個別ドキュメント（IPO）: `<package>/doc/<module>.md`（例 `chunking/doc/`, `qa_generation/doc/`, `grace/doc/`, `qa_qdrant/doc/`, `services/doc/`）。
+- 画面・ページドキュメント（ページ形式）: `ui/pages/doc/<page>.md`（ディレクトリが無ければ対象 `ui/pages/` 配下に準じて作成）。
 - 横断/利用ガイド: リポジトリ直下 `readme_*.md`・`docs/*.md`。
 
 ## 6. 進め方のコツ
-- 複数ファイルを最新化するときは **ファイルごとにサブエージェントを並列起動**（各に「フォーマット仕様パス＋対象ソース＋黒背景Mermaid規約＋スタック表記」を渡す）。
-- 仕上げに mermaid 準拠を grep 検証し、版・最終更新日・変更履歴を更新。
+- 複数ファイルを最新化するときは **ファイルごとにサブエージェントを並列起動**（各に「**使うフォーマット仕様のパス**（モジュール=`a_class_method_md_format.md` / 画面=`a_pages_md_format.md`）＋対象ソース＋黒背景Mermaid規約＋スタック表記」を渡す）。
+- 仕上げに mermaid 準拠を grep 検証（`flowchart|graph` 数 == `classDef default fill:#000` 数、`sequenceDiagram` 数 == `%%{ init` 数）し、版・最終更新日・変更履歴を更新。
