@@ -1,18 +1,20 @@
 """
 GRACE Executor Integration Tests (Real LLM & Real RAG)
-実際のLLM (Gemini) と 実際のQdrant を使用して
+実際のLLM (Anthropic Claude) と 実際のQdrant を使用して
 PlannerとExecutorの連携動作を確認する完全統合テスト
 
 【前提条件】
-1. Google Gemini APIキーが設定されていること
-2. Qdrantサーバーが起動していること
-3. Qdrantに「スペイン語の文法...」に関するデータ（a02_qa_pairs_wikipedia_ja.csv等）が登録されていること
+1. Anthropic APIキー (ANTHROPIC_API_KEY) が設定されていること（本体LLM）
+2. Embedding 用に Gemini APIキー (GOOGLE_API_KEY/GEMINI_API_KEY) が設定されていること
+3. Qdrantサーバーが起動していること
+4. Qdrantに「スペイン語の文法...」に関するデータ（a02_qa_pairs_wikipedia_ja.csv等）が登録されていること
 
 [Usage]: pytest --cov=grace.executor -vs tests/grace/test_executor_integration.py
 """
 
 import logging
 import os
+import socket
 
 import pytest
 
@@ -25,20 +27,34 @@ from grace.tools import create_tool_registry
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def _has_real_gemini_key() -> bool:
-    """実在の Gemini APIキーがあるか判定。
+def _has_real_anthropic_key() -> bool:
+    """実在の Anthropic APIキーがあるか判定。
 
-    tests/grace/conftest.py が GOOGLE_API_KEY をプレースホルダ "test-api-key" で
-    setdefault するため、単純な存在チェックでは実環境でなくても True になる。
+    本プロジェクトの本体LLMは Anthropic Claude（`grace/llm_compat.create_chat_client`）。
+    conftest がプレースホルダ "test-api-key" を setdefault する場合があるため、
     プレースホルダは実環境ではないとみなす。
     """
-    key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    key = os.environ.get("ANTHROPIC_API_KEY")
     return bool(key) and key != "test-api-key"
 
 
+def _qdrant_is_live() -> bool:
+    """QDRANT_HOST/PORT（既定 localhost:6333）へ短timeoutで接続できるか。"""
+    host = os.environ.get("QDRANT_HOST", "localhost")
+    try:
+        port = int(os.environ.get("QDRANT_PORT", "6333"))
+    except ValueError:
+        port = 6333
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 @pytest.mark.skipif(
-    not _has_real_gemini_key(),
-    reason="real GOOGLE_API_KEY/GEMINI_API_KEY (and live Qdrant) required for integration test"
+    not (_has_real_anthropic_key() and _qdrant_is_live()),
+    reason="real ANTHROPIC_API_KEY and live Qdrant required for integration test"
 )
 class TestExecutorIntegration:
     """ExecutorとPlannerの統合テスト（実環境）"""
