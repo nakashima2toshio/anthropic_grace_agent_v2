@@ -12,25 +12,31 @@ Qdrantベクトルデータベースを使用した意味検索
 - スコア詳細表示（Original + Rerank）
 """
 
-import warnings
+import logging
+
 import pandas as pd
 import streamlit as st
-from helper.helper_llm import create_llm_client
 from qdrant_client import QdrantClient
+
+from helper.helper_llm import create_llm_client
+from qdrant_client_wrapper import (
+    embed_sparse_query_unified,  # Import search_collection and embed_sparse_query_unified
+    search_collection,
+)
 
 # サービスモジュールからインポート
 from services.qdrant_service import (
-    QdrantDataFetcher,
     embed_query_for_search,
     get_collection_embedding_params,
 )
-from services.file_service import load_source_qa_data
-from qdrant_client_wrapper import search_collection, \
-    embed_sparse_query_unified  # Import search_collection and embed_sparse_query_unified
+
+logger = logging.getLogger(__name__)
 
 # FastEmbedが利用可能かチェック
 try:
-    from fastembed import SparseTextEmbedding as _SparseTextEmbedding
+    from fastembed import (
+        SparseTextEmbedding as _SparseTextEmbedding,  # noqa: F401  (importability probe)
+    )
     FASTEMBED_AVAILABLE = True
 except ImportError:
     FASTEMBED_AVAILABLE = False
@@ -179,7 +185,7 @@ def show_qdrant_search_page():
                 try:
                     col_info = client.get_collection(collection)
                     total_points = col_info.points_count if hasattr(col_info, 'points_count') else "N/A"
-                except:
+                except Exception:
                     total_points = "N/A"
 
                 st.caption(f"📈 表示: {len(data_list)} 件 / 総ポイント数: {total_points}")
@@ -232,7 +238,6 @@ def show_qdrant_search_page():
             # コレクションに対応した埋め込み設定を取得
             collection_config = get_collection_embedding_params(client, collection)
             embedding_model = collection_config["model"]
-            embedding_dims = collection_config.get("dims")
 
             # クエリの埋め込みベクトルを生成
             with st.spinner("クエリの埋め込みベクトルを生成中..."):
@@ -246,17 +251,32 @@ def show_qdrant_search_page():
                 sparse_vector = None
                 if use_hybrid_search:
                     with st.spinner("Sparseベクトルを生成中..."):
-                        # sparse_vector生成
-                        sparse_vector = embed_sparse_query_unified(query)
-                        if debug_mode:
-                            st.success("✅ Sparseベクトルを生成しました")
+                        # sparse_vector生成。SPLADE(fastembed)モデルの未取得・キャッシュ破損
+                        # （[ONNXRuntimeError] NO_SUCHFILE 等）で失敗しても検索全体を
+                        # 止めず、Dense-only 検索へ degrade する。
+                        try:
+                            sparse_vector = embed_sparse_query_unified(query)
+                            if debug_mode:
+                                st.success("✅ Sparseベクトルを生成しました")
+                        except Exception as sparse_err:
+                            sparse_vector = None
+                            logger.warning(
+                                f"Sparse埋め込み生成に失敗したため Dense-only 検索に切替: {sparse_err}"
+                            )
+                            st.warning(
+                                "⚠️ Sparse(SPLADE)モデルを読み込めなかったため、"
+                                "Dense-only 検索に切り替えました。"
+                                "（fastembed キャッシュ破損の可能性。ハイブリッド検索を使うには "
+                                "`~/Library/Caches`/一時ディレクトリ内の "
+                                "`fastembed_cache/models--Qdrant--Splade_PP_en_v1` を削除して再取得してください）"
+                            )
 
                 # search_collection関数を呼び出し
                 hits_dict_list = search_collection(  # search_collection returns List[Dict[str, Any]]
                     client=client,
                     collection_name=collection,
                     query_vector=qvec,
-                    sparse_vector=sparse_vector if use_hybrid_search else None,
+                    sparse_vector=sparse_vector,
                     limit=topk,
                     score_threshold=score_threshold
                 )
@@ -428,11 +448,11 @@ def show_qdrant_search_page():
                     st.code(qa_prompt)
 
                 try:
-                    with st.spinner("Gemini AIが回答を生成中..."):
-                        llm_client = create_llm_client(provider="gemini")
+                    with st.spinner("Claude が回答を生成中..."):
+                        llm_client = create_llm_client(provider="anthropic")
                         generated_answer = llm_client.generate_content(
                             prompt=qa_prompt,
-                            model="gemini-2.5-flash"
+                            model="claude-sonnet-4-6"
                         )
 
                     if generated_answer and generated_answer.strip():

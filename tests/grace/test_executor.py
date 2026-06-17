@@ -3,14 +3,14 @@ GRACE Executor Tests
 Executorのテスト
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
-import json
 
-from grace.executor import Executor, ExecutionState, create_executor
+import pytest
+
+from grace.config import reset_config
+from grace.executor import ExecutionState, Executor, create_executor
 from grace.schemas import ExecutionPlan, PlanStep, StepResult, StepStatus
 from grace.tools import ToolRegistry, ToolResult
-from grace.config import GraceConfig, reset_config
 
 
 class TestExecutionState:
@@ -305,7 +305,7 @@ class TestExecutorFallback:
         )
 
         executor = Executor(tool_registry=registry)
-        result = executor.execute_plan(plan)
+        executor.execute_plan(plan)
 
         # フォールバックが実行された
         assert reasoning_tool.execute.called

@@ -1,7 +1,10 @@
 import os
+from unittest.mock import mock_open, patch
+
 import pytest
-from unittest.mock import patch, mock_open
+
 from services.config_service import ConfigManager
+
 
 # Reset singleton before each test
 @pytest.fixture(autouse=True)
@@ -22,7 +25,7 @@ class TestConfigManager:
             cm = ConfigManager()
             # Should have defaults
             assert cm.get("api.timeout") == 30
-            assert cm.get("models.default") == "gemini-2.5-flash"
+            assert cm.get("models.default") == "claude-sonnet-4-6"
 
     def test_load_yaml(self):
         yaml_content = """

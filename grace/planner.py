@@ -5,21 +5,24 @@ GRACE Planner - 計画生成エージェント
 """
 
 import logging
-from typing import Optional, List
-from google.genai import types
+from typing import Optional
 
+from google.genai import types
+from qdrant_client import QdrantClient
+
+from regex_mecab import KeywordExtractor
+from services.prompts import SEARCH_QUERY_INSTRUCTION
+from services.qdrant_service import get_all_collections
+
+from .config import GraceConfig, get_config
+from .llm_compat import create_chat_client
+from .memory import create_execution_memory
 from .schemas import (
     ExecutionPlan,
     PlanStep,
     create_plan_id,
     validate_plan_dependencies,
 )
-from .config import get_config, GraceConfig
-from .llm_compat import create_chat_client
-from services.qdrant_service import get_all_collections
-from qdrant_client import QdrantClient
-from services.prompts import SEARCH_QUERY_INSTRUCTION
-from regex_mecab import KeywordExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +125,11 @@ class Planner:
         self.model_name = model_name or self.config.llm.model
         self.client = create_chat_client(self.config)
 
+        # P4: 実行メモリ層（コレクション事前分布の学習・反映）
+        self._memory = None
+        if getattr(self.config, "memory", None) and self.config.memory.enabled:
+            self._memory = create_execution_memory(self.config.memory.path)
+
         # KeywordExtractorの初期化（Legacy Agentと同一）
         try:
             self.keyword_extractor = KeywordExtractor(prefer_mecab=True)
@@ -174,6 +182,25 @@ class Planner:
 
         return heuristic_complexity >= self.config.planner.llm_plan_complexity_threshold
 
+    def _prioritized_collection(self, query: str) -> Optional[str]:
+        """P4: 実行メモリの事前分布から、この質問で当たりやすいコレクションを返す。
+
+        十分な実績が無ければ None（=全コレクション検索）を返す。
+        """
+        if self._memory is None:
+            return None
+        try:
+            mc = self.config.memory
+            best = self._memory.best_collection(
+                query=query, min_count=mc.min_count, min_score=mc.min_score
+            )
+            if best:
+                logger.info(f"[memory] prioritized collection for query: {best}")
+            return best
+        except Exception as e:
+            logger.warning(f"_prioritized_collection failed: {e}")
+            return None
+
     def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan:
         """
         ルールベースの標準2ステップ計画を生成（LLM呼び出しなし）
@@ -181,7 +208,11 @@ class Planner:
         rag_search（全コレクション網羅・fallback=web_search）→ reasoning の
         標準構成。LLM計画生成と同じ計画構造のため、Executor 側の
         動的フォールバック連鎖（web_search / ask_user）もそのまま機能する。
+
+        P4: 実行メモリに十分な実績があれば rag_search の collection を
+        事前分布の最良コレクションに固定する（無ければ None=全コレクション検索）。
         """
+        prioritized = self._prioritized_collection(query)
         return ExecutionPlan(
             original_query=query,
             complexity=complexity,
@@ -191,9 +222,9 @@ class Planner:
                 PlanStep(
                     step_id=1,
                     action="rag_search",
-                    description="全コレクションから関連情報を検索",
+                    description="関連情報を検索",
                     query=query,
-                    collection=None,
+                    collection=prioritized,
                     expected_output="関連するドキュメントや情報",
                     fallback="web_search",
                     timeout_seconds=30
@@ -256,8 +287,8 @@ class Planner:
             logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
             # --- TODO #2: リトライ付きでLLM呼び出し（最大2回） ---
-            import time as _time
             import json as _json
+            import time as _time
 
             plan = None
             last_error = None
@@ -338,31 +369,6 @@ class Planner:
             logger.info("Falling back to simple plan")
             return self._create_fallback_plan(query)
 
-    def _create_plan_legacy(self, query: str) -> ExecutionPlan:
-        """
-        質問から実行計画を生成（Legacy Agent委譲版 - バックアップ）
-        """
-        return ExecutionPlan(
-            original_query=query,
-            complexity=0.1,
-            estimated_steps=1,
-            requires_confirmation=False,
-            steps=[
-                PlanStep(
-                    step_id=1,
-                    action="run_legacy_agent",
-                    description="Legacy Agent (ReAct) を実行して回答を生成",
-                    query=query,
-                    collection=None,
-                    expected_output="ユーザーへの回答",
-                    fallback=None,
-                    timeout_seconds=30
-                )
-            ],
-            success_criteria="ユーザーの質問に適切に回答できている",
-            plan_id=create_plan_id()
-        )
-
     def _get_available_collections(self) -> list:
         """利用可能なQdrantコレクションを取得"""
         try:
@@ -385,14 +391,16 @@ class Planner:
         """
         logger.info("Creating fallback plan")
 
-        # --- TODO #4: 動的にコレクションを取得（失敗時はNone＝自動選択） ---
-        try:
-            available = self._get_available_collections()
-            fallback_collection = next(
-                (c for c in available if "wikipedia" in c), None
-            )
-        except Exception:
-            fallback_collection = None
+        # --- P4: 実行メモリの事前分布を優先。無ければ動的取得（失敗時はNone＝自動選択） ---
+        fallback_collection = self._prioritized_collection(query)
+        if fallback_collection is None:
+            try:
+                available = self._get_available_collections()
+                fallback_collection = next(
+                    (c for c in available if "wikipedia" in c), None
+                )
+            except Exception:
+                fallback_collection = None
 
         return ExecutionPlan(
             original_query=query,

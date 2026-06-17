@@ -4,13 +4,15 @@
 qa_generation/semantic.py - セマンティック分析・カバレッジ測定モジュール
 """
 
-import re
 import logging
-from typing import List, Dict, Any, Optional
+import re
+from typing import Any, Dict, List
+
 import numpy as np
 import tiktoken
-from helper.helper_llm import create_llm_client
+
 from helper.helper_embedding import create_embedding_client, get_embedding_dimensions
+from helper.helper_llm import create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ class SemanticCoverage:
         self.embedding_client = create_embedding_client(provider="gemini")
         self.embedding_dims = get_embedding_dimensions("gemini")  # 3072
         # トークンカウント用のLLMクライアント (decode機能がないためtiktokenを併用)
-        self.unified_client = create_llm_client(provider="gemini") 
+        self.unified_client = create_llm_client(provider="anthropic")
         self.tokenizer = tiktoken.get_encoding("cl100k_base") # 強制分割・デコード用にtiktokenを使用
         
         # APIキーの有無フラグ（クライアント作成成功ならTrue）

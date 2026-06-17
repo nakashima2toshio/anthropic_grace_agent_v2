@@ -1,17 +1,20 @@
 ---
 name: grace-agent-tests
 description: >-
-  Fix and maintain the pytest suite in the *_grace_agent repos. Use when
-  `uv run pytest` reports collection errors, failures, or warnings, when tests
-  break after the Gemini→Anthropic/OpenAI migration, or when adding/guarding
-  tests. Encodes the common test-debt patterns (stale patch targets, default
-  drift, removed behavior, integration-test skipif, import paths, fixtures) and
+  Fix and maintain the pytest suite AND author test documentation in the
+  *_grace_agent repos. Use when `uv run pytest` reports collection errors,
+  failures, or warnings, when tests break after the Gemini→Anthropic/OpenAI
+  migration, when adding/guarding tests, or when writing/updating test-spec docs
+  that follow `a_test_md_format.md` (SAE format). Encodes the common test-debt
+  patterns (stale patch targets, default drift, removed behavior,
+  integration-test skipif, import paths, fixtures), the SAE test-doc format, and
   how to verify with uv.
 ---
 
 # grace_agent テスト保守スキル
 
-`uv run pytest tests/` の失敗・収集エラー・警告を直すための知見。移行（Gemini→Anthropic/OpenAI）に伴う
+`uv run pytest tests/` の失敗・収集エラー・警告を直すための知見と、テスト仕様書
+（`a_test_md_format.md`・SAE形式）の作成知見。移行（Gemini→Anthropic/OpenAI）に伴う
 **テスト負債**が大半で、原則 **テストのみ修正**（本番コードは現行を正とする。疑わしければ報告）。
 
 ## テストドキュメントのフォーマット仕様
@@ -55,3 +58,26 @@ description: >-
 - 欠落フィクスチャ → `tests/<dir>/conftest.py` を追加（複数タスクで同じ conftest を触るなら read-first で追記、clobber禁止）。
 - `Test*` 命名のヘルパークラス（`__init__` あり）→ `__test__ = False` で `PytestCollectionWarning` 解消。
 - **既知の本番バグ候補**: `services/qdrant_service.py::get_collection_embedding_params` は埋め込みモデルを**次元数だけ**で推定し payload(`embedding_model`/`embedding_provider`)を見ない。テストは現行挙動に合わせ、必要なら別途本番改修。
+
+## テスト仕様書の作成（`a_test_md_format.md`・SAE形式）
+
+テストファイル（`tests/**/test_*.py`）のドキュメントを書く/最新化するときは、スキル同梱
+`.claude/skills/grace-agent-tests/a_test_md_format.md` に従う。モジュール仕様（IPO）とは**観点・構成が異なる**ので混同しない。
+
+- 中心構造は **SAE（Setup-Action-Expected）**＝「準備→実行→検証」。IPO詳細・戻り値例・使用例ワークフローは**使わない**。
+- タイトル: `# test_<module>.py - <対象説明> 単体テスト ドキュメント` → `**Version X.X** | 最終更新: YYYY-MM-DD`。
+- 必須セクション順:
+  1. 目次
+  2. 概要（**テーブル**＝テストファイル/テスト対象/対象クラス/対象メソッド/フレームワーク(`pytest + unittest.mock`)/関連ファイル ＋ `### テスト方針`）
+  3. テスト対象の責務と境界（`### 責務` 箇条書き ／ `### テスト対象外` 表＝対象外処理・責務モジュール・理由 ／ 責務境界図(Mermaid)）
+  4. テスト構成図（テストクラス構成図 ＋ 主要メソッドの処理フロー図、いずれも Mermaid）
+  5. モック・フィクスチャ設計（**モックする**表＝対象/パッチパス/内容/理由 ＋ **モックしない**表 ／ フィクスチャ一覧＋詳細 ／ テストデータ ／ ヘルパー関数）
+  6. テストケース一覧（クラスごとの表＝`ID`/`テスト名`/`分類`(正常・異常・境界)/`検証内容` ＋ **カバレッジマトリクス**＝メソッド×分類の件数）
+  7. テストケース詳細（各ケースを **SAEテーブル**＝Setup/Action/Expected。`> 📝 **根拠**: <file> L番号` を付ける。`parametrize` は**パラメータ一覧表**を併記）
+  8. 実行方法（`pytest ...` コマンド ／ 環境要件表 ／ 注意事項）
+  9. 変更履歴
+- SAE 記法: **Action** は呼び出しコードを1行（`result = planner.estimate_complexity(query)`）、**Expected** は `assert ...`（複数は `<br>` 改行、近似は `pytest.approx`）。
+- Mermaid は本リポジトリ共通の**黒背景・白文字**（`classDef default fill:#000,stroke:#fff,color:#fff` を末尾、全ノードに `class ... default`、全サブグラフに `style ... fill:#1a1a1a`）。スコープ境界の色分けは `stroke` 色のみ変更し背景 `#1a1a1a` は維持（対象内 `stroke:#4CAF50` / 対象外 `stroke:#E91E63` 等）。sequenceDiagram は先頭に `%%{ init: ... }%%`。
+- 所在: テスト仕様書は対象テストに対応するドキュメント領域（例 `tests/doc/` や `<package>/doc/test_*.md`）。既存配置に従い、無ければ対象に準ずる。
+- 整合: **実テストコードを読んで**、テストクラス/ケース名・件数・patch パス・フィクスチャ・カバレッジ件数を突合する（数を盛らない）。
+- 複数テストの仕様書を一括作成するときは **ファイル単位でサブエージェント並列**（各に `a_test_md_format.md` パス＋対象テスト＋黒背景Mermaid規約を渡す）。仕上げに mermaid 準拠を grep 検証。

@@ -1,12 +1,13 @@
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
-import os
 
 # プロジェクトルートをパスに追加
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from grace.tools import RAGSearchTool, ToolResult
+from grace.tools import RAGSearchTool
+
 
 class TestRAGSearchToolDynamicThresholding(unittest.TestCase):
     def setUp(self):

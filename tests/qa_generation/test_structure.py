@@ -1,4 +1,3 @@
-import pytest
 from helper.helper_text import merge_small_chunks
 
 

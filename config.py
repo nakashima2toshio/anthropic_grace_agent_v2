@@ -13,38 +13,33 @@ config.py - 設定・定数の一元管理
 - qdrant_client_wrapper.py
 """
 import os
-from typing import Dict, List, Any, Optional, Type
 from dataclasses import dataclass
 from pathlib import Path
-
+from typing import Any, Dict, List, Optional
 
 # ===================================================================
 # モデル設定
 # ===================================================================
 
 class ModelConfig:
-    """Gemini モデル設定（Gemini API学習用）"""
+    """LLM モデル設定（本プロジェクトの既定は Anthropic Claude）"""
 
-    # 利用可能なモデル一覧
+    # 利用可能なモデル一覧（テキスト生成）
     AVAILABLE_MODELS: List[str] = [
-        "gemini-2.5-flash",           # デフォルト
-        "gemini-3-pro",               # 最新Pro（思考モード対応）
-        "gemini-3-flash",
-        "gemini-2.5-flash",           # 高速・思考対応
-        "gemini-2.0-flash",           # 安定版
-        "gemini-1.5-pro",             # レガシー
-        "gemini-1.5-flash",           # レガシー高速
+        "claude-sonnet-4-6",            # デフォルト（推論・生成）
+        "claude-haiku-4-5-20251001",    # 高速・文字列処理向け
     ]
 
     # デフォルトモデル
-    DEFAULT_MODEL: str = "gemini-2.5-flash"
+    DEFAULT_MODEL: str = "claude-sonnet-4-6"
 
-    # temperatureパラメータをサポートしないモデル
-    # Geminiでは全モデルでtemperatureがサポートされる
+    # temperatureパラメータをサポートしないモデル（Claude は全モデルサポート）
     NO_TEMPERATURE_MODELS: List[str] = []
 
-    # モデル料金（$/1M tokens）
+    # モデル料金（$/1K tokens）。Gemini エントリは後方互換のため残置。
     MODEL_PRICING: Dict[str, Dict[str, float]] = {
+        "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+        "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
         "gemini-3-pro-preview": {"input": 0.00125, "output": 0.010},
         "gemini-2.5-flash-preview": {"input": 0.00015, "output": 0.0035},
         "gemini-2.0-flash": {"input": 0.0001, "output": 0.0004},
@@ -54,6 +49,8 @@ class ModelConfig:
 
     # モデル制限
     MODEL_LIMITS: Dict[str, Dict[str, int]] = {
+        "claude-sonnet-4-6": {"max_tokens": 200000, "max_output": 8192},
+        "claude-haiku-4-5-20251001": {"max_tokens": 200000, "max_output": 8192},
         "gemini-3-pro-preview": {"max_tokens": 1000000, "max_output": 64000},
         "gemini-2.5-flash-preview": {"max_tokens": 1000000, "max_output": 64000},
         "gemini-2.0-flash": {"max_tokens": 1000000, "max_output": 8192},

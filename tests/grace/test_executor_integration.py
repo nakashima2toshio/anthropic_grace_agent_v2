@@ -11,15 +11,15 @@ PlannerとExecutorの連携動作を確認する完全統合テスト
 [Usage]: pytest --cov=grace.executor -vs tests/grace/test_executor_integration.py
 """
 
-import pytest
-import os
 import logging
-from typing import List, Dict, Any
+import os
 
+import pytest
+
+from grace.executor import ExecutionResult, StepStatus, create_executor
 from grace.planner import Planner
-from grace.executor import create_executor, ExecutionResult, StepStatus
-from grace.tools import create_tool_registry
 from grace.schemas import ExecutionPlan
+from grace.tools import create_tool_registry
 
 # ログ設定（テスト実行時に詳細が見えるように）
 logging.basicConfig(level=logging.INFO)

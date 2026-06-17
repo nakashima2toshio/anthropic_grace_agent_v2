@@ -11,18 +11,16 @@ Q/Aペアの生成と保存に関するビジネスロジック
 - Q/Aペアの保存
 """
 
-import os
-import sys
-import re
 import json
 import logging
-import threading
-import queue
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
 from helper.helper_llm import create_llm_client
 
 # モデルからインポート
@@ -89,7 +87,7 @@ def generate_qa_pairs(
     text: str,
     dataset_type: str,
     chunk_id: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "claude-sonnet-4-6",
     qa_per_chunk: int = 3,
     log_callback=None,
 ) -> List[QAPair]:
@@ -107,8 +105,8 @@ def generate_qa_pairs(
     Returns:
         Q/Aペアのリスト
     """
-    # Geminiクライアントを使用
-    client = create_llm_client(provider="gemini")
+    # LLM クライアント（Anthropic Claude）
+    client = create_llm_client(provider="anthropic")
 
     prompt = f"""あなたは教育用Q/Aペア生成の専門家です。
 

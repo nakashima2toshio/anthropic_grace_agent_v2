@@ -1,7 +1,9 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
 import numpy as np
+
 from qa_generation.evaluation import analyze_coverage
+
 
 @patch("qa_generation.evaluation.tiktoken")
 @patch("qa_generation.evaluation.SemanticCoverage")

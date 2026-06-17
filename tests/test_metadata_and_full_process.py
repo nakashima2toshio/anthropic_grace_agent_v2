@@ -1,13 +1,15 @@
 
-import unittest
-import pandas as pd
-import sys
 import os
+import sys
+import unittest
+
+import pandas as pd
 
 # プロジェクトルートをパスに追加
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from services.qdrant_service import build_points_for_qdrant
+
 
 class TestQdrantMetadataAndProcess(unittest.TestCase):
 

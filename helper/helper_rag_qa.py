@@ -24,38 +24,30 @@ helper_rag_qa.py - RAG Q&A用ユーティリティモジュール（後方互換
 - BatchHybridQAGenerator
 """
 
-from regex_mecab import KeywordExtractor
-from typing import List, Dict, Tuple, Optional, Any
-import re
-import math
 import json
-import os
+import math
+import re
 from collections import defaultdict
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-import tiktoken
-from helper_llm import create_llm_client
-from helper_embedding import create_embedding_client, get_embedding_dimensions
-from pydantic import BaseModel
 import spacy
+import tiktoken
 
 # .envファイルから環境変数を読み込む
 from dotenv import load_dotenv
+from helper_embedding import create_embedding_client, get_embedding_dimensions
+from helper_llm import create_llm_client
+from pydantic import BaseModel
+
+from regex_mecab import KeywordExtractor
+
 load_dotenv()
 
 # ===================================================================
 # qa_generation/ からの統合インポート（後方互換性）
 # ===================================================================
-from qa_generation.semantic import SemanticCoverage
-from qa_generation.models import (
-    QAPair as _QAPair,
-    QAPairsList as _QAPairsList,
-    ChainOfThoughtAnalysis as _ChainOfThoughtAnalysis,
-    ChainOfThoughtQAPair as _ChainOfThoughtQAPair,
-    ChainOfThoughtResponse as _ChainOfThoughtResponse,
-    EnhancedQAPair as _EnhancedQAPair,
-    EnhancedQAPairsList as _EnhancedQAPairsList,
-    QAGenerationConsiderations as _QAGenerationConsiderations,
-)
+from qa_generation.semantic import SemanticCoverage  # noqa: E402
 
 """
 [キーワード抽出関連クラス]
@@ -133,7 +125,7 @@ class BestKeywordSelector:
         lengths = [len(kw) for kw in keywords]
         avg_len = sum(lengths) / len(lengths)
         if len(lengths) > 1:
-            variance = sum((l - avg_len) ** 2 for l in lengths) / (len(lengths) - 1)
+            variance = sum((length - avg_len) ** 2 for length in lengths) / (len(lengths) - 1)
             # 適度な分散を評価（標準偏差2-4文字が理想）
             std_dev = variance ** 0.5
             metrics['diversity'] = min(1.0, (std_dev / 3.0) if std_dev < 3 else (6 - std_dev) / 3.0)
@@ -509,9 +501,9 @@ def get_smart_keywords(text: str, mode: str = "auto", prefer_mecab: bool = True)
 class QACountOptimizer:
     """Q/Aペア数の最適化を行うクラス"""
 
-    def __init__(self, llm_model: str = "gemini-2.5-flash"):
+    def __init__(self, llm_model: str = "claude-sonnet-4-6"):
         self.llm_model_for_token_count = llm_model
-        self.unified_client = create_llm_client(provider="gemini", default_model=self.llm_model_for_token_count)
+        self.unified_client = create_llm_client(provider="anthropic", default_model=self.llm_model_for_token_count)
 
     def calculate_optimal_qa_count(self, document: str, mode: str = "auto") -> Dict[str, Any]:
         """
@@ -593,7 +585,7 @@ class QACountOptimizer:
         if len(sentences) > 1:
             lengths = [len(s) for s in sentences]
             avg_len = sum(lengths) / len(lengths)
-            variance = sum((l - avg_len) ** 2 for l in lengths) / len(lengths)
+            variance = sum((length - avg_len) ** 2 for length in lengths) / len(lengths)
             std_dev = variance ** 0.5
             length_complexity = min(1.0, std_dev / avg_len)
             score += length_complexity * 0.3
@@ -1599,10 +1591,10 @@ class EnhancedQAPairsList(BaseModel):
 
 
 class LLMBasedQAGenerator:
-    """LLMを使用したQ/A生成（Gemini API使用）"""
+    """LLMを使用したQ/A生成（Anthropic API使用）"""
 
-    def __init__(self, model="gemini-2.5-flash"):
-        self.client = create_llm_client(provider="gemini")
+    def __init__(self, model="claude-sonnet-4-6"):
+        self.client = create_llm_client(provider="anthropic")
         self.model = model
 
     def generate_basic_qa(self, text: str, num_pairs: int = 5) -> List[Dict]:
@@ -1689,15 +1681,15 @@ class LLMBasedQAGenerator:
 
 
 class ChainOfThoughtQAGenerator:
-    """思考の連鎖を使った高品質Q/A生成（Gemini API使用）"""
+    """思考の連鎖を使った高品質Q/A生成（Anthropic API使用）"""
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "claude-sonnet-4-6"):
         """
         Args:
-            model: 使用するGeminiモデル（デフォルト: gemini-2.0-flash）
+            model: 使用するAnthropicモデル（デフォルト: claude-sonnet-4-6）
         """
         self.model = model
-        self.client = create_llm_client(provider="gemini")
+        self.client = create_llm_client(provider="anthropic")
 
     def generate_with_reasoning(self, text: str) -> Dict:
         """推論過程付きのQ/A生成（Gemini API使用）"""
@@ -2116,21 +2108,22 @@ class OptimizedHybridQAGenerator:
     ルールベース抽出 + LLM品質向上 + 埋め込みベースカバレージ計算
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash", embedding_model: str = "gemini-embedding-001"):
+    def __init__(self, model: str = "claude-sonnet-4-6", embedding_model: str = "gemini-embedding-001"):
         """
         Args:
-            model: 使用するLLMモデル（デフォルト: gemini-2.0-flash）
+            model: 使用するLLMモデル（デフォルト: claude-sonnet-4-6）
             embedding_model: 埋め込みモデル（デフォルト: gemini-embedding-001）
         """
-        self.client = create_llm_client(provider="gemini")
+        self.client = create_llm_client(provider="anthropic")
         self.embedding_client = create_embedding_client(provider="gemini")
         self.model = model
         self.embedding_model = embedding_model
         self.qa_extractor = QAOptimizedExtractor()
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
-        # サポートモデルリスト（Gemini）
+        # サポートモデルリスト（Anthropic LLM + Gemini）
         self.supported_models = [
+            "claude-sonnet-4-6", "claude-haiku-4-5-20251001",
             "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-pro",
             "gemini-2.5-flash", "gemini-2.5-flash-lite-preview-06-17"
         ]
@@ -2460,6 +2453,8 @@ Instructions:
         # Geminiモデル別の料金（1Mトークンあたり、USD）
         # https://ai.google.dev/pricing
         pricing = {
+            "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
+            "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
             "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
             "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
             "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
@@ -2486,7 +2481,7 @@ class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
     """
 
     def __init__(self,
-                 model: str = "gemini-2.5-flash",
+                 model: str = "claude-sonnet-4-6",
                  embedding_model: str = "gemini-embedding-001",
                  batch_size: int = 10,
                  embedding_batch_size: int = 100,
@@ -2494,7 +2489,7 @@ class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
                  target_coverage: float = 0.95):
         """
         Args:
-            model: 使用するLLMモデル（デフォルト: gemini-2.0-flash）
+            model: 使用するLLMモデル（デフォルト: claude-sonnet-4-6）
             embedding_model: 埋め込みモデル（デフォルト: gemini-embedding-001）
             batch_size: LLM処理のバッチサイズ
             embedding_batch_size: 埋め込み処理のバッチサイズ

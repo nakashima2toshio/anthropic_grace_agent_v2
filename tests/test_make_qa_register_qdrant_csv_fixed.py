@@ -1,15 +1,17 @@
 
-import unittest
-from unittest.mock import MagicMock, patch
-import pandas as pd
 import os
 import shutil
 import sys
+import unittest
+from unittest.mock import patch
+
+import pandas as pd
 
 # プロジェクトルートをパスに追加
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from qa_qdrant.make_qa_register_qdrant import run_registration
+
 
 class TestMakeQaRegisterQdrantCSVFixed(unittest.TestCase):
     

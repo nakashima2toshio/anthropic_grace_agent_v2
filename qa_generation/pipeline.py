@@ -21,7 +21,7 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   # チャンク済みCSVからQ/A生成
   pipeline = QAPipeline(
       input_file="output_chunked/data_chunks.csv",
-      model="gemini-2.5-flash",
+      model="claude-sonnet-4-6",
       output_dir="qa_output/pipeline"
   )
   result = pipeline.run(
@@ -30,18 +30,22 @@ qa_generation/pipeline.py - Q/A生成パイプライン制御モジュール（v
   )
 """
 
-import sys
 import json
 import logging
-from typing import List, Dict, Optional, Any
-import pandas as pd
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
+from celery_tasks import (
+    check_celery_workers,
+    collect_results,
+    submit_unified_qa_generation,
+)
 from config import DATASET_CONFIGS
 from helper.helper_llm import LLMClient
-from qa_generation.smart_qa_generator import SmartQAGenerator
 from qa_generation.evaluation import analyze_coverage
-from celery_tasks import submit_unified_qa_generation, collect_results, check_celery_workers
+from qa_generation.smart_qa_generator import SmartQAGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +56,7 @@ class QAPipeline:
     def __init__(self,
                  dataset_name: Optional[str] = None,
                  input_file: Optional[str] = None,
-                 model: str = "gemini-2.0-flash",
+                 model: str = "claude-sonnet-4-6",
                  output_dir: str = "qa_output/pipeline",
                  max_docs: Optional[int] = None,
                  client: Optional[LLMClient] = None):
@@ -125,7 +129,7 @@ class QAPipeline:
 
     def load_data(self) -> pd.DataFrame:
         """データを読み込む"""
-        from qa_generation.data_io import load_uploaded_file, load_preprocessed_data
+        from qa_generation.data_io import load_preprocessed_data, load_uploaded_file
 
         logger.info("\n[1/3] データ読み込み...")
 
@@ -325,7 +329,7 @@ class QAPipeline:
             concurrency: 並列タスク数
             batch_size: バッチサイズ
         """
-        logger.info(f"  Celery並列処理モード:")
+        logger.info("  Celery並列処理モード:")
         logger.info(f"    - ワーカープロセス数チェック: {workers}")
         logger.info(f"    - 並列タスク数 (concurrency): {concurrency}")
 
@@ -334,7 +338,7 @@ class QAPipeline:
             raise RuntimeError("Celery workers are not running")
 
         tasks = submit_unified_qa_generation(
-            chunks, self.config, self.model, provider="gemini"
+            chunks, self.config, self.model, provider="anthropic"
         )
 
         # 逐次永続化: タスク完了ごとにチャンク結果を JSONL へ追記
@@ -399,7 +403,7 @@ class QAPipeline:
                     all_qa_pairs.extend(chunk_pairs)
                     logger.info(f"      → {len(chunk_pairs)} Q/A生成")
                 else:
-                    logger.warning(f"      → Q/A生成なし（qa_count=0 または失敗）")
+                    logger.warning("      → Q/A生成なし（qa_count=0 または失敗）")
 
                 # トークン使用量を集計（usage_metadata 由来）
                 usage = result.get('usage') or {}

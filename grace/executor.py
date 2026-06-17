@@ -7,48 +7,49 @@ GRACE Executor - 計画実行エージェント
 import ast
 import logging
 import time
-from typing import Dict, Literal, Optional, List, Callable, Any, Generator, cast
 from dataclasses import dataclass, field
-from enum import Enum
+from typing import Any, Callable, Dict, Generator, List, Literal, Optional, cast
 
+from .calibration import Calibrator  # S1: confidence 較正
+from .confidence import (
+    ActionDecision,
+    ConfidenceFactors,
+    ConfidenceScore,
+    InterventionLevel,
+    create_confidence_aggregator,
+    create_confidence_calculator,
+    create_groundedness_verifier,  # S1: 根拠妥当性検証
+    create_llm_evaluator,
+    create_query_coverage_calculator,
+    create_source_agreement_calculator,  # TODO #5: 追加
+)
+from .config import GraceConfig, get_config
+from .intervention import (
+    InterventionAction,
+    InterventionRequest,
+    InterventionResponse,
+    create_intervention_handler,
+)
+from .llm_compat import create_chat_client
+from .memory import create_execution_memory  # P4: 実行メモリ層
 from .schemas import (
+    AgentThought,
     ExecutionPlan,
-    PlanStep,
-    StepResult,
     ExecutionResult,
+    PlanStep,
+    Scratchpad,
+    StepResult,
     StepStatus,
     create_plan_id,
 )
 from .tools import ToolRegistry, ToolResult, create_tool_registry
-from .config import get_config, GraceConfig
-from .llm_compat import create_chat_client
-from .confidence import (
-    ConfidenceCalculator,
-    ConfidenceFactors,
-    ConfidenceScore,
-    LLMSelfEvaluator,
-    ConfidenceAggregator,
-    ActionDecision,
-    InterventionLevel,
-    create_confidence_calculator,
-    create_llm_evaluator,
-    create_confidence_aggregator,
-    create_query_coverage_calculator,
-    create_source_agreement_calculator,  # TODO #5: 追加
-    create_groundedness_verifier,        # S1: 根拠妥当性検証
-)
-from .calibration import Calibrator      # S1: confidence 較正
-from .intervention import (
-    InterventionHandler,
-    InterventionRequest,
-    InterventionResponse,
-    InterventionAction,
-    create_intervention_handler,
-)
 
 # === Legacy Agent Integration ===
 try:
-    from services.agent_service import ReActAgent, get_available_collections_from_qdrant_helper
+    from services.agent_service import (
+        ReActAgent,
+        get_available_collections_from_qdrant_helper,
+    )
 
     LEGACY_AGENT_AVAILABLE = True
 except ImportError:
@@ -80,6 +81,8 @@ class ExecutionState:
     max_replans: int = 3
     start_time: Optional[float] = None
     end_time: Optional[float] = None
+    # P4: 実行中に使用した RAG コレクション（実行メモリ記録用）
+    used_collections: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         """初期化後の処理"""
@@ -119,7 +122,7 @@ class ExecutionState:
 # Executor クラス
 # =============================================================================
 
-from .replan import ReplanOrchestrator, create_replan_orchestrator
+from .replan import ReplanOrchestrator, create_replan_orchestrator  # noqa: E402
 
 
 class Executor:
@@ -156,6 +159,12 @@ class Executor:
         self._calibrator = Calibrator.load(
             getattr(self.config.confidence, "calibration_path", "config/calibration.json")
         )
+        # S3: ReAct の Reason（_decide_next_action）用 LLM クライアント
+        self._react_client = create_chat_client(self.config)
+        # P4: 実行メモリ層（コレクション事前分布の学習）
+        self._memory = None
+        if getattr(self.config, "memory", None) and self.config.memory.enabled:
+            self._memory = create_execution_memory(self.config.memory.path)
 
         # コールバック
         self.on_step_start = on_step_start
@@ -346,7 +355,6 @@ class Executor:
                         state.is_paused = True
 
                         # 介入リクエストを作成
-                        req_type = "confirm" if action_decision.level == InterventionLevel.CONFIRM else "escalate"
                         message = f"信頼度が低いため確認が必要です ({confidence_score.score:.2f})"
                         if action_decision.reason:
                             message += f"\n理由: {action_decision.reason}"
@@ -402,6 +410,9 @@ class Executor:
             state.overall_confidence = self._calculate_overall_confidence(state)
             state.end_time = time.time()
 
+            # P4: 実行メモリへ記録
+            self._record_memory(state)
+
             # 最終結果
             return self._create_execution_result(state)
 
@@ -437,7 +448,7 @@ class Executor:
         """
         logger.info(f"Executing plan (blocking): {plan.plan_id}, steps={len(plan.steps)}")
 
-        gen = self.execute_plan_generator(plan)
+        gen = self._dispatch_generator(plan)
         try:
             while True:
                 event = next(gen)
@@ -447,9 +458,292 @@ class Executor:
         except StopIteration as e:
             return e.value
 
+    def _dispatch_generator(
+            self, plan: ExecutionPlan
+    ) -> Generator[Any, None, ExecutionResult]:
+        """S3: 複雑度に応じて ReAct ループ / 静的 Plan-Execute を振り分ける。
+
+        - react_enabled かつ complexity >= 閾値 → 観測駆動 ReAct ループ
+        - それ以外（単純質問）→ 現行の静的パスを温存（移行リスク低減）
+        """
+        ec = self.config.executor
+        use_react = (
+            getattr(ec, "react_enabled", False)
+            and plan.complexity >= getattr(ec, "react_complexity_threshold", 0.7)
+        )
+        if use_react:
+            logger.info(
+                f"[dispatch] ReAct loop (complexity={plan.complexity:.2f} "
+                f">= {ec.react_complexity_threshold})"
+            )
+            return (yield from self.execute_react_generator(plan))
+        logger.info(
+            f"[dispatch] static plan-execute (complexity={plan.complexity:.2f})"
+        )
+        return (yield from self.execute_plan_generator(plan))
+
     def execute(self, plan: ExecutionPlan) -> ExecutionResult:
         """execute_plan() の統一エントリーポイント（benchmark.py 互換）"""
         return self.execute_plan(plan)
+
+    # =========================================================================
+    # S3: ハイブリッド ReAct ループ
+    # =========================================================================
+
+    REACT_PROMPT = """あなたは観測駆動の調査エージェントです。
+これまでの観測（Scratchpad）を踏まえ、ユーザーの質問に答えるための
+「次の1手」を1つだけ決めてください。
+
+# ユーザーの質問
+{query}
+
+# 初期計画（仮説。従う必要はない）
+{plan_hint}
+
+# これまでの観測（Scratchpad）
+{scratchpad}
+
+# 選べるアクション
+- rag_search : 社内ナレッジ（Qdrant）を検索する。query を必ず指定。
+- web_search : Web を検索する。query を必ず指定。
+- reasoning  : これまでの観測を統合して最終回答を生成する。
+- ask_user   : 情報不足でユーザーに確認が必要なとき。
+- finish     : 既に十分な回答が得られ、これ以上の行動が不要なとき。
+
+# 判断指針
+- まだ根拠が不足していれば検索（rag_search / web_search）を選ぶ。
+- 十分な根拠が揃ったら reasoning で回答を生成し is_final=true とする。
+- reasoning 済みで回答が確定していれば finish を選ぶ。
+- 無駄な繰り返しは避け、最短で回答に到達すること。
+"""
+
+    def execute_react_generator(
+            self,
+            plan: ExecutionPlan,
+            state: Optional[ExecutionState] = None,
+    ) -> Generator[Any, None, ExecutionResult]:
+        """S3: Reason→Act→Observe→Confidence→Controller の ReAct ループ。
+
+        既存資産を最大限再利用する:
+        - Act       : `_execute_step`（ツール実行・タイムアウト・フォールバック）
+        - Observe   : ツール出力を `Scratchpad` に追記
+        - Confidence: `_llm_calculate_step_confidence`（_execute_step 内）＋ S1 groundedness/較正
+        - Controller: 較正済み confidence と `decide_action` で継続/介入/終了を判定
+
+        初期 Plan は「仮説」として `_decide_next_action` に渡し、LLM 不在時は
+        初期 Plan のステップ列をそのまま辿る（静的パス相当に degrade）。
+        実行した暫定ステップは `state.plan.steps` に追記し、既存の
+        `_calculate_overall_confidence` / `_create_execution_result` をそのまま使う。
+        """
+        if state is None:
+            state = ExecutionState(plan=plan)
+            state.start_time = time.time()
+            self._prefetched_tool_results.clear()
+
+        scratchpad = Scratchpad()
+        initial_steps = list(plan.steps)      # フォールバック用に初期計画を保持
+        fallback_queue = list(initial_steps)
+        max_iters = getattr(self.config.executor, "react_max_iterations", 8)
+        # 既存ステップIDと衝突しない採番
+        next_step_id = (max((s.step_id for s in plan.steps), default=0)) + 1
+        produced_answer = False
+
+        try:
+            for it in range(max_iters):
+                if state.is_cancelled:
+                    logger.info("ReAct: execution cancelled")
+                    break
+
+                thought = self._decide_next_action(plan, scratchpad, fallback_queue)
+                logger.info(
+                    f"[ReAct {it + 1}/{max_iters}] action={thought.next_action} "
+                    f"final={thought.is_final} reason={(thought.reasoning or '')[:80]}"
+                )
+
+                if thought.next_action == "finish":
+                    logger.info("ReAct: finish signaled")
+                    break
+
+                action = thought.next_action
+                query = thought.query
+                if action == "reasoning":
+                    # 推論は元の質問に答える（観測は _prepare_tool_kwargs が自動集約）
+                    query = thought.query or plan.original_query
+
+                step = PlanStep(
+                    step_id=next_step_id,
+                    action=action,
+                    description=thought.reasoning or f"ReAct step {next_step_id}",
+                    query=query,
+                    collection=thought.collection,
+                    depends_on=[],
+                    expected_output="ReActターンの出力",
+                    timeout_seconds=30,
+                )
+                next_step_id += 1
+                # 暫定ステップを計画へ追記（結果・confidence 集約の既存ロジックを流用）
+                state.plan.steps.append(step)
+                state.current_step_id = step.step_id
+                state.step_statuses[step.step_id] = StepStatus.RUNNING
+                if self.on_step_start:
+                    self.on_step_start(step)
+
+                step_exec = self._execute_step(step, state)
+                if isinstance(step_exec, Generator):
+                    result = yield from step_exec
+                else:
+                    result = step_exec
+
+                state.step_results[step.step_id] = result
+                state.step_statuses[step.step_id] = (
+                    StepStatus.SUCCESS if result.status == "success" else StepStatus.FAILED
+                )
+                if self.on_step_complete:
+                    self.on_step_complete(result)
+
+                # Observe: Scratchpad へ観測を追記
+                conf_score = self.step_confidence_scores.get(step.step_id)
+                conf_val = conf_score.score if conf_score else result.confidence
+                scratchpad.add(
+                    action=step.action,
+                    observation=self._format_output(result.output) or (result.error or ""),
+                    confidence=conf_val,
+                    query=step.query,
+                )
+
+                if step.action == "reasoning" and result.status == "success":
+                    produced_answer = True
+
+                # Controller: 介入判定（既存 decide_action を再利用）
+                if conf_score is not None:
+                    action_decision = self.confidence_calculator.decide_action(conf_score)
+                    if action_decision.level in [InterventionLevel.CONFIRM, InterventionLevel.ESCALATE]:
+                        logger.info(
+                            f"ReAct: pausing for intervention {action_decision.level} "
+                            f"(step {step.step_id})"
+                        )
+                        state.is_paused = True
+                        message = f"信頼度が低いため確認が必要です ({conf_score.score:.2f})"
+                        if action_decision.reason:
+                            message += f"\n理由: {action_decision.reason}"
+                        state.intervention_request = InterventionRequest(
+                            level=action_decision.level,
+                            step_id=step.step_id,
+                            message=message,
+                            reason=action_decision.reason,
+                            confidence_score=conf_score.score,
+                            plan=state.plan,
+                        )
+                        yield state
+                        return self._create_execution_result(state)
+                    self._handle_intervention_if_needed(action_decision, step, state)
+
+                yield state
+
+                if step.action == "ask_user" and result.status == "success":
+                    self._handle_ask_user_response(step, result, state)
+
+                # Controller: 回答が確定したら終了
+                if thought.is_final and produced_answer:
+                    logger.info("ReAct: final answer produced, stopping loop")
+                    break
+
+            # ループ終了時に回答が無ければ、観測を統合する最終 reasoning を1回実行
+            if not produced_answer and not state.is_cancelled:
+                step = PlanStep(
+                    step_id=next_step_id,
+                    action="reasoning",
+                    description="観測を統合して最終回答を生成",
+                    query=plan.original_query,
+                    depends_on=[],
+                    expected_output="最終回答",
+                    timeout_seconds=30,
+                )
+                state.plan.steps.append(step)
+                state.current_step_id = step.step_id
+                state.step_statuses[step.step_id] = StepStatus.RUNNING
+                step_exec = self._execute_step(step, state)
+                result = (yield from step_exec) if isinstance(step_exec, Generator) else step_exec
+                state.step_results[step.step_id] = result
+                state.step_statuses[step.step_id] = (
+                    StepStatus.SUCCESS if result.status == "success" else StepStatus.FAILED
+                )
+                yield state
+
+            state.overall_confidence = self._calculate_overall_confidence(state)
+            state.end_time = time.time()
+            self._record_memory(state)
+            return self._create_execution_result(state)
+
+        except Exception as e:
+            logger.error(f"ReAct execution failed: {e}", exc_info=True)
+            state.end_time = time.time()
+            return ExecutionResult(
+                plan_id=plan.plan_id or create_plan_id(),
+                original_query=plan.original_query,
+                final_answer=f"実行エラー: {str(e)}",
+                step_results=list(state.step_results.values()),
+                overall_confidence=0.0,
+                overall_status="failed",
+                replan_count=state.replan_count,
+                total_execution_time_ms=state.get_execution_time_ms(),
+                total_token_usage=None,
+                total_cost_usd=None,
+            )
+
+    def _decide_next_action(
+            self,
+            plan: ExecutionPlan,
+            scratchpad: Scratchpad,
+            fallback_queue: List[PlanStep],
+    ) -> AgentThought:
+        """Reason：Scratchpad＋初期計画から次の1手を LLM が決定する。
+
+        LLM 不在/失敗時は初期計画のステップ列を順に辿るフォールバックへ degrade
+        （= 静的パス相当）。これにより API 無し環境でもクラッシュしない。
+        """
+        plan_hint = "\n".join(
+            f"- {s.action}: {s.description}" for s in plan.steps[:6]
+        ) or "(なし)"
+        prompt = self.REACT_PROMPT.format(
+            query=plan.original_query,
+            plan_hint=plan_hint,
+            scratchpad=scratchpad.as_prompt(),
+        )
+        try:
+            from google.genai import types
+            response = self._react_client.models.generate_content(
+                model=self.config.llm.model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=AgentThought,
+                    temperature=0.0,
+                    max_output_tokens=512,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                ),
+            )
+            if not response or not response.text:
+                raise ValueError("empty response")
+            return AgentThought.model_validate_json(response.text)
+        except Exception as e:
+            logger.warning(f"_decide_next_action LLM failed ({e}); falling back to initial plan")
+            _allowed = {"rag_search", "web_search", "reasoning", "ask_user"}
+            if fallback_queue:
+                s = fallback_queue.pop(0)
+                act = s.action if s.action in _allowed else "reasoning"
+                return AgentThought(
+                    reasoning=f"[fallback] {s.description}",
+                    next_action=act,
+                    query=s.query,
+                    collection=s.collection,
+                    is_final=(s.action in ("reasoning", "run_legacy_agent")),
+                )
+            return AgentThought(
+                reasoning="[fallback] 初期計画を消化済み",
+                next_action="finish",
+                is_final=True,
+            )
 
     def _handle_ask_user_response(
             self,
@@ -673,6 +967,12 @@ class Executor:
                     "content": f"📝 【ツール実行結果: {step.action}】\n{out_display}"
                 }
 
+            # P4: 使用した RAG コレクションを実行メモリ用に記録
+            if step.action == "rag_search" and isinstance(tool_result.confidence_factors, dict):
+                uc = tool_result.confidence_factors.get("used_collection")
+                if uc and uc not in state.used_collections:
+                    state.used_collections.append(uc)
+
             # 実行時間
             execution_time = int((time.time() - start_time) * 1000)
 
@@ -822,7 +1122,7 @@ class Executor:
             # → 動的挿入された web_search やリプラン後の結果も取得可能
             context_parts = []
             sources = []
-            logger.info(f"--- Reasoning Step ---")
+            logger.info("--- Reasoning Step ---")
             logger.info(f"Step: {step}")
             logger.info(f"Available step_results: {list(state.step_results.keys())}")
 
@@ -897,8 +1197,9 @@ class Executor:
         )
 
         try:
-            from google.genai import types
             import time as _time
+
+            from google.genai import types
 
             client = create_chat_client(self.config)
             t0 = _time.time()
@@ -952,7 +1253,7 @@ class Executor:
         web_step = PlanStep(
             step_id=web_step_id,
             action="web_search",
-            description=f"[動的挿入] RAGスコア不足のためWeb検索を実行",
+            description="[動的挿入] RAGスコア不足のためWeb検索を実行",
             query=rag_step.query,
             collection=None,
             depends_on=[rag_step.step_id],
@@ -1023,7 +1324,7 @@ class Executor:
         ask_step = PlanStep(
             step_id=ask_step_id,
             action="ask_user",
-            description=f"[動的挿入] 検索結果が不十分なためユーザーに確認",
+            description="[動的挿入] 検索結果が不十分なためユーザーに確認",
             query=(
                 f"「{rag_step.query[:100]}」について検索しましたが、"
                 f"十分な情報が見つかりませんでした。\n"
@@ -1278,7 +1579,7 @@ class Executor:
         current_avg_score = factors.get("avg_score", 0.0)
 
         # 自身で検索しておらず、かつ推論ステップなどの場合、依存元のスコアを引き継ぐ
-        if current_result_count == 0 and not (step.action in ["rag_search", "web_search"]):
+        if current_result_count == 0 and step.action not in ["rag_search", "web_search"]:
             inherited_max = 0.0
             inherited_found = False
             for dep_id in step.depends_on:
@@ -1536,6 +1837,31 @@ class Executor:
             f"total={gres.total}) -> final={final:.3f}"
         )
         return final
+
+    def _record_memory(self, state: ExecutionState) -> None:
+        """P4: 実行結果を実行メモリへ記録する（best-effort）。
+
+        使用したコレクションごとに (質問, 成否, overall_confidence) を蓄積し、
+        以降の Planner のコレポ優先順位に反映する。
+        """
+        if self._memory is None:
+            return
+        try:
+            statuses = [r.status for r in state.step_results.values()]
+            success = bool(statuses) and all(s == "success" for s in statuses)
+            collections = list(state.used_collections)
+            if not collections:
+                return  # コレクション未使用（web のみ等）は記録対象外
+            self._memory.record_many(
+                query=state.plan.original_query,
+                collections=collections,
+                success=success,
+                confidence=state.overall_confidence,
+            )
+            logger.info(f"[memory] recorded {len(collections)} collection outcome(s) "
+                        f"(success={success}, conf={state.overall_confidence:.2f})")
+        except Exception as e:  # 記録失敗は実行を止めない
+            logger.warning(f"_record_memory failed: {e}")
 
     def _create_execution_result(self, state: ExecutionState) -> ExecutionResult:
         """実行結果を生成"""

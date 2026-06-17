@@ -1,6 +1,12 @@
-import pytest
 from unittest.mock import MagicMock, patch
-from services.token_service import TokenManager, count_tokens, truncate_text, estimate_tokens_simple
+
+import pytest
+
+from services.token_service import (
+    TokenManager,
+    estimate_tokens_simple,
+)
+
 
 class TestTokenService:
 

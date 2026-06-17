@@ -56,32 +56,28 @@ python -m chunking.csv_text_to_chunks_text_csv.py \
   # → chunks_output/document_chunks_simple.csv （シンプル版）も同時生成
 """
 
-import asyncio
 import argparse
+import asyncio
 import logging
+import re
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Optional
+
 import pandas as pd
 import tiktoken
-import re
 from tqdm.asyncio import tqdm as async_tqdm
 
 # 既存のインポート
 from chunking.async_api_client import AsyncAPIClient
 from chunking.checkpoint_manager import CheckpointManager
-from chunking.models import StructuralResult, ParagraphUnit, ContinuityResult
+from chunking.models import ContinuityResult, StructuralResult
 from chunking.prompts import (
+    CONTINUITY_CHECK_PROMPT,
     PARAGRAPH_SEPARATION_PROMPT,
     SEMANTIC_CHUNKING_PROMPT,
-    CONTINUITY_CHECK_PROMPT
-)
-from chunking.utils import (
-    setup_logging,
-    format_time,
-    format_size,
-    estimate_api_calls
 )
 from chunking.regex_string import chunk_text
+from chunking.utils import format_size, setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -318,12 +314,12 @@ def save_chunks_as_simple_csv(
         "チャンク2のテキスト..."
     """
     data = []
-    for chunk_text in chunks:
+    for ct in chunks:
         # 改行・空白を正規化
         if normalize_whitespace:
-            chunk_text_cleaned = _normalize_whitespace(chunk_text)
+            chunk_text_cleaned = _normalize_whitespace(ct)
         else:
-            chunk_text_cleaned = chunk_text
+            chunk_text_cleaned = ct
 
         data.append({'Text': chunk_text_cleaned})
 
@@ -336,7 +332,7 @@ def save_chunks_as_simple_csv(
     logger.info("=" * 60)
     logger.info(f"  ファイル: {output_file}")
     logger.info(f"  チャンク数: {len(df)}")
-    logger.info(f"  カラム: Text のみ")
+    logger.info("  カラム: Text のみ")
     logger.info("=" * 60)
 
     return output_file
@@ -380,15 +376,15 @@ def save_chunks_as_csv(
     tokenizer = tiktoken.get_encoding("cl100k_base")
 
     data = []
-    for i, chunk_text in enumerate(chunks):
+    for i, ct in enumerate(chunks):
         # ✅ 改行・空白を正規化（CSV出力をクリーンにする）
         if normalize_whitespace:
-            chunk_text_cleaned = _normalize_whitespace(chunk_text)
+            chunk_text_cleaned = _normalize_whitespace(ct)
         else:
-            chunk_text_cleaned = chunk_text
+            chunk_text_cleaned = ct
 
         # センテンス分割（正規化前のテキストで実施）
-        sentences = _split_sentences_simple(chunk_text)
+        sentences = _split_sentences_simple(ct)
 
         data.append({
             'chunk_id'      : f"{dataset_type}_chunk_{i}",

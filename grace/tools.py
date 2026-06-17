@@ -4,21 +4,25 @@ GRACE Tools - ツール定義
 エージェントが使用するツール（RAG検索、推論、ask_user等）を定義
 """
 
+import ast
 import logging
+import os
+import subprocess
+import sys
+import tempfile
+import time
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
-from qdrant_client import QdrantClient
 from google.genai import types
+from qdrant_client import QdrantClient
 
 # Import wrappers for robust execution
-from qdrant_client_wrapper import search_collection, embed_query_unified, embed_sparse_query_unified
-from services.qdrant_service import get_collection_embedding_params
-
-from .config import get_config, GraceConfig
-from .llm_compat import create_chat_client
 from regex_mecab import KeywordExtractor
+
+from .config import GraceConfig, get_config
+from .llm_compat import create_chat_client
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +112,7 @@ class RAGSearchTool(BaseTool):
             ToolResult: 検索結果
         """
         import time
-        import re
+
         from agent_tools import search_rag_knowledge_base_structured
         
         start_time = time.time()
@@ -656,6 +660,7 @@ class WebSearchTool(BaseTool):
     def _search_google(self, query: str, num_results: int, language: str) -> list:
         """Google CSE検索バックエンド"""
         import os
+
         import requests
 
         api_key = (
@@ -691,6 +696,7 @@ class WebSearchTool(BaseTool):
         """SerpAPI検索バックエンド（リトライ1回付き）"""
         import os
         import time as _time
+
         import requests
 
         api_key = (
@@ -797,6 +803,133 @@ class WebSearchTool(BaseTool):
 # ツールレジストリ
 # =============================================================================
 
+class CodeExecuteTool(BaseTool):
+    """サンドボックス Python 実行ツール（P2）。
+
+    best-effort サンドボックス:
+      - 別プロセスで実行（`python -I -S`: isolated mode + site 無効）
+      - resource 制限（CPU 時間 / アドレス空間 / 生成ファイルサイズ）※POSIX
+      - 環境変数を最小化、stdin を遮断、一時ディレクトリで実行
+      - 実時間タイムアウトで強制終了
+      - AST レベルで危険モジュールの import を拒否（多層防御）
+
+    注意: これは利便性のための隔離であり、決定的な攻撃者に対する
+    セキュリティ境界ではない。信頼できないコードにはコンテナ/gVisor 等の
+    外部境界を併用すること。既定では `tools.enabled` に含めず opt-in。
+    """
+
+    name = "code_execute"
+    description = "Python コードをサンドボックスで実行し標準出力を返す"
+
+    def __init__(self, config: Optional[GraceConfig] = None):
+        self.config = config or get_config()
+        self.cfg = self.config.code_execute
+
+    def _static_check(self, code: str) -> tuple[bool, Optional[str]]:
+        """AST で構文検証＋禁止 import / 危険属性アクセスを拒否する。"""
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return False, f"SyntaxError: {e}"
+
+        denied = set(self.cfg.denied_imports)
+        dangerous_attrs = {"system", "popen", "exec", "execv", "execve",
+                           "spawn", "spawnv", "fork", "remove", "rmdir", "unlink"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    if top in denied:
+                        return False, f"禁止された import: {alias.name}"
+            elif isinstance(node, ast.ImportFrom):
+                top = (node.module or "").split(".")[0]
+                if top in denied:
+                    return False, f"禁止された import: from {node.module}"
+            elif isinstance(node, ast.Attribute):
+                # os.system / os.popen / os.exec* 等の危険呼び出しを拒否
+                if node.attr in dangerous_attrs:
+                    return False, f"禁止された属性アクセス: .{node.attr}"
+            elif isinstance(node, ast.Call):
+                fn = node.func
+                if isinstance(fn, ast.Name) and fn.id in {"eval", "exec", "compile", "__import__"}:
+                    return False, f"禁止された関数呼び出し: {fn.id}()"
+        return True, None
+
+    @staticmethod
+    def _apply_limits(cpu_seconds: int, mem_bytes: int):
+        """子プロセスで resource 制限を適用する（POSIX のみ）。"""
+        import resource
+        # CPU 時間（秒）
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
+        # アドレス空間（メモリ）
+        resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
+        # 生成ファイルサイズ上限（1MB）
+        resource.setrlimit(resource.RLIMIT_FSIZE, (1024 * 1024, 1024 * 1024))
+
+    def execute(self, code: Optional[str] = None, query: Optional[str] = None,
+                **kwargs) -> ToolResult:
+        start = time.time()
+        source = code or query
+        if not source or not isinstance(source, str) or not source.strip():
+            return ToolResult(success=False, output=None,
+                              error="実行する Python コードが指定されていません")
+
+        ok, reason = self._static_check(source)
+        if not ok:
+            logger.warning(f"CodeExecuteTool: rejected by static check: {reason}")
+            return ToolResult(success=False, output=None, error=reason,
+                              confidence_factors={"rejected": True})
+
+        cpu = max(1, int(self.cfg.timeout_seconds))
+        mem_bytes = max(64, int(self.cfg.max_memory_mb)) * 1024 * 1024
+        env = {"PATH": "/usr/bin:/bin", "PYTHONIOENCODING": "utf-8",
+               "LC_ALL": "C.UTF-8", "HOME": "/tmp"}
+        preexec = None
+        if os.name == "posix":
+            preexec = lambda: CodeExecuteTool._apply_limits(cpu, mem_bytes)  # noqa: E731
+
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                script = os.path.join(td, "snippet.py")
+                with open(script, "w", encoding="utf-8") as f:
+                    f.write(source)
+                proc = subprocess.run(
+                    [sys.executable, "-I", "-S", script],
+                    cwd=td,
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=cpu + 1,
+                    preexec_fn=preexec,
+                )
+            stdout = (proc.stdout or "")[: self.cfg.max_output_chars]
+            stderr = (proc.stderr or "")[: self.cfg.max_output_chars]
+            elapsed = int((time.time() - start) * 1000)
+            success = proc.returncode == 0
+            output = stdout if success else (stdout + ("\n[stderr]\n" + stderr if stderr else ""))
+            return ToolResult(
+                success=success,
+                output=output if output else "(出力なし)",
+                error=None if success else (stderr or f"exit code {proc.returncode}"),
+                execution_time_ms=elapsed,
+                confidence_factors={
+                    "returncode": proc.returncode,
+                    "stdout_len": len(stdout),
+                    "timed_out": False,
+                },
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult(
+                success=False, output=None,
+                error=f"実行がタイムアウトしました（{cpu}s）",
+                confidence_factors={"timed_out": True},
+            )
+        except Exception as e:
+            logger.error(f"CodeExecuteTool failed: {e}")
+            return ToolResult(success=False, output=None, error=str(e))
+
+
 class ToolRegistry:
     """ツールレジストリ"""
 
@@ -820,6 +953,10 @@ class ToolRegistry:
 
         if "ask_user" in enabled_tools:
             self.register(AskUserTool())
+
+        # code_execute は opt-in（既定の enabled には含めない）
+        if "code_execute" in enabled_tools:
+            self.register(CodeExecuteTool(config=self.config))
 
         logger.info(f"ToolRegistry initialized with: {list(self._tools.keys())}")
 
@@ -873,6 +1010,7 @@ __all__ = [
     "WebSearchTool",
     "ReasoningTool",
     "AskUserTool",
+    "CodeExecuteTool",
 
     # Registry
     "ToolRegistry",

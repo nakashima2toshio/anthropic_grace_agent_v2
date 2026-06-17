@@ -14,15 +14,38 @@ helper_api.py - 後方互換レイヤー
 - services/token_service.py: TokenManager
 """
 
+import hashlib
+import os
 import re
 import time
-import os
-import json
-from typing import List, Dict, Any, Optional, Union, Literal
-from pathlib import Path
-from functools import wraps
 from datetime import datetime
-import hashlib
+from functools import wraps
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Union
+
+from helper_llm import (
+    LLMClient,
+    OpenAIClient,  # 後方互換性のため再エクスポート
+)
+
+# Gemini 3 Migration: 抽象化レイヤー
+from helper_llm import (
+    create_llm_client as create_unified_llm_client,
+)
+
+# ===================================================================
+# 外部ライブラリ
+# ===================================================================
+# -----------------------------------------------------
+# OpenAI API型定義
+# -----------------------------------------------------
+from openai.types.responses import EasyInputMessageParam, Response
+
+from services.cache_service import (
+    MemoryCache,
+    cache,
+    cache_result,
+)
 
 # ===================================================================
 # services/ からの統合インポート（後方互換性）
@@ -32,45 +55,13 @@ from services.config_service import (
     config,
     logger,
 )
-
-from services.cache_service import (
-    MemoryCache,
-    cache,
-    cache_result,
-)
-
 from services.json_service import (
-    safe_json_serializer,
-    safe_json_dumps,
     load_json_file,
+    safe_json_dumps,
+    safe_json_serializer,
     save_json_file,
 )
-
 from services.token_service import TokenManager
-
-# ===================================================================
-# 外部ライブラリ
-# ===================================================================
-from openai import OpenAI
-
-# Gemini 3 Migration: 抽象化レイヤー
-from helper_llm import (
-    create_llm_client as create_unified_llm_client,
-    LLMClient,
-    GeminiClient as GeminiLLMClient,
-    OpenAIClient,  # 後方互換性のため再エクスポート
-)
-
-# -----------------------------------------------------
-# OpenAI API型定義
-# -----------------------------------------------------
-from openai.types.responses import (
-    EasyInputMessageParam,
-    Response
-)
-from openai.types.chat import (
-    ChatCompletionMessageParam,
-)
 
 # Role型の定義
 RoleType = Literal["user", "assistant", "system", "developer"]
@@ -331,7 +322,7 @@ class ResponseProcessor:
 # ==================================================
 
 # デフォルトプロバイダー（環境変数で設定可能）
-DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")  # "gemini" or "openai"
+DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")  # "anthropic" / "gemini" / "openai"
 
 
 class UnifiedLLMClient:

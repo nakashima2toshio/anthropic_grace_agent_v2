@@ -1,11 +1,13 @@
+from unittest.mock import mock_open, patch
+
 import pandas as pd
-import pytest
-from unittest.mock import MagicMock, patch, mock_open
+
 from services.log_service import (
-    log_unanswered_question,
+    clear_unanswered_logs,
     load_unanswered_logs,
-    clear_unanswered_logs
+    log_unanswered_question,
 )
+
 
 class TestLogService:
 
