@@ -12,6 +12,8 @@ Qdrantベクトルデータベースを使用した意味検索
 - スコア詳細表示（Original + Rerank）
 """
 
+import logging
+
 import pandas as pd
 import streamlit as st
 from qdrant_client import QdrantClient
@@ -27,6 +29,8 @@ from services.qdrant_service import (
     embed_query_for_search,
     get_collection_embedding_params,
 )
+
+logger = logging.getLogger(__name__)
 
 # FastEmbedが利用可能かチェック
 try:
@@ -247,17 +251,32 @@ def show_qdrant_search_page():
                 sparse_vector = None
                 if use_hybrid_search:
                     with st.spinner("Sparseベクトルを生成中..."):
-                        # sparse_vector生成
-                        sparse_vector = embed_sparse_query_unified(query)
-                        if debug_mode:
-                            st.success("✅ Sparseベクトルを生成しました")
+                        # sparse_vector生成。SPLADE(fastembed)モデルの未取得・キャッシュ破損
+                        # （[ONNXRuntimeError] NO_SUCHFILE 等）で失敗しても検索全体を
+                        # 止めず、Dense-only 検索へ degrade する。
+                        try:
+                            sparse_vector = embed_sparse_query_unified(query)
+                            if debug_mode:
+                                st.success("✅ Sparseベクトルを生成しました")
+                        except Exception as sparse_err:
+                            sparse_vector = None
+                            logger.warning(
+                                f"Sparse埋め込み生成に失敗したため Dense-only 検索に切替: {sparse_err}"
+                            )
+                            st.warning(
+                                "⚠️ Sparse(SPLADE)モデルを読み込めなかったため、"
+                                "Dense-only 検索に切り替えました。"
+                                "（fastembed キャッシュ破損の可能性。ハイブリッド検索を使うには "
+                                "`~/Library/Caches`/一時ディレクトリ内の "
+                                "`fastembed_cache/models--Qdrant--Splade_PP_en_v1` を削除して再取得してください）"
+                            )
 
                 # search_collection関数を呼び出し
                 hits_dict_list = search_collection(  # search_collection returns List[Dict[str, Any]]
                     client=client,
                     collection_name=collection,
                     query_vector=qvec,
-                    sparse_vector=sparse_vector if use_hybrid_search else None,
+                    sparse_vector=sparse_vector,
                     limit=topk,
                     score_threshold=score_threshold
                 )
