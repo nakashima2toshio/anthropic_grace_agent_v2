@@ -15,7 +15,9 @@ description: >-
 プロジェクト規約どおりに作成・最新化するための知見。
 
 ## 1. フォーマット仕様（必読）
-- 仕様書はリポジトリ直下 `a_class_method_md_format.md`（IPO形式）。**先に読むこと**。
+- 仕様書はスキル同梱 `.claude/skills/grace-agent-docs/a_class_method_md_format.md`（IPO形式・モジュール/クラス/関数ドキュメント用）。**先に読むこと**。
+- Streamlit UIページのドキュメントは `.claude/skills/grace-agent-docs/a_pages_md_format.md`（UIページ用フォーマット仕様）に従う。
+- 開発メモ・サンプルQ&A等の参考資料は `.claude/skills/grace-agent-docs/a_memo_dev.txt`。
 - タイトル: `# <module>.py - <説明> ドキュメント` → 次行 `**Version X.X** | 最終更新: YYYY-MM-DD`。
 - 必須セクション順:
   1. 目次

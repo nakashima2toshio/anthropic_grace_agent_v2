@@ -14,6 +14,9 @@ description: >-
 `uv run pytest tests/` の失敗・収集エラー・警告を直すための知見。移行（Gemini→Anthropic/OpenAI）に伴う
 **テスト負債**が大半で、原則 **テストのみ修正**（本番コードは現行を正とする。疑わしければ報告）。
 
+## テストドキュメントのフォーマット仕様
+- 単体テストのドキュメントを作成・最新化する場合は、スキル同梱 `.claude/skills/grace-agent-tests/a_test_md_format.md`（単体テスト ドキュメント フォーマット仕様）に従う。**先に読むこと**。
+
 ## 実行・検証
 - 依存は `uv run` で解決可能（`uv run pytest tests/ -q`）。`pyproject.toml` に `pythonpath=["."]`。
 - 修正は**ファイル単位でサブエージェント並列**＋各自 `uv run pytest <file> -q` で 0 failed/0 error を確認。
