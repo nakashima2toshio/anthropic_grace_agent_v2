@@ -15,7 +15,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from google.genai import types
 from qdrant_client import QdrantClient
 
 # Import wrappers for robust execution
@@ -353,10 +352,10 @@ class ReasoningTool(BaseTool):
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=self.config.llm.temperature,
-                    max_output_tokens=self.config.llm.max_tokens,
-                )
+                config={
+                    "temperature": self.config.llm.temperature,
+                    "max_output_tokens": self.config.llm.max_tokens,
+                }
             )
 
             answer = response.text

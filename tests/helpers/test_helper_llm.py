@@ -43,7 +43,8 @@ class QAPairsResponse(BaseModel):
 class TestCreateLLMClient:
     def test_create_gemini_client(self):
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
-            with patch("helper.helper_llm.genai"):
+            # GeminiClient は google-genai を遅延 import するため google.genai.Client を patch
+            with patch("google.genai.Client"):
                 client = create_llm_client("gemini")
                 assert isinstance(client, GeminiClient)
 
@@ -55,7 +56,7 @@ class TestCreateLLMClient:
 
     def test_invalid_provider(self):
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
-             with patch("helper.helper_llm.genai"):
+             with patch("google.genai.Client"):
                 client = create_llm_client("invalid_provider")
                 assert isinstance(client, GeminiClient)
 
@@ -130,10 +131,11 @@ class TestGeminiClient:
         # 新SDK (google-genai) では genai.Client(api_key=...) を生成し、
         # client.models.generate_content / count_tokens を呼び出す。
         with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
-            with patch("helper.helper_llm.genai") as mock_genai:
+            # GeminiClient は google-genai を遅延 import するため google.genai.Client を patch
+            with patch("google.genai.Client") as mock_client_cls:
                 # genai.Client() が返すクライアントインスタンス
                 mock_client_instance = Mock()
-                mock_genai.Client.return_value = mock_client_instance
+                mock_client_cls.return_value = mock_client_instance
 
                 client = GeminiClient()
                 # テストからは client.models をモックとして触れるよう返す

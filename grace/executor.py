@@ -711,17 +711,15 @@ class Executor:
             scratchpad=scratchpad.as_prompt(),
         )
         try:
-            from google.genai import types
             response = self._react_client.models.generate_content(
                 model=self.config.llm.model,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=AgentThought,
-                    temperature=0.0,
-                    max_output_tokens=512,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": AgentThought,
+                    "temperature": 0.0,
+                    "max_output_tokens": 512,
+                },
             )
             if not response or not response.text:
                 raise ValueError("empty response")
@@ -1199,19 +1197,16 @@ class Executor:
         try:
             import time as _time
 
-            from google.genai import types
-
             client = create_chat_client(self.config)
             t0 = _time.time()
 
             response = client.models.generate_content(
                 model=self.config.llm.model,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=256,  # 枠が小さいと thinking/推論系モデルで本文が空になる
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 256,  # 枠が小さいと thinking/推論系モデルで本文が空になる
+                }
             )
 
             elapsed = _time.time() - t0

@@ -10,8 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from google import genai
-from google.genai import types
+from google import genai  # embedding 専用（SourceAgreementCalculator の embed_content）
 from pydantic import BaseModel, Field
 
 from .config import GraceConfig, get_config
@@ -407,11 +406,10 @@ class LLMSelfEvaluator:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=512,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=512）
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 512,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=512）
+                }
             )
             elapsed = _time.time() - t0
             logger.info(f"[API時間] LLMSelfEvaluator.evaluate: {elapsed:.1f}秒")
@@ -464,13 +462,12 @@ class LLMSelfEvaluator:
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=FinalEvaluationResult,
-                temperature=0.0,
-                max_output_tokens=1024,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=1024）
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-            )
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": FinalEvaluationResult,
+                "temperature": 0.0,
+                "max_output_tokens": 1024,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=1024）
+            }
         )
         elapsed = _time.time() - t0
 
@@ -541,15 +538,12 @@ class LLMSelfEvaluator:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=1024,  # 構造化出力に十分な枠を確保（anthropic基準=1024）
-                    # response_mime_type="application/json" のみ指定する
-                    # response_schema=EvaluationResult を使うと gemini-2.5-flash が
-                    # "Here is the JSON requested:" のみを返し JSON 本体を出力しないため除去
-                    response_mime_type="application/json",
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 1024,  # 構造化出力に十分な枠を確保（anthropic基準=1024）
+                    # response_schema は使わず response_mime_type のみ指定する
+                    "response_mime_type": "application/json",
+                }
             )
 
             if not response or not response.text:
@@ -693,11 +687,10 @@ class QueryCoverageCalculator:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=512,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=512）
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                )
+                config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 512,  # 出力枠が小さいと thinking/推論系モデルで本文が空になる（anthropic基準=512）
+                }
             )
             elapsed = _time.time() - t0
             logger.info(f"[API時間] QueryCoverageCalculator: {elapsed:.1f}秒")
@@ -811,13 +804,12 @@ class GroundednessVerifier:
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=GroundednessResponse,
-                    temperature=0.0,
-                    max_output_tokens=1024,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
+                config={
+                    "response_mime_type": "application/json",
+                    "response_schema": GroundednessResponse,
+                    "temperature": 0.0,
+                    "max_output_tokens": 1024,
+                },
             )
             if not response or not response.text:
                 return GroundednessResult(0.0, 0, 0, 0, False, False, "empty response")

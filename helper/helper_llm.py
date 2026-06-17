@@ -34,8 +34,10 @@ except ImportError:
     OpenAI = None
 
 import tiktoken
-from google import genai
-from google.genai import types
+
+# 注: google-genai（genai / types）は GeminiClient 専用。本プロジェクトの LLM 既定は
+# Anthropic のため、google-genai を top-level import せず GeminiClient 内で遅延 import する
+# （embedding は別モジュール helper_embedding が担当）。
 
 load_dotenv()
 
@@ -150,6 +152,9 @@ class OpenAIClient(LLMClient):
 
 class GeminiClient(LLMClient):
     def __init__(self, api_key: Optional[str] = None, default_model: str = "gemini-2.5-flash"):
+        from google import (
+            genai,  # 遅延 import（google-genai を top-level に持ち込まない）
+        )
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GOOGLE_API_KEY (or GEMINI_API_KEY) is not set")
@@ -157,6 +162,7 @@ class GeminiClient(LLMClient):
         self.default_model = default_model
 
     def generate_content(self, prompt: str, model: Optional[str] = None, **kwargs) -> str:
+        from google.genai import types  # 遅延 import
         model_name = model or self.default_model
 
         config = {
@@ -178,6 +184,7 @@ class GeminiClient(LLMClient):
 
     def generate_structured(self, prompt: str, response_schema: Type[BaseModel], model: Optional[str] = None,
                             **kwargs) -> BaseModel:
+        from google.genai import types  # 遅延 import
         model_name = model or self.default_model
 
         # JSON スキーマの設定
