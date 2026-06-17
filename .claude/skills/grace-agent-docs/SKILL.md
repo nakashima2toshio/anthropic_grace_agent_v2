@@ -18,18 +18,19 @@ description: >-
 
 ## 0. どのフォーマット仕様を使うか（必ず先に判定）
 
-対象によって**使う仕様書が異なる**。いずれもリポジトリ直下にあり、書く前に該当仕様を**実際に読むこと**。
+対象によって**使う仕様書が異なる**。いずれもスキル同梱（`.claude/skills/...`）で、書く前に該当仕様を**実際に読むこと**。
 
 | 対象 | 使う仕様書 | 中心構造 | 主なドキュメント所在 |
 |------|-----------|---------|------------------|
-| コード・モジュール（クラス/関数） | `a_class_method_md_format.md` | IPO（Input-Process-Output） | `<package>/doc/<module>.md` |
-| Streamlit 画面・ページ | `a_pages_md_format.md` | 画面レイアウト＋セッション状態＋操作フロー | `ui/pages/doc/<page>.md`（無ければ対象に準ずる） |
-| 単体テスト | `a_test_md_format.md` | SAE（Setup-Action-Expected） | grace-agent-tests スキル参照 |
+| コード・モジュール（クラス/関数） | `.claude/skills/grace-agent-docs/a_class_method_md_format.md` | IPO（Input-Process-Output） | `<package>/doc/<module>.md` |
+| Streamlit 画面・ページ | `.claude/skills/grace-agent-docs/a_pages_md_format.md` | 画面レイアウト＋セッション状態＋操作フロー | `ui/pages/doc/<page>.md`（無ければ対象に準ずる） |
+| 単体テスト | `.claude/skills/grace-agent-tests/a_test_md_format.md` | SAE（Setup-Action-Expected） | grace-agent-tests スキル参照 |
 
 > テスト仕様（SAE）は **grace-agent-tests** スキルが担当。本スキルはモジュール（IPO）と画面（ページ）を担当する。
+> 開発メモ・サンプルQ&A等の参考資料は `.claude/skills/grace-agent-docs/a_memo_dev.txt`。
 
 ## 1. モジュール仕様（`a_class_method_md_format.md`・IPO形式）— 必読
-- 仕様書はリポジトリ直下 `a_class_method_md_format.md`（IPO形式）。**先に読むこと**。
+- 仕様書はスキル同梱 `.claude/skills/grace-agent-docs/a_class_method_md_format.md`（IPO形式）。**先に読むこと**。
 - タイトル: `# <module>.py - <説明> ドキュメント` → 次行 `**Version X.X** | 最終更新: YYYY-MM-DD`。
 - 必須セクション順:
   1. 目次
@@ -97,5 +98,5 @@ description: >-
 - 横断/利用ガイド: リポジトリ直下 `readme_*.md`・`docs/*.md`。
 
 ## 6. 進め方のコツ
-- 複数ファイルを最新化するときは **ファイルごとにサブエージェントを並列起動**（各に「**使うフォーマット仕様のパス**（モジュール=`a_class_method_md_format.md` / 画面=`a_pages_md_format.md`）＋対象ソース＋黒背景Mermaid規約＋スタック表記」を渡す）。
+- 複数ファイルを最新化するときは **ファイルごとにサブエージェントを並列起動**（各に「**使うフォーマット仕様のパス**（モジュール=`.claude/skills/grace-agent-docs/a_class_method_md_format.md` / 画面=`.claude/skills/grace-agent-docs/a_pages_md_format.md`）＋対象ソース＋黒背景Mermaid規約＋スタック表記」を渡す）。
 - 仕上げに mermaid 準拠を grep 検証（`flowchart|graph` 数 == `classDef default fill:#000` 数、`sequenceDiagram` 数 == `%%{ init` 数）し、版・最終更新日・変更履歴を更新。

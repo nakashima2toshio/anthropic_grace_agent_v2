@@ -17,6 +17,9 @@ description: >-
 （`a_test_md_format.md`・SAE形式）の作成知見。移行（Gemini→Anthropic/OpenAI）に伴う
 **テスト負債**が大半で、原則 **テストのみ修正**（本番コードは現行を正とする。疑わしければ報告）。
 
+## テストドキュメントのフォーマット仕様
+- 単体テストのドキュメントを作成・最新化する場合は、スキル同梱 `.claude/skills/grace-agent-tests/a_test_md_format.md`（単体テスト ドキュメント フォーマット仕様）に従う。**先に読むこと**。
+
 ## 実行・検証
 - 依存は `uv run` で解決可能（`uv run pytest tests/ -q`）。`pyproject.toml` に `pythonpath=["."]`。
 - 修正は**ファイル単位でサブエージェント並列**＋各自 `uv run pytest <file> -q` で 0 failed/0 error を確認。
@@ -58,8 +61,8 @@ description: >-
 
 ## テスト仕様書の作成（`a_test_md_format.md`・SAE形式）
 
-テストファイル（`tests/**/test_*.py`）のドキュメントを書く/最新化するときは、リポジトリ直下
-`a_test_md_format.md` に従う。モジュール仕様（IPO）とは**観点・構成が異なる**ので混同しない。
+テストファイル（`tests/**/test_*.py`）のドキュメントを書く/最新化するときは、スキル同梱
+`.claude/skills/grace-agent-tests/a_test_md_format.md` に従う。モジュール仕様（IPO）とは**観点・構成が異なる**ので混同しない。
 
 - 中心構造は **SAE（Setup-Action-Expected）**＝「準備→実行→検証」。IPO詳細・戻り値例・使用例ワークフローは**使わない**。
 - タイトル: `# test_<module>.py - <対象説明> 単体テスト ドキュメント` → `**Version X.X** | 最終更新: YYYY-MM-DD`。
