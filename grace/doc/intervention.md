@@ -1,6 +1,6 @@
 # intervention.py - HITL介入システム ドキュメント
 
-**Version 1.1** | 最終更新: 2026-02-13
+**Version 1.2** | 最終更新: 2026-06-16
 
 ---
 
@@ -22,6 +22,8 @@
 ## 概要
 
 `intervention.py`は、GRACE（GRaded Autonomy and Confidence-based Escalation）フレームワークにおけるHITL（Human-in-the-Loop）介入システムを提供するモジュールです。信頼度に応じた4段階の介入レベル（SILENT、NOTIFY、CONFIRM、ESCALATE）を管理し、人間とAIの協調的な意思決定を実現します。
+
+本モジュールは純粋な介入制御ロジックであり、LLM（Anthropic Claude `claude-sonnet-4-6`）やEmbedding（Gemini `gemini-embedding-001`）のAPIを直接呼び出しません。信頼度スコアやアクション決定（`ActionDecision`）は上流の `confidence.py` から受け取り、本モジュールはそれに応じた人間への介入要求とレスポンス処理に専念します。
 
 ### 主な責務
 
@@ -46,16 +48,23 @@
 | 機能 | 説明 |
 |------|------|
 | `InterventionRequest` | 介入リクエストデータクラス |
+| `InterventionRequest.requires_response` | レスポンスが必要か判定するプロパティ |
 | `InterventionResponse` | 介入レスポンスデータクラス |
+| `InterventionResponse.should_continue` | 実行を継続すべきか判定するプロパティ |
 | `InterventionAction` | 介入アクション列挙型（PROCEED, MODIFY, CANCEL等） |
 | `FeedbackRecord` | フィードバック記録データクラス |
 | `InterventionHandler` | 信頼度レベルに応じた介入処理クラス |
 | `InterventionHandler.handle()` | ActionDecisionに基づいて介入を処理 |
 | `InterventionHandler.request_confirmation()` | 計画の確認をリクエスト |
 | `InterventionHandler.request_clarification()` | ユーザーに追加情報を求める |
+| `InterventionHandler.notify_status()` | ステータスを通知 |
+| `InterventionHandler.get_history()` | 介入履歴を取得 |
+| `InterventionHandler.clear_history()` | 介入履歴をクリア |
 | `DynamicThresholdAdjuster` | フィードバックに基づく動的閾値調整クラス |
 | `DynamicThresholdAdjuster.record_feedback()` | ユーザーフィードバックを記録 |
 | `DynamicThresholdAdjuster.get_level()` | 現在の閾値に基づいて介入レベルを判定 |
+| `DynamicThresholdAdjuster.get_current_thresholds()` | 現在の閾値を取得 |
+| `DynamicThresholdAdjuster.reset_thresholds()` | 閾値を初期値にリセット |
 | `ConfirmationFlow` | 計画確認フロー管理クラス |
 | `ConfirmationFlow.confirm_plan()` | 計画の確認を行う |
 | `create_intervention_handler()` | InterventionHandlerインスタンスを作成 |
@@ -71,22 +80,22 @@
 ```mermaid
 flowchart TB
     subgraph CLIENT["クライアント層"]
-        ORCH[Orchestrator]
-        EXEC[Executor]
-        PLAN[Planner]
+        ORCH["Orchestrator"]
+        EXEC["Executor"]
+        PLAN["Planner"]
     end
 
     subgraph MODULE["intervention.py"]
-        HANDLER[InterventionHandler]
-        ADJUSTER[DynamicThresholdAdjuster]
-        FLOW[ConfirmationFlow]
-        REQ[InterventionRequest / Response]
+        HANDLER["InterventionHandler"]
+        ADJUSTER["DynamicThresholdAdjuster"]
+        FLOW["ConfirmationFlow"]
+        REQ["InterventionRequest / Response"]
     end
 
     subgraph EXTERNAL["依存モジュール層"]
-        SCHEMAS[schemas - ExecutionPlan / PlanStep]
-        CONF[confidence - InterventionLevel / ActionDecision]
-        CONFIG[config - GraceConfig]
+        SCHEMAS["schemas - ExecutionPlan / PlanStep"]
+        CONF["confidence - InterventionLevel / ActionDecision"]
+        CONFIG["config - GraceConfig"]
     end
 
     ORCH --> HANDLER
@@ -98,6 +107,12 @@ flowchart TB
     HANDLER --> CONFIG
     ADJUSTER --> CONF
     ADJUSTER --> CONFIG
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ORCH,EXEC,PLAN,HANDLER,ADJUSTER,FLOW,REQ,SCHEMAS,CONF,CONFIG default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
@@ -116,13 +131,13 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph DATA["データクラス"]
-        REQ[InterventionRequest]
-        RES[InterventionResponse]
-        FB[FeedbackRecord]
+        REQ["InterventionRequest"]
+        RES["InterventionResponse"]
+        FB["FeedbackRecord"]
     end
 
     subgraph ENUM["列挙型"]
-        ACT[InterventionAction]
+        ACT["InterventionAction"]
     end
 
     subgraph HANDLER_CLS["InterventionHandler"]
@@ -177,6 +192,15 @@ flowchart TB
     CF_HANDLER --> H_INIT
     CF_ADJUSTER --> A_INIT
     CF_FLOW --> F_INIT
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class REQ,RES,FB,ACT,H_INIT,H_HANDLE,H_SILENT,H_NOTIFY,H_CONFIRM,H_ESCALATE,H_TIMEOUT,H_REQ_CONF,H_REQ_CLAR,H_STATUS,H_HISTORY,H_CLEAR,A_INIT,A_RECORD,A_ADJUST,A_RAISE,A_LOWER,A_LEVEL,A_GET,A_RESET,F_INIT,F_CONFIRM,CF_HANDLER,CF_ADJUSTER,CF_FLOW default
+style DATA fill:#1a1a1a,stroke:#fff,color:#fff
+style ENUM fill:#1a1a1a,stroke:#fff,color:#fff
+style HANDLER_CLS fill:#1a1a1a,stroke:#fff,color:#fff
+style ADJUSTER_CLS fill:#1a1a1a,stroke:#fff,color:#fff
+style FLOW_CLS fill:#1a1a1a,stroke:#fff,color:#fff
+style FACTORY fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
@@ -313,13 +337,37 @@ InterventionRequest(
 | `is_blocking` | bool | True | ブロッキング処理か |
 | `confidence_score` | Optional[float] | None | 信頼度スコア |
 | `plan` | Optional[ExecutionPlan] | None | 関連する実行計画 |
-| `created_at` | datetime | datetime.now() | 作成日時 |
+| `created_at` | datetime | datetime.now() | 作成日時（field default_factory） |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `level: InterventionLevel`, 他オプションパラメータ |
 | **Process** | データクラスとして各フィールドを初期化 |
 | **Output** | InterventionRequestインスタンス |
+
+**戻り値例**:
+```python
+InterventionRequest(
+    level=InterventionLevel.CONFIRM,
+    message="この計画を実行してよろしいですか？",
+    options=["はい、続行", "計画を修正", "キャンセル"],
+    timeout_seconds=300,
+    is_blocking=True
+)
+```
+
+```python
+# 使用例
+from grace.intervention import InterventionRequest
+from grace.confidence import InterventionLevel
+
+request = InterventionRequest(
+    level=InterventionLevel.CONFIRM,
+    message="計画を確認してください",
+    confidence_score=0.65
+)
+print(request.requires_response)  # True
+```
 
 #### プロパティ: `requires_response`
 
@@ -340,6 +388,12 @@ def requires_response(self) -> bool
 ```python
 True   # level が CONFIRM または ESCALATE の場合
 False  # level が SILENT または NOTIFY の場合
+```
+
+```python
+# 使用例
+request = InterventionRequest(level=InterventionLevel.NOTIFY)
+print(request.requires_response)  # False
 ```
 
 ---
@@ -372,13 +426,30 @@ InterventionResponse(
 | `selected_option` | Optional[str] | None | 選択されたオプション |
 | `timeout_reached` | bool | False | タイムアウトしたか |
 | `response_time_ms` | Optional[int] | None | 応答時間（ミリ秒） |
-| `created_at` | datetime | datetime.now() | 作成日時 |
+| `created_at` | datetime | datetime.now() | 作成日時（field default_factory） |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `action: InterventionAction`, 他オプションパラメータ |
 | **Process** | データクラスとして各フィールドを初期化 |
 | **Output** | InterventionResponseインスタンス |
+
+**戻り値例**:
+```python
+InterventionResponse(
+    action=InterventionAction.PROCEED,
+    timeout_reached=False,
+    response_time_ms=1523
+)
+```
+
+```python
+# 使用例
+from grace.intervention import InterventionResponse, InterventionAction
+
+response = InterventionResponse(action=InterventionAction.PROCEED)
+print(response.should_continue)  # True
+```
 
 #### プロパティ: `should_continue`
 
@@ -401,11 +472,17 @@ True   # action が PROCEED, MODIFY, RETRY, SKIP の場合
 False  # action が CANCEL, INPUT の場合
 ```
 
+```python
+# 使用例
+response = InterventionResponse(action=InterventionAction.CANCEL)
+print(response.should_continue)  # False
+```
+
 ---
 
 ### 4.3 InterventionAction 列挙型
 
-介入時のユーザーアクションを定義する列挙型。
+介入時のユーザーアクションを定義する `str, Enum` 列挙型。
 
 ```python
 class InterventionAction(str, Enum):
@@ -417,14 +494,14 @@ class InterventionAction(str, Enum):
     SKIP = "skip"         # 現在のステップをスキップ
 ```
 
-| 値 | 説明 |
-|------|------|
-| `PROCEED` | 現在の計画のまま実行を継続 |
-| `MODIFY` | 計画を修正して実行を継続 |
-| `CANCEL` | 実行をキャンセル |
-| `INPUT` | ユーザーからの追加入力を受け取る |
-| `RETRY` | 現在のステップを再試行 |
-| `SKIP` | 現在のステップをスキップして次へ |
+| 値 | 文字列 | 説明 |
+|------|------|------|
+| `PROCEED` | "proceed" | 現在の計画のまま実行を継続 |
+| `MODIFY` | "modify" | 計画を修正して実行を継続 |
+| `CANCEL` | "cancel" | 実行をキャンセル |
+| `INPUT` | "input" | ユーザーからの追加入力を受け取る |
+| `RETRY` | "retry" | 現在のステップを再試行 |
+| `SKIP` | "skip" | 現在のステップをスキップして次へ |
 
 ---
 
@@ -448,13 +525,30 @@ FeedbackRecord(
 |------------|------|-----------|------|
 | `confidence` | float | - | その時点の信頼度スコア |
 | `was_correct` | bool | - | 結果が正しかったか |
-| `timestamp` | datetime | datetime.now() | 記録日時 |
+| `timestamp` | datetime | datetime.now() | 記録日時（field default_factory） |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `confidence: float`, `was_correct: bool` |
 | **Process** | データクラスとして各フィールドを初期化 |
 | **Output** | FeedbackRecordインスタンス |
+
+**戻り値例**:
+```python
+FeedbackRecord(
+    confidence=0.8,
+    was_correct=False,
+    timestamp=datetime(2026, 6, 16, 10, 30, 0)
+)
+```
+
+```python
+# 使用例
+from grace.intervention import FeedbackRecord
+
+record = FeedbackRecord(confidence=0.75, was_correct=True)
+print(record.confidence)  # 0.75
+```
 
 ---
 
@@ -486,8 +580,18 @@ def __init__(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `config`, `on_notify`, `on_confirm`, `on_escalate` |
-| **Process** | 1. 設定を初期化<br>2. コールバック関数を登録<br>3. 介入履歴リストを初期化 |
+| **Process** | 1. 設定を初期化（None時はget_config()）<br>2. コールバック関数を登録<br>3. 介入履歴リストを初期化 |
 | **Output** | InterventionHandlerインスタンス |
+
+**戻り値例**:
+```python
+InterventionHandler(
+    config=<GraceConfig>,
+    on_notify=<callable>,
+    on_confirm=<callable>,
+    on_escalate=None
+)
+```
 
 ```python
 # 使用例
@@ -575,7 +679,7 @@ def request_confirmation(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `plan: ExecutionPlan`, `confidence: float`, `message: Optional[str]` |
-| **Process** | 1. InterventionRequestを作成<br>2. on_confirmコールバックを呼び出し<br>3. コールバックがない場合はタイムアウト処理 |
+| **Process** | 1. InterventionRequestを作成（CONFIRMレベル、計画整形メッセージ）<br>2. on_confirmコールバックを呼び出し<br>3. コールバックがない場合はタイムアウト処理 |
 | **Output** | `InterventionResponse`: 介入レスポンス |
 
 **戻り値例**:
@@ -601,7 +705,7 @@ if response.action == InterventionAction.MODIFY:
 
 #### メソッド: `request_clarification`
 
-**概要**: ユーザーに追加情報を求めます。
+**概要**: ユーザーに追加情報を求めます（ESCALATEレベル）。
 
 ```python
 def request_clarification(
@@ -662,8 +766,13 @@ def notify_status(self, message: str) -> None
 | 項目 | 内容 |
 |------|------|
 | **Input** | `message: str` |
-| **Process** | 1. on_notifyコールバックを呼び出し<br>2. 履歴に記録 |
-| **Output** | なし |
+| **Process** | 1. on_notifyコールバックを呼び出し<br>2. 履歴にstatus_updateとして記録 |
+| **Output** | `None` |
+
+**戻り値例**:
+```python
+None  # 戻り値なし（副作用として通知・履歴記録）
+```
 
 ```python
 # 使用例
@@ -689,7 +798,7 @@ def get_history(self) -> List[Dict[str, Any]]
 ```python
 [
     {
-        "timestamp": "2025-01-29T10:30:00",
+        "timestamp": "2026-06-16T10:30:00",
         "level": "confirm",
         "action": "proceed",
         "message": "計画を確認してください",
@@ -697,7 +806,7 @@ def get_history(self) -> List[Dict[str, Any]]
         "timeout_reached": False
     },
     {
-        "timestamp": "2025-01-29T10:30:15",
+        "timestamp": "2026-06-16T10:30:15",
         "level": "notify",
         "action": "status_update",
         "message": "処理中...",
@@ -705,6 +814,12 @@ def get_history(self) -> List[Dict[str, Any]]
         "timeout_reached": False
     }
 ]
+```
+
+```python
+# 使用例
+history = handler.get_history()
+print(f"介入回数: {len(history)}")
 ```
 
 #### メソッド: `clear_history`
@@ -719,7 +834,18 @@ def clear_history(self) -> None
 |------|------|
 | **Input** | なし（selfのみ） |
 | **Process** | 履歴リストをクリア |
-| **Output** | なし |
+| **Output** | `None` |
+
+**戻り値例**:
+```python
+None  # 戻り値なし（副作用として履歴をクリア）
+```
+
+```python
+# 使用例
+handler.clear_history()
+print(len(handler.get_history()))  # 0
+```
 
 ---
 
@@ -742,15 +868,26 @@ def __init__(
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
+| `config` | Optional[GraceConfig] | None | GRACE設定（None時はget_config()） |
 | `learning_rate` | float | 0.05 | 閾値調整の学習率 |
 | `min_samples` | int | 10 | 調整に必要な最小サンプル数 |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `config`, `learning_rate`, `min_samples` |
-| **Process** | 1. 設定から初期閾値を読み込み<br>2. 学習パラメータを設定<br>3. フィードバック履歴リストを初期化 |
+| **Process** | 1. 設定からsilent/notify/confirm初期閾値を読み込み<br>2. 学習パラメータを設定<br>3. フィードバック履歴リストを初期化 |
 | **Output** | DynamicThresholdAdjusterインスタンス |
+
+**戻り値例**:
+```python
+DynamicThresholdAdjuster(
+    learning_rate=0.05,
+    min_samples=10,
+    silent_threshold=0.9,
+    notify_threshold=0.7,
+    confirm_threshold=0.5
+)
+```
 
 ```python
 # 使用例
@@ -762,7 +899,7 @@ adjuster = DynamicThresholdAdjuster(
 
 #### メソッド: `record_feedback`
 
-**概要**: ユーザーフィードバックを記録し、必要に応じて閾値を調整します。
+**概要**: ユーザーフィードバックを記録し、サンプルが揃えば閾値を調整します。
 
 ```python
 def record_feedback(self, confidence: float, was_correct: bool) -> None
@@ -777,7 +914,12 @@ def record_feedback(self, confidence: float, was_correct: bool) -> None
 |------|------|
 | **Input** | `confidence: float`, `was_correct: bool` |
 | **Process** | 1. FeedbackRecordを作成し履歴に追加<br>2. サンプル数がmin_samples以上なら閾値調整を実行<br>3. 偽陽性率が30%超の場合は閾値を引き上げ<br>4. 偽陰性率が30%超の場合は閾値を引き下げ |
-| **Output** | なし |
+| **Output** | `None` |
+
+**戻り値例**:
+```python
+None  # 戻り値なし（副作用として履歴追加・閾値調整）
+```
 
 ```python
 # 使用例
@@ -808,16 +950,16 @@ def get_level(self, confidence: float) -> InterventionLevel
 
 **戻り値例**:
 ```python
-InterventionLevel.SILENT    # confidence >= 0.9
-InterventionLevel.NOTIFY    # 0.7 <= confidence < 0.9
-InterventionLevel.CONFIRM   # 0.5 <= confidence < 0.7
-InterventionLevel.ESCALATE  # confidence < 0.5
+InterventionLevel.SILENT    # confidence >= silent_threshold
+InterventionLevel.NOTIFY    # notify_threshold <= confidence < silent_threshold
+InterventionLevel.CONFIRM   # confirm_threshold <= confidence < notify_threshold
+InterventionLevel.ESCALATE  # confidence < confirm_threshold
 ```
 
 ```python
 # 使用例
 level = adjuster.get_level(confidence=0.75)
-print(level)  # InterventionLevel.NOTIFY
+print(level)  # InterventionLevel.NOTIFY（デフォルト閾値の場合）
 ```
 
 #### メソッド: `get_current_thresholds`
@@ -843,9 +985,15 @@ def get_current_thresholds(self) -> Dict[str, float]
 }
 ```
 
+```python
+# 使用例
+thresholds = adjuster.get_current_thresholds()
+print(f"silent閾値: {thresholds['silent']}")
+```
+
 #### メソッド: `reset_thresholds`
 
-**概要**: 閾値を設定ファイルの初期値にリセットし、フィードバック履歴をクリアします。
+**概要**: 閾値を設定の初期値にリセットし、フィードバック履歴をクリアします。
 
 ```python
 def reset_thresholds(self) -> None
@@ -854,8 +1002,19 @@ def reset_thresholds(self) -> None
 | 項目 | 内容 |
 |------|------|
 | **Input** | なし（selfのみ） |
-| **Process** | 1. 閾値を設定ファイルの値にリセット<br>2. フィードバック履歴をクリア |
-| **Output** | なし |
+| **Process** | 1. silent/notify/confirm閾値を設定値にリセット<br>2. フィードバック履歴をクリア |
+| **Output** | `None` |
+
+**戻り値例**:
+```python
+None  # 戻り値なし（副作用として閾値・履歴をリセット）
+```
+
+```python
+# 使用例
+adjuster.reset_thresholds()
+print(adjuster.get_current_thresholds())  # 初期値に復帰
+```
 
 ---
 
@@ -883,8 +1042,22 @@ def __init__(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `handler: InterventionHandler`, `max_modifications: int` |
-| **Process** | ハンドラーと最大修正回数を設定 |
+| **Process** | ハンドラーと最大修正回数を設定し、修正カウンタを0で初期化 |
 | **Output** | ConfirmationFlowインスタンス |
+
+**戻り値例**:
+```python
+ConfirmationFlow(
+    handler=<InterventionHandler>,
+    max_modifications=3,
+    modification_count=0
+)
+```
+
+```python
+# 使用例
+flow = ConfirmationFlow(handler=handler, max_modifications=3)
+```
 
 #### メソッド: `confirm_plan`
 
@@ -906,8 +1079,8 @@ def confirm_plan(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `plan: ExecutionPlan`, `confidence: float` |
-| **Process** | 1. 修正カウンタをリセット<br>2. request_confirmationで確認を要求<br>3. PROCEEDの場合: (True, plan)を返却<br>4. MODIFYの場合: 修正計画で再度確認<br>5. CANCELまたはタイムアウト: (False, None)を返却<br>6. 最大修正回数超過: (False, None)を返却 |
-| **Output** | `tuple[bool, Optional[ExecutionPlan]]`: (確認結果, 修正された計画またはNone) |
+| **Process** | 1. 修正カウンタをリセット<br>2. request_confirmationで確認を要求<br>3. PROCEEDの場合: (True, plan)を返却<br>4. MODIFYの場合: 修正計画で再度確認（修正計画なしならキャンセル）<br>5. CANCELまたはタイムアウト: (False, None)を返却<br>6. 最大修正回数超過: (False, None)を返却 |
+| **Output** | `tuple[bool, Optional[ExecutionPlan]]`<br>- bool: 確認結果<br>- ExecutionPlan: 修正された計画またはNone |
 
 **戻り値例**:
 ```python
@@ -964,6 +1137,11 @@ def create_intervention_handler(
 | **Process** | InterventionHandlerを指定パラメータで初期化 |
 | **Output** | `InterventionHandler`: インスタンス |
 
+**戻り値例**:
+```python
+InterventionHandler(on_notify=<callable>, on_confirm=<callable>)
+```
+
 ```python
 # 使用例
 handler = create_intervention_handler(
@@ -991,8 +1169,13 @@ def create_threshold_adjuster(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `config`, `learning_rate` |
-| **Process** | DynamicThresholdAdjusterを指定パラメータで初期化 |
+| **Process** | DynamicThresholdAdjusterを指定パラメータで初期化（min_samplesはデフォルト10） |
 | **Output** | `DynamicThresholdAdjuster`: インスタンス |
+
+**戻り値例**:
+```python
+DynamicThresholdAdjuster(learning_rate=0.03)
+```
 
 ```python
 # 使用例
@@ -1020,6 +1203,11 @@ def create_confirmation_flow(
 | **Input** | `handler`, `max_modifications` |
 | **Process** | ConfirmationFlowを指定パラメータで初期化 |
 | **Output** | `ConfirmationFlow`: インスタンス |
+
+**戻り値例**:
+```python
+ConfirmationFlow(handler=<InterventionHandler>, max_modifications=5)
+```
 
 ```python
 # 使用例
@@ -1052,13 +1240,24 @@ flow = create_confirmation_flow(handler, max_modifications=5)
 | `min_samples` | 10 | 閾値調整に必要な最小サンプル数 |
 | `max_modifications` | 3 | 計画の最大修正回数 |
 
+> 📝 **注意**: `timeout_seconds` のデフォルトはデータクラス `InterventionRequest` の定義値（300）です。`InterventionHandler` 内部でリクエストを生成する際は `config.intervention.default_timeout` の値が使用されます。
+
 ### 5.3 閾値調整の制限値
 
-| 閾値 | 最小値 | 最大値 |
+`DynamicThresholdAdjuster` は閾値を以下の範囲内でクランプします。
+
+| 閾値 | 最小値（引き下げ下限） | 最大値（引き上げ上限） |
 |------|--------|--------|
 | `silent_threshold` | 0.80 | 0.95 |
 | `notify_threshold` | 0.60 | 0.85 |
 | `confirm_threshold` | 0.30 | 0.60 |
+
+### 5.4 閾値調整のトリガー条件
+
+| 条件 | 判定 | アクション |
+|------|------|-----------|
+| 偽陽性率 > 30% | 高信頼度（> notify閾値）だが誤り | 閾値を引き上げ（より慎重に） |
+| 偽陰性率 > 30% | 低信頼度（< confirm閾値）だが正解 | 閾値を引き下げ（より積極的に） |
 
 ---
 
@@ -1116,10 +1315,7 @@ else:
 ### 6.2 動的閾値調整を使用するワークフロー
 
 ```python
-from grace.intervention import (
-    create_threshold_adjuster,
-    create_intervention_handler,
-)
+from grace.intervention import create_threshold_adjuster
 
 # 1. 閾値調整器を作成
 adjuster = create_threshold_adjuster(learning_rate=0.05)
@@ -1128,7 +1324,7 @@ adjuster = create_threshold_adjuster(learning_rate=0.05)
 thresholds = adjuster.get_current_thresholds()
 print(f"初期閾値: {thresholds}")
 
-# 3. フィードバックを記録
+# 3. フィードバックを記録（min_samples到達で自動調整）
 adjuster.record_feedback(confidence=0.8, was_correct=True)
 adjuster.record_feedback(confidence=0.75, was_correct=False)
 adjuster.record_feedback(confidence=0.6, was_correct=True)
@@ -1174,7 +1370,7 @@ handler = create_intervention_handler(on_confirm=on_confirm)
 flow = create_confirmation_flow(handler, max_modifications=3)
 
 # 3. 計画の確認を実行
-execution_plan = ExecutionPlan(...)  # 実行計画を作成
+execution_plan = ExecutionPlan(original_query="...", steps=[...])
 approved, final_plan = flow.confirm_plan(
     plan=execution_plan,
     confidence=0.7
@@ -1236,7 +1432,7 @@ if st.session_state.pending_request:
 
 ## 7. エクスポート
 
-`__init__.py`でエクスポートされる要素：
+`intervention.py` の `__all__` でエクスポートされる要素（`grace/__init__.py` 経由でも公開）：
 
 ```python
 __all__ = [
@@ -1268,6 +1464,7 @@ __all__ = [
 |-----------|---------|
 | 1.0 | 初版作成 |
 | 1.1 | フォーマット仕様v1.4準拠: 「各責務対応のモジュール」テーブル追加、ASCII図をMermaid v9フローチャートに変更（アーキテクチャ構成図・モジュール構成図・付録依存関係図） |
+| 1.2 | フォーマット仕様v1.5準拠: 全Mermaidダイアグラムに黒背景・白文字スタイル（`classDef default`/`subgraphStyle`・各サブグラフ`style`）を適用。実コードと照合し主要機能一覧・IPO詳細・戻り値例・使用例を補完、設定/定数セクションに閾値調整トリガー条件とtimeout挙動の注記を追加。本モジュールはLLM/Embeddingを直接呼ばない旨を概要に明記（2026-06-16） |
 
 ---
 
@@ -1275,15 +1472,15 @@ __all__ = [
 
 ```mermaid
 flowchart LR
-    INTERVENTION[intervention.py]
+    INTERVENTION["intervention.py"]
 
     subgraph STDLIB["標準ライブラリ"]
-        LOGGING[logging]
-        TIME[time]
-        DATACLASSES[dataclasses]
-        TYPING[typing]
-        ENUM_LIB[enum]
-        DATETIME[datetime]
+        LOGGING["logging"]
+        TIME["time"]
+        DATACLASSES["dataclasses"]
+        TYPING["typing"]
+        ENUM_LIB["enum"]
+        DATETIME["datetime"]
     end
 
     subgraph INTERNAL["内部モジュール"]
@@ -1302,11 +1499,16 @@ flowchart LR
     INTERVENTION --> CONFIDENCE
     INTERVENTION --> CONFIG
 
-    SCHEMAS --> S1[ExecutionPlan]
-    SCHEMAS --> S2[PlanStep]
-    CONFIDENCE --> C1[InterventionLevel]
-    CONFIDENCE --> C2[ConfidenceScore]
-    CONFIDENCE --> C3[ActionDecision]
+    SCHEMAS --> S1["ExecutionPlan"]
+    SCHEMAS --> S2["PlanStep"]
+    CONFIDENCE --> C1["InterventionLevel"]
+    CONFIDENCE --> C2["ConfidenceScore"]
+    CONFIDENCE --> C3["ActionDecision"]
     CONFIG --> CF1["get_config()"]
-    CONFIG --> CF2[GraceConfig]
+    CONFIG --> CF2["GraceConfig"]
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class INTERVENTION,LOGGING,TIME,DATACLASSES,TYPING,ENUM_LIB,DATETIME,SCHEMAS,CONFIDENCE,CONFIG,S1,S2,C1,C2,C3,CF1,CF2 default
+style STDLIB fill:#1a1a1a,stroke:#fff,color:#fff
+style INTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```

@@ -1,6 +1,6 @@
 # schemas.py - GRACE Pydanticスキーマ定義 ドキュメント
 
-**Version 1.0** | 最終更新: 2025-01-29
+**Version 1.1** | 最終更新: 2026-06-16
 
 ---
 
@@ -28,6 +28,7 @@
 - アクション種別（ActionType）とステップ状態（StepStatus）のEnum定義
 - 計画スキーマ（PlanStep, ExecutionPlan）の定義
 - 実行結果スキーマ（StepResult, ExecutionResult）の定義
+- 検索結果スキーマ（SearchResultPayload, SearchResultItem）の定義（RAG/Web共通）
 - 計画ID生成と依存関係検証のユーティリティ提供
 
 ### 主要機能一覧
@@ -40,6 +41,8 @@
 | `ExecutionPlan` | 実行計画全体を表現するPydanticモデル |
 | `StepResult` | ステップ実行結果のPydanticモデル |
 | `ExecutionResult` | 計画全体の実行結果のPydanticモデル |
+| `SearchResultPayload` | 検索結果ペイロード（RAG/Web共通）のPydanticモデル |
+| `SearchResultItem` | 検索結果1件（RAG/Web共通フォーマット）のPydanticモデル |
 | `create_plan_id()` | 一意の計画IDを生成するユーティリティ関数 |
 | `validate_plan_dependencies()` | 計画の依存関係を検証するユーティリティ関数 |
 
@@ -52,30 +55,38 @@
 ```mermaid
 flowchart TB
     subgraph CLIENT["クライアント層"]
-        PLANNER[Planner]
-        EXECUTOR[Executor]
-        API[API Endpoints]
+        PLANNER["Planner"]
+        EXECUTOR["Executor"]
+        API["API Endpoints"]
     end
 
     subgraph MODULE["schemas.py"]
-        ENUMS[Enum定義]
-        PLAN_SCHEMAS[計画スキーマ]
-        RESULT_SCHEMAS[結果スキーマ]
-        UTILS[ユーティリティ]
+        ENUMS["Enum定義"]
+        PLAN_SCHEMAS["計画スキーマ"]
+        RESULT_SCHEMAS["結果スキーマ"]
+        SEARCH_SCHEMAS["検索結果スキーマ"]
+        UTILS["ユーティリティ"]
     end
 
     subgraph EXTERNAL["外部ライブラリ"]
-        PYDANTIC[Pydantic]
-        DATETIME[datetime]
-        ENUM[enum]
+        PYDANTIC["Pydantic"]
+        DATETIME["datetime"]
+        ENUM["enum"]
     end
 
     PLANNER --> PLAN_SCHEMAS
     EXECUTOR --> RESULT_SCHEMAS
+    EXECUTOR --> SEARCH_SCHEMAS
     API --> MODULE
     MODULE --> PYDANTIC
     MODULE --> DATETIME
     MODULE --> ENUM
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class PLANNER,EXECUTOR,API,ENUMS,PLAN_SCHEMAS,RESULT_SCHEMAS,SEARCH_SCHEMAS,UTILS,PYDANTIC,DATETIME,ENUM default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
@@ -94,31 +105,45 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph ENUMS["Enum定義"]
-        AT[ActionType]
-        SS[StepStatus]
+        AT["ActionType"]
+        SS["StepStatus"]
     end
 
     subgraph PLAN["計画スキーマ"]
-        PS[PlanStep]
-        EP[ExecutionPlan]
+        PS["PlanStep"]
+        EP["ExecutionPlan"]
     end
 
     subgraph RESULT["結果スキーマ"]
-        SR[StepResult]
-        ER[ExecutionResult]
+        SR["StepResult"]
+        ER["ExecutionResult"]
+    end
+
+    subgraph SEARCH["検索結果スキーマ"]
+        SRP["SearchResultPayload"]
+        SRI["SearchResultItem"]
     end
 
     subgraph UTILS["ユーティリティ"]
-        CPI[create_plan_id]
-        VPD[validate_plan_dependencies]
+        CPI["create_plan_id"]
+        VPD["validate_plan_dependencies"]
     end
 
     AT --> PS
     SS --> SR
     PS --> EP
     SR --> ER
+    SRP --> SRI
     EP --> VPD
     CPI --> EP
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class AT,SS,PS,EP,SR,ER,SRP,SRI,CPI,VPD default
+style ENUMS fill:#1a1a1a,stroke:#fff,color:#fff
+style PLAN fill:#1a1a1a,stroke:#fff,color:#fff
+style RESULT fill:#1a1a1a,stroke:#fff,color:#fff
+style SEARCH fill:#1a1a1a,stroke:#fff,color:#fff
+style UTILS fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
@@ -221,6 +246,24 @@ flowchart TB
 | `total_token_usage` | `Optional[dict]` | 総トークン使用量 |
 | `total_cost_usd` | `Optional[float]` | 総コスト（USD） |
 | `created_at` | `Optional[datetime]` | 結果作成日時 |
+
+#### SearchResultPayload
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| `question` | `str` | 関連質問文（RAG検索時） |
+| `answer` | `str` | 回答・スニペット文 |
+| `content` | `str` | 本文コンテンツ（question/answerがない場合） |
+| `source` | `str` | 出典URLまたはファイル名 |
+| `title` | `str` | ドキュメント・ページタイトル |
+
+#### SearchResultItem
+
+| フィールド | 型 | 説明 |
+|-----------|-----|------|
+| `score` | `float` | 関連度スコア（0.0-1.0） |
+| `payload` | `SearchResultPayload` | 検索結果の詳細情報 |
+| `collection` | `str` | 検索元コレクション名 |
 
 ### 3.3 ユーティリティ関数一覧
 
@@ -610,7 +653,117 @@ print(result.model_dump_json(indent=2))
 
 ---
 
-### 4.7 ユーティリティ関数
+### 4.7 SearchResultPayload クラス
+
+**概要**: RAG検索・Web検索で共通利用する検索結果ペイロードのPydanticモデル。全フィールドが空文字デフォルトを持つ。
+
+```python
+class SearchResultPayload(BaseModel):
+    question: str = Field("", description="関連質問文（RAG検索時）")
+    answer: str = Field("", description="回答・スニペット文")
+    content: str = Field("", description="本文コンテンツ（question/answerがない場合）")
+    source: str = Field("", description="出典URLまたはファイル名")
+    title: str = Field("", description="ドキュメント・ページタイトル")
+```
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | 各フィールドの値（すべて任意、デフォルトは空文字） |
+| **Process** | Pydanticによるバリデーション（型チェック） |
+| **Output** | `SearchResultPayload`インスタンス |
+
+**フィールド詳細**:
+
+| フィールド | 型 | 必須 | デフォルト | 説明 |
+|-----------|-----|:----:|-----------|------|
+| `question` | `str` | - | `""` | 関連質問文（RAG検索時） |
+| `answer` | `str` | - | `""` | 回答・スニペット文 |
+| `content` | `str` | - | `""` | 本文コンテンツ（question/answerがない場合） |
+| `source` | `str` | - | `""` | 出典URLまたはファイル名 |
+| `title` | `str` | - | `""` | ドキュメント・ページタイトル |
+
+**戻り値例**:
+
+```python
+{
+    "question": "Pythonの非同期処理とは？",
+    "answer": "asyncioを用いた並行処理の仕組みです。",
+    "content": "",
+    "source": "tech_docs/async_guide.md",
+    "title": "非同期処理ガイド"
+}
+```
+
+```python
+# 使用例
+from schemas import SearchResultPayload
+
+payload = SearchResultPayload(
+    answer="asyncioを用いた並行処理の仕組みです。",
+    source="tech_docs/async_guide.md",
+    title="非同期処理ガイド"
+)
+print(payload.model_dump())
+```
+
+---
+
+### 4.8 SearchResultItem クラス
+
+**概要**: RAG検索・Web検索で共通フォーマットの検索結果1件を表現するPydanticモデル。スコアとペイロード、検索元コレクション名を保持する。
+
+```python
+class SearchResultItem(BaseModel):
+    score: float = Field(..., ge=0.0, le=1.0, description="関連度スコア（0.0-1.0）")
+    payload: SearchResultPayload = Field(default_factory=SearchResultPayload, description="検索結果の詳細情報")
+    collection: str = Field("", description="検索元コレクション名（例: 'wikipedia_ja', 'web_search'）")
+```
+
+| 項目 | 内容 |
+|------|------|
+| **Input** | `score`（必須）, `payload`, `collection` |
+| **Process** | 1. Pydanticによるバリデーション<br>2. `score` の範囲チェック（0.0-1.0）<br>3. ネストされた `SearchResultPayload` の検証 |
+| **Output** | `SearchResultItem`インスタンス |
+
+**フィールド詳細**:
+
+| フィールド | 型 | 必須 | デフォルト | 制約 |
+|-----------|-----|:----:|-----------|------|
+| `score` | `float` | ✅ | - | 0.0-1.0 |
+| `payload` | `SearchResultPayload` | - | `SearchResultPayload()` | - |
+| `collection` | `str` | - | `""` | - |
+
+**戻り値例**:
+
+```python
+{
+    "score": 0.82,
+    "payload": {
+        "question": "",
+        "answer": "asyncioを用いた並行処理の仕組みです。",
+        "content": "",
+        "source": "tech_docs/async_guide.md",
+        "title": "非同期処理ガイド"
+    },
+    "collection": "wikipedia_ja"
+}
+```
+
+```python
+# 使用例
+from schemas import SearchResultItem, SearchResultPayload
+
+item = SearchResultItem(
+    score=0.82,
+    payload=SearchResultPayload(answer="asyncioを用いた並行処理の仕組みです。"),
+    collection="wikipedia_ja"
+)
+print(item.model_dump())
+```
+
+---
+
+### 4.9 ユーティリティ関数
 
 #### `create_plan_id`
 
@@ -856,6 +1009,10 @@ __all__ = [
     "StepResult",
     "ExecutionResult",
 
+    # Search result schemas (RAG/Web common)
+    "SearchResultPayload",
+    "SearchResultItem",
+
     # Utilities
     "create_plan_id",
     "validate_plan_dependencies",
@@ -869,6 +1026,7 @@ __all__ = [
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
 | 1.0 | 2025-01-29 | 初版作成 |
+| 1.1 | 2026-06-16 | 検索結果スキーマ（`SearchResultPayload`/`SearchResultItem`）を追加、全Mermaid図に黒背景・白文字スタイルを適用 |
 
 ---
 
@@ -876,26 +1034,26 @@ __all__ = [
 
 ```mermaid
 flowchart LR
-    SCHEMAS[schemas.py]
+    SCHEMAS["schemas.py"]
 
     subgraph PYDANTIC["pydantic"]
-        BM[BaseModel]
-        FLD[Field]
-        CFG[ConfigDict]
+        BM["BaseModel"]
+        FLD["Field"]
+        CFG["ConfigDict"]
     end
 
     subgraph TYPING["typing"]
-        LIT[Literal]
-        OPT[Optional]
-        LST[List]
-        ANY[Any]
+        LIT["Literal"]
+        OPT["Optional"]
+        LST["List"]
+        ANY["Any"]
     end
 
     subgraph STDLIB["標準ライブラリ"]
-        DT[datetime]
-        ENUM[enum.Enum]
-        HL[hashlib]
-        TM[time]
+        DT["datetime"]
+        ENUM["enum.Enum"]
+        HL["hashlib"]
+        TM["time"]
     end
 
     SCHEMAS --> BM
@@ -908,6 +1066,12 @@ flowchart LR
     SCHEMAS --> ENUM
     SCHEMAS --> HL
     SCHEMAS --> TM
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class SCHEMAS,BM,FLD,CFG,LIT,OPT,LST,ANY,DT,ENUM,HL,TM default
+style PYDANTIC fill:#1a1a1a,stroke:#fff,color:#fff
+style TYPING fill:#1a1a1a,stroke:#fff,color:#fff
+style STDLIB fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -917,18 +1081,23 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph ENUMS["Enum"]
-        AT[ActionType]
-        SS[StepStatus]
+        AT["ActionType"]
+        SS["StepStatus"]
     end
 
     subgraph PLAN["計画スキーマ"]
-        PS[PlanStep]
-        EP[ExecutionPlan]
+        PS["PlanStep"]
+        EP["ExecutionPlan"]
     end
 
     subgraph RESULT["結果スキーマ"]
-        SR[StepResult]
-        ER[ExecutionResult]
+        SR["StepResult"]
+        ER["ExecutionResult"]
+    end
+
+    subgraph SEARCH["検索結果スキーマ"]
+        SRP["SearchResultPayload"]
+        SRI["SearchResultItem"]
     end
 
     AT -->|action| PS
@@ -936,4 +1105,12 @@ flowchart TB
     SS -.->|status参考| SR
     SR -->|step_results| ER
     EP -.->|plan_id| ER
+    SRP -->|payload| SRI
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class AT,SS,PS,EP,SR,ER,SRP,SRI default
+style ENUMS fill:#1a1a1a,stroke:#fff,color:#fff
+style PLAN fill:#1a1a1a,stroke:#fff,color:#fff
+style RESULT fill:#1a1a1a,stroke:#fff,color:#fff
+style SEARCH fill:#1a1a1a,stroke:#fff,color:#fff
 ```

@@ -1,12 +1,15 @@
 # tools.py - ツール定義モジュール ドキュメント
 
-**Version 2.0** | 最終更新: 2026-02-19
+**Version 2.1** | 最終更新: 2026-06-16
 
 ---
 
 ## 目次
 
 1. [概要](#概要)
+   - [主な責務](#主な責務)
+   - [各責務対応のモジュール](#各責務対応のモジュール)
+   - [主要機能一覧](#主要機能一覧)
 2. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
    - [システム全体構成](#11-システム全体構成)
    - [データフロー](#12-データフロー)
@@ -14,7 +17,6 @@
    - [内部モジュール構成](#21-内部モジュール構成)
    - [外部依存関係](#22-外部依存関係)
    - [内部依存モジュール](#23-内部依存モジュール)
-   - [外部カスタムモジュール依存](#24-外部カスタムモジュール依存)
 4. [クラス・関数一覧表](#3-クラス関数一覧表)
    - [データクラス一覧](#31-データクラス一覧)
    - [クラス一覧](#32-クラス一覧)
@@ -28,71 +30,60 @@
    - [WebSearchTool クラス](#46-websearchtool-クラス)
    - [ToolRegistry クラス](#47-toolregistry-クラス)
    - [ファクトリ関数](#48-ファクトリ関数)
-6. [外部カスタムモジュール IPO詳細](#5-外部カスタムモジュール-ipo詳細)
-   - [qdrant_client_wrapper](#51-qdrant_client_wrapper)
-   - [services.qdrant_service](#52-servicesqdrant_service)
-   - [agent_tools](#53-agent_tools)
-   - [regex_mecab](#54-regex_mecab)
-7. [設定・定数](#6-設定定数)
-8. [使用例](#7-使用例)
-   - [ToolRegistryを使用した基本ワークフロー](#71-toolregistryを使用した基本ワークフロー)
-   - [RAG検索の直接実行](#72-rag検索の直接実行)
-   - [Web検索の直接実行](#73-web検索の直接実行)
-   - [推論ツールの使用](#74-推論ツールの使用)
-   - [AskUserToolの使用](#75-askusertoolの使用)
-   - [RAG検索 → Web検索フォールバックワークフロー](#76-rag検索--web検索フォールバックワークフロー)
-9. [エクスポート](#8-エクスポート)
-10. [変更履歴](#9-変更履歴)
-11. [付録: 依存関係図](#付録-依存関係図)
-12. [関連ドキュメント](#関連ドキュメント)
+6. [設定・定数](#5-設定定数)
+7. [使用例](#6-使用例)
+8. [エクスポート](#7-エクスポート)
+9. [変更履歴](#8-変更履歴)
+10. [付録: 依存関係図](#付録-依存関係図)
 
 ---
 
 ## 概要
 
-`tools.py`は、GRACEエージェントが使用するツール（RAG検索、Web検索、推論、ask_user等）を定義するモジュールです。各ツールは統一されたインターフェース（`BaseTool`）を実装し、`ToolRegistry`を通じて管理・実行されます。
+`tools.py` は、GRACE エージェントが実行計画の各ステップで呼び出す **ツール群** を定義するモジュールです。RAG 検索・Web 検索・LLM 推論・ユーザーへの問い合わせ（HITL）という4種のツールを統一インターフェース（`BaseTool` / `ToolResult`）の下に実装し、`ToolRegistry` を通じて名前ベースで呼び出せるようにします。
+
+LLM 推論は Anthropic Claude（既定 `claude-sonnet-4-6`）を使用しますが、GRACE 本体は当初 google-genai 形式（`client.models.generate_content(...)`）で実装されているため、`grace/llm_compat.py` の互換アダプター（`create_chat_client`）を介して Anthropic API を呼び出します。Embedding（Qdrant 検索）は Gemini `gemini-embedding-001`（3072次元）を継続利用します。
 
 ### 主な責務
 
-- ツールの統一インターフェース定義（BaseTool抽象基底クラス）
-- RAG検索ツールによるQdrantベクトルDB検索
-- Web検索ツールによる外部情報の取得（SerpAPI / DuckDuckGo / Google CSE 切り替え対応）
-- LLM推論ツールによる回答生成
-- ユーザー質問ツールによるHITL（Human-in-the-Loop）サポート
-- ツールレジストリによるツールの一元管理
+- ツール実行結果の統一表現（`ToolResult`）と統一インターフェース（`BaseTool`）の提供
+- Qdrant ベクトルDBからの RAG 検索（動的コレクションフォールバック・動的閾値調整付き）
+- 外部 Web 検索（SerpAPI / DuckDuckGo / Google CSE の切り替え）
+- 収集情報を統合した LLM 推論による回答生成
+- ユーザーへの追加情報要求（Human-in-the-Loop）
+- ツールのレジストリ管理と名前ベースの実行ディスパッチ
 
 ### 各責務対応のモジュール
 
 | # | 責務 | 対応モジュール | 説明 |
 |---|------|--------------|------|
-| 1 | ツールの統一インターフェース定義 | `tools.py` | BaseTool抽象基底クラスとToolResultデータクラス |
-| 2 | RAG検索ツールによるQdrantベクトルDB検索 | `tools.py` | RAGSearchToolクラス（agent_tools委譲） |
-| 3 | Web検索ツールによる外部情報の取得 | `tools.py` | WebSearchToolクラス（SerpAPI/DDG/CSE切り替え） |
-| 4 | LLM推論ツールによる回答生成 | `tools.py` | ReasoningToolクラス（Gemini API呼び出し） |
-| 5 | ユーザー質問ツールによるHITLサポート | `tools.py` | AskUserToolクラス（Executor連携） |
-| 6 | ツールレジストリによるツールの一元管理 | `tools.py` | ToolRegistryクラスとcreate_tool_registry() |
+| 1 | ツール結果・基底IFの提供 | `grace/tools.py` | `ToolResult` データクラスと `BaseTool` 抽象基底クラス |
+| 2 | Qdrant RAG 検索 | `grace/tools.py` | `RAGSearchTool` が `agent_tools.search_rag_knowledge_base_structured` へ委譲 |
+| 3 | 外部 Web 検索 | `grace/tools.py` | `WebSearchTool` が SerpAPI/DDG/Google CSE を切替 |
+| 4 | LLM 推論による回答生成 | `grace/tools.py` | `ReasoningTool` が `grace/llm_compat.create_chat_client`（Anthropic 互換）を使用 |
+| 5 | ユーザーへの追加情報要求 | `grace/tools.py` | `AskUserTool`（HITL、Function Calling 定義付き） |
+| 6 | レジストリ管理・実行ディスパッチ | `grace/tools.py` | `ToolRegistry` と `create_tool_registry()` |
 
 ### 主要機能一覧
 
 | 機能 | 説明 |
 |------|------|
-| `ToolResult` | ツール実行結果を保持するデータクラス |
-| `BaseTool` | すべてのツールの抽象基底クラス |
-| `RAGSearchTool` | Qdrantベクトルデータベースからの検索 |
-| `RAGSearchTool.execute()` | コレクション自動フォールバック付きRAG検索 |
-| `WebSearchTool` | Web検索で最新情報を取得（SerpAPI/DDG/CSE対応） |
-| `WebSearchTool.execute()` | RAG互換フォーマットでWeb検索結果を返却 |
-| `WebSearchTool._search_serpapi()` | SerpAPI検索バックエンド（リトライ1回付き） |
-| `WebSearchTool._search_ddg()` | DuckDuckGo検索バックエンド |
-| `WebSearchTool._search_google()` | Google CSE検索バックエンド |
-| `WebSearchTool._parse_to_rag_format()` | 検索結果をrag_search互換形式に変換 |
-| `ReasoningTool` | 検索結果を元にした回答生成 |
-| `ReasoningTool.execute()` | LLMによる推論・回答生成 |
-| `AskUserTool` | ユーザーへの質問・確認要求 |
-| `AskUserTool.execute()` | HITL用の質問情報生成 |
-| `ToolRegistry` | ツールの登録・取得・実行を一元管理 |
-| `ToolRegistry.execute()` | ツール名を指定した実行 |
-| `create_tool_registry()` | ToolRegistryのファクトリ関数 |
+| `ToolResult` | ツール実行結果を表すデータクラス |
+| `BaseTool` | 全ツールの抽象基底クラス（`execute()` を定義） |
+| `RAGSearchTool` | Qdrant ベクトルDB検索ツール |
+| `RAGSearchTool.execute()` | RAG 検索の実行（コレクションフォールバック付き） |
+| `RAGSearchTool._get_all_collections_dynamic()` | Qdrantから全コレクションを動的取得し優先順位付け |
+| `RAGSearchTool._calculate_confidence_factors()` | スコア統計（件数・平均・分散など）を算出 |
+| `ReasoningTool` | LLM 推論ツール（Anthropic Claude） |
+| `ReasoningTool.execute()` | 参照情報を統合して回答を生成 |
+| `ReasoningTool._build_prompt()` | 推論用プロンプトを構築 |
+| `AskUserTool` | ユーザーへの追加情報要求ツール（HITL） |
+| `AskUserTool.execute()` | 質問情報を `ToolResult` として返す |
+| `WebSearchTool` | Web 検索ツール（複数バックエンド対応） |
+| `WebSearchTool.execute()` | Web 検索の実行と RAG 互換変換 |
+| `ToolRegistry` | ツールレジストリ |
+| `ToolRegistry.execute()` | 名前指定でツールを実行 |
+| `create_tool_registry()` | `ToolRegistry` を生成するファクトリ関数 |
 
 ---
 
@@ -103,60 +94,48 @@
 ```mermaid
 flowchart TB
     subgraph CLIENT["クライアント層"]
-        EXECUTOR[Executor]
-        API[API Endpoints]
-        CLI[CLI Tools]
+        EXECUTOR["Executor Agent"]
+        REGISTRY["ToolRegistry"]
     end
 
     subgraph MODULE["tools.py"]
-        REGISTRY[ToolRegistry]
-        RAG[RAGSearchTool]
-        WEB[WebSearchTool]
-        REASON[ReasoningTool]
-        ASKUSER[AskUserTool]
+        RAG["RAGSearchTool"]
+        WEB["WebSearchTool"]
+        REASON["ReasoningTool"]
+        ASK["AskUserTool"]
     end
 
     subgraph EXTERNAL["外部サービス層"]
-        QDRANT[(Qdrant Vector DB)]
-        GEMINI[Gemini API]
-        SERPAPI[SerpAPI]
-        DDG[DuckDuckGo]
-        GCSE[Google CSE]
+        QDRANT["Qdrant Vector DB"]
+        CLAUDE["Anthropic Claude (llm_compat)"]
+        SEARCHAPI["SerpAPI / DuckDuckGo / Google CSE"]
+        USER["ユーザー (HITL)"]
     end
 
     EXECUTOR --> REGISTRY
-    API --> REGISTRY
-    CLI --> REGISTRY
     REGISTRY --> RAG
     REGISTRY --> WEB
     REGISTRY --> REASON
-    REGISTRY --> ASKUSER
+    REGISTRY --> ASK
     RAG --> QDRANT
-    REASON --> GEMINI
-    WEB --> SERPAPI
-    WEB --> DDG
-    WEB --> GCSE
+    WEB --> SEARCHAPI
+    REASON --> CLAUDE
+    ASK --> USER
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class EXECUTOR,REGISTRY,RAG,WEB,REASON,ASK,QDRANT,CLAUDE,SEARCHAPI,USER default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style MODULE fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
 
-**RAG検索フロー**:
-1. Executor が `ToolRegistry.execute("rag_search", query=...)` を呼び出し
-2. RAGSearchTool がコレクション候補を決定
-3. 各コレクションを順次検索（フォールバック付き）
-4. 検索結果を `ToolResult` として返却
-
-**Web検索フロー**:
-1. Executor が `ToolRegistry.execute("web_search", query=...)` を呼び出し
-2. WebSearchTool が設定された検索バックエンド（SerpAPI/DDG/CSE）を使用
-3. 検索結果をRAG互換フォーマットに変換
-4. `ToolResult` として返却
-
-**推論フロー**:
-1. Executor が `ToolRegistry.execute("reasoning", query=..., sources=...)` を呼び出し
-2. ReasoningTool がプロンプトを構築
-3. Gemini API に送信し回答を生成
-4. 生成結果を `ToolResult` として返却
+1. Executor が `ToolRegistry.execute(name, **kwargs)` でツールを名前指定実行する
+2. レジストリが該当 `BaseTool` の `execute()` を呼び出す
+3. 各ツールが外部サービス（Qdrant / Claude / Web 検索 API / ユーザー）へアクセスする
+4. 各ツールはスコア統計などを `confidence_factors` に格納する
+5. 結果を `ToolResult`（`success` / `output` / `confidence_factors` / `error` / `execution_time_ms`）として返却する
 
 ---
 
@@ -166,86 +145,64 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph DATACLASS["データクラス"]
-        TR[ToolResult]
+    subgraph DATA["データ・基底"]
+        TR["ToolResult"]
+        BT["BaseTool"]
     end
 
-    subgraph ABSTRACT["抽象基底クラス"]
-        BT[BaseTool]
+    subgraph TOOLS["ツール実装"]
+        RAGT["RAGSearchTool"]
+        WEBT["WebSearchTool"]
+        REASONT["ReasoningTool"]
+        ASKT["AskUserTool"]
     end
 
-    subgraph TOOLS["具象ツールクラス"]
-        RAG_CLS["RAGSearchTool"]
-        WEB_CLS["WebSearchTool"]
-        REASON_CLS["ReasoningTool"]
-        ASK_CLS["AskUserTool"]
+    subgraph REG["レジストリ・ファクトリ"]
+        REGC["ToolRegistry"]
+        FACT["create_tool_registry()"]
     end
 
-    subgraph REGISTRY_GRP["レジストリ"]
-        REG["ToolRegistry"]
-    end
-
-    subgraph FACTORY["ファクトリ関数"]
-        CREATE["create_tool_registry()"]
-    end
-
-    BT --> RAG_CLS
-    BT --> WEB_CLS
-    BT --> REASON_CLS
-    BT --> ASK_CLS
-    CREATE --> REG
-    REG --> RAG_CLS
-    REG --> WEB_CLS
-    REG --> REASON_CLS
-    REG --> ASK_CLS
-    RAG_CLS --> TR
-    WEB_CLS --> TR
-    REASON_CLS --> TR
-    ASK_CLS --> TR
+    BT --> RAGT
+    BT --> WEBT
+    BT --> REASONT
+    BT --> ASKT
+    RAGT --> TR
+    WEBT --> TR
+    REASONT --> TR
+    ASKT --> TR
+    FACT --> REGC
+    REGC --> RAGT
+    REGC --> WEBT
+    REGC --> REASONT
+    REGC --> ASKT
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class TR,BT,RAGT,WEBT,REASONT,ASKT,REGC,FACT default
+style DATA fill:#1a1a1a,stroke:#fff,color:#fff
+style TOOLS fill:#1a1a1a,stroke:#fff,color:#fff
+style REG fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 2.2 外部依存関係
 
 | ライブラリ | バージョン | 用途 |
 |-----------|-----------|------|
-| `qdrant_client` | - | Qdrantベクトルデータベースクライアント |
-| `google-genai` | - | Gemini API クライアント |
-| `duckduckgo_search` | - | DuckDuckGo検索（WebSearchTool） |
-| `requests` | - | SerpAPI / Google CSE HTTP通信（WebSearchTool） |
-| `dataclasses` | 標準 | データクラス定義 |
-| `abc` | 標準 | 抽象基底クラス |
-| `typing` | 標準 | 型ヒント |
-| `logging` | 標準 | ログ出力 |
+| `qdrant-client` | 1.15.x | Qdrant への接続・コレクション一覧取得 |
+| `google-genai` | - | `types.GenerateContentConfig`（生成設定の構造体） |
+| `anthropic` | - | LLM 呼び出し（`llm_compat` 経由で遅延 import） |
+| `duckduckgo-search` | - | DuckDuckGo バックエンド（遅延 import） |
+| `requests` | - | SerpAPI / Google CSE への HTTP リクエスト（遅延 import） |
 
 ### 2.3 内部依存モジュール
 
-| モジュール | インポート | 用途 |
-|-----------|-----------|------|
-| `.config` | `get_config`, `GraceConfig` | 設定管理 |
-
-### 2.4 外部カスタムモジュール依存
-
-| モジュール | インポート | 用途 |
-|-----------|-----------|------|
-| `qdrant_client_wrapper` | `search_collection`, `embed_query_unified`, `embed_sparse_query_unified` | Qdrant検索ラッパー |
-| `services.qdrant_service` | `get_collection_embedding_params` | コレクション情報取得 |
-| `agent_tools` | `search_rag_knowledge_base_structured` | Legacy Agent検索ロジック |
-| `regex_mecab` | `KeywordExtractor` | キーワード抽出 |
-
-**GraceConfigから使用するサブ設定**:
-
-| サブ設定 | 説明 |
-|---------|------|
-| `config.qdrant.url` | Qdrant接続URL（デフォルト: http://localhost:6333） |
-| `config.qdrant.search_priority` | コレクション検索優先順位リスト |
-| `config.llm.model` | 使用するLLMモデル（デフォルト: gemini-2.5-flash） |
-| `config.llm.temperature` | LLM生成時の温度 |
-| `config.llm.max_tokens` | 最大出力トークン数 |
-| `config.tools.enabled` | 有効なツールリスト |
-| `config.web_search.backend` | Web検索バックエンド（serpapi/duckduckgo/google_cse） |
-| `config.web_search.num_results` | Web検索取得件数 |
-| `config.web_search.language` | Web検索言語 |
-| `config.web_search.timeout` | Web検索タイムアウト秒数 |
+| モジュール | 用途 |
+|-----------|------|
+| `grace.config` | `get_config` / `GraceConfig`（設定取得） |
+| `grace.llm_compat` | `create_chat_client`（Anthropic を genai 互換で呼び出す） |
+| `agent_tools` | `search_rag_knowledge_base_structured`（RAG 検索本体・遅延 import） |
+| `qdrant_client_wrapper` | `search_collection` / `embed_query_unified` / `embed_sparse_query_unified` |
+| `services.qdrant_service` | `get_collection_embedding_params` |
+| `regex_mecab` | `KeywordExtractor`（キーワード抽出） |
 
 ---
 
@@ -255,77 +212,74 @@ flowchart TB
 
 #### ToolResult
 
-| フィールド | 型 | デフォルト | 説明 |
-|-----------|------|-----------|------|
-| `success` | bool | - | 実行成功フラグ |
-| `output` | Any | - | 出力内容 |
-| `confidence_factors` | Dict[str, Any] | {} | 信頼度計算用の要素 |
-| `error` | Optional[str] | None | エラーメッセージ |
-| `execution_time_ms` | Optional[int] | None | 実行時間（ミリ秒） |
+| フィールド | 概要 |
+|---------|------|
+| `success: bool` | 実行成功フラグ |
+| `output: Any` | ツールの出力（検索結果リスト・回答文字列・質問dict等） |
+| `confidence_factors: Dict[str, Any]` | Confidence 計算用の統計情報（既定 `{}`） |
+| `error: Optional[str]` | エラーメッセージ（既定 `None`） |
+| `execution_time_ms: Optional[int]` | 実行時間（ミリ秒、既定 `None`） |
 
 ### 3.2 クラス一覧
 
 #### BaseTool（抽象基底）
 
-| 属性/メソッド | 型/シグネチャ | 説明 |
-|-------------|--------------|------|
-| `name` | str | ツール名 |
-| `description` | str | ツールの説明 |
-| `execute(**kwargs)` | → ToolResult | ツール実行（抽象メソッド） |
+| メソッド | 概要 |
+|---------|------|
+| `execute(**kwargs)` | 抽象メソッド。ツールを実行し `ToolResult` を返す |
 
 #### RAGSearchTool
 
 | メソッド | 概要 |
 |---------|------|
-| `__init__(config, qdrant_url)` | コンストラクタ |
-| `client` (property) | Qdrantクライアント取得（遅延初期化） |
-| `execute(query, collection, limit, score_threshold)` | RAG検索実行 |
-| `_get_all_collections_dynamic()` | 動的コレクション一覧取得 |
-| `_calculate_confidence_factors(scores)` | 信頼度要素計算 |
-
-#### WebSearchTool
-
-| メソッド | 概要 |
-|---------|------|
-| `__init__(config)` | コンストラクタ（バックエンド設定読み込み） |
-| `execute(query, num_results, language)` | Web検索実行（RAG互換形式） |
-| `_search_serpapi(query, num_results, language)` | SerpAPI検索バックエンド（リトライ1回付き） |
-| `_search_ddg(query, num_results, language)` | DuckDuckGo検索バックエンド |
-| `_search_google(query, num_results, language)` | Google CSE検索バックエンド |
-| `_parse_to_rag_format(raw_results, num_results)` | 検索結果をRAG互換フォーマットに変換 |
-| `_calculate_confidence_factors(scores)` | 信頼度要素計算 |
+| `__init__(config, qdrant_url)` | コンストラクタ。KeywordExtractor を初期化 |
+| `client` (property) | Qdrant クライアントの遅延初期化 |
+| `execute(query, collection, limit, score_threshold, **kwargs)` | RAG 検索の実行 |
+| `_get_all_collections_dynamic()` | 全コレクションを動的取得し優先順位付け |
+| `_calculate_confidence_factors(scores)` | スコア統計を算出 |
 
 #### ReasoningTool
 
 | メソッド | 概要 |
 |---------|------|
-| `__init__(config, model_name)` | コンストラクタ |
-| `execute(query, context, sources)` | LLM推論実行 |
-| `_build_prompt(query, context, sources)` | プロンプト構築 |
+| `__init__(config, model_name)` | コンストラクタ。Anthropic 互換クライアントを生成 |
+| `execute(query, context, sources, **kwargs)` | LLM 推論で回答生成 |
+| `_build_prompt(query, context, sources)` | 推論用プロンプトを構築 |
 
 #### AskUserTool
 
 | メソッド | 概要 |
 |---------|------|
-| `FUNCTION_DECLARATION` (class attr) | Gemini Function Calling用定義 |
-| `execute(question, reason, urgency, options)` | ユーザー質問実行 |
+| `execute(question, reason, urgency, options, **kwargs)` | 質問情報を `ToolResult` として返す |
+
+#### WebSearchTool
+
+| メソッド | 概要 |
+|---------|------|
+| `__init__(config)` | コンストラクタ。バックエンド・件数・言語を設定 |
+| `execute(query, num_results, language, **kwargs)` | Web 検索の実行 |
+| `_search_ddg(query, num_results, language)` | DuckDuckGo バックエンド |
+| `_search_google(query, num_results, language)` | Google CSE バックエンド |
+| `_search_serpapi(query, num_results, language)` | SerpAPI バックエンド（リトライ付き） |
+| `_parse_to_rag_format(raw_results, num_results)` | RAG 互換フォーマットへ変換 |
+| `_calculate_confidence_factors(scores)` | スコア統計を算出 |
 
 #### ToolRegistry
 
 | メソッド | 概要 |
 |---------|------|
-| `__init__(config)` | コンストラクタ |
-| `_register_default_tools()` | デフォルトツール登録 |
-| `register(tool)` | ツール登録 |
-| `get(name)` | ツール取得 |
-| `list_tools()` | 登録ツール名リスト |
-| `execute(name, **kwargs)` | ツール実行 |
+| `__init__(config)` | コンストラクタ。デフォルトツールを登録 |
+| `_register_default_tools()` | 有効ツールを登録 |
+| `register(tool)` | ツールを登録 |
+| `get(name)` | ツールを取得 |
+| `list_tools()` | 登録済みツール名のリスト |
+| `execute(name, **kwargs)` | 名前指定でツールを実行 |
 
 ### 3.3 ファクトリ関数一覧
 
 | 関数名 | 概要 |
 |-------|------|
-| `create_tool_registry(config)` | ToolRegistryインスタンス作成 |
+| `create_tool_registry(config)` | `ToolRegistry` インスタンスを生成 |
 
 ---
 
@@ -333,7 +287,11 @@ flowchart TB
 
 ### 4.1 ToolResult データクラス
 
-**概要**: ツール実行結果を保持するデータクラス。すべてのツールがこの形式で結果を返します。
+ツール実行結果を統一表現するデータクラス。全ツールの `execute()` はこの型を返します。
+
+#### コンストラクタ: `ToolResult`
+
+**概要**: ツール実行結果を保持するデータクラス。
 
 ```python
 @dataclass
@@ -345,123 +303,85 @@ class ToolResult:
     execution_time_ms: Optional[int] = None
 ```
 
-**フィールド詳細**:
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `success` | bool | - | 実行成功フラグ |
+| `output` | Any | - | ツールの出力 |
+| `confidence_factors` | Dict[str, Any] | `{}` | Confidence 計算用の統計情報 |
+| `error` | Optional[str] | None | エラーメッセージ |
+| `execution_time_ms` | Optional[int] | None | 実行時間（ミリ秒） |
 
-| フィールド | 型 | 説明 |
-|-----------|------|------|
-| `success` | bool | ツール実行が成功したかどうか |
-| `output` | Any | 出力内容（ツールにより異なる） |
-| `confidence_factors` | Dict[str, Any] | 信頼度計算に使用する要素 |
-| `error` | Optional[str] | 失敗時のエラーメッセージ |
-| `execution_time_ms` | Optional[int] | 実行時間（ミリ秒） |
-
-**ツール別output形式**:
-
-| ツール | output型 | 内容 |
-|--------|----------|------|
-| `RAGSearchTool` | List[Dict] | 検索結果のリスト |
-| `WebSearchTool` | List[Dict] | RAG互換形式のWeb検索結果リスト |
-| `ReasoningTool` | str | 生成された回答文 |
-| `AskUserTool` | Dict | 質問情報（question, reason, urgency, options, awaiting_response） |
+| 項目 | 内容 |
+|------|------|
+| **Input** | `success: bool`, `output: Any`, `confidence_factors: Dict = {}`, `error: Optional[str] = None`, `execution_time_ms: Optional[int] = None` |
+| **Process** | フィールドを保持する |
+| **Output** | `ToolResult` インスタンス |
 
 **戻り値例**:
 ```python
-# RAG検索成功時
-ToolResult(
-    success=True,
-    output=[
-        {"score": 0.92, "payload": {"question": "...", "answer": "..."}, "collection": "wikipedia_ja"},
-        {"score": 0.85, "payload": {...}, "collection": "wikipedia_ja"}
-    ],
-    confidence_factors={
-        "result_count": 2,
-        "avg_score": 0.885,
-        "max_score": 0.92,
-        "min_score": 0.85,
-        "score_variance": 0.00122,
-        "used_collection": "wikipedia_ja"
-    },
-    execution_time_ms=150
-)
+{
+    "success": True,
+    "output": ["result1", "result2"],
+    "confidence_factors": {"result_count": 2, "avg_score": 0.85},
+    "error": None,
+    "execution_time_ms": 142
+}
+```
 
-# Web検索成功時
-ToolResult(
-    success=True,
-    output=[
-        {"score": 1.0, "payload": {"question": "", "answer": "snippet...", "content": "", "source": "https://...", "title": "Page Title"}, "collection": "web_search"},
-        {"score": 0.9, "payload": {...}, "collection": "web_search"}
-    ],
-    confidence_factors={
-        "result_count": 5,
-        "avg_score": 0.8,
-        "top_score": 1.0,
-        "score_spread": 0.5,
-        "search_engine": "serpapi"
-    },
-    execution_time_ms=2500
-)
-
-# 推論成功時
-ToolResult(
-    success=True,
-    output="東京の人口は約1400万人です。",
-    confidence_factors={
-        "has_sources": True,
-        "source_count": 3,
-        "answer_length": 120,
-        "token_usage": {"input_tokens": 500, "output_tokens": 50}
-    },
-    execution_time_ms=1200
-)
-
-# 失敗時
-ToolResult(
-    success=False,
-    output=None,
-    error="No relevant results found in any collection.",
-    confidence_factors={"result_count": 0, "avg_score": 0.0},
-    execution_time_ms=500
-)
+```python
+# 使用例
+result = ToolResult(success=True, output=["doc1"], execution_time_ms=120)
+print(result.success)
+# True
 ```
 
 ---
 
 ### 4.2 BaseTool クラス（抽象基底）
 
-**概要**: すべてのツールが継承する抽象基底クラス。統一されたインターフェースを提供します。
+全ツールの抽象基底クラス。クラス属性 `name`・`description` と抽象メソッド `execute()` を定義します。
+
+#### メソッド: `execute`
+
+**概要**: ツールを実行する抽象メソッド（サブクラスで実装必須）。
 
 ```python
-class BaseTool(ABC):
-    name: str = "base_tool"
-    description: str = "Base tool"
-
-    @abstractmethod
-    def execute(self, **kwargs) -> ToolResult:
-        pass
+@abstractmethod
+def execute(self, **kwargs) -> ToolResult
 ```
 
-**クラス属性**:
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| `**kwargs` | Any | - | ツール固有の引数 |
 
-| 属性 | 型 | 説明 |
-|------|------|------|
-| `name` | str | ツール識別名（ToolRegistryで使用） |
-| `description` | str | ツールの説明 |
+| 項目 | 内容 |
+|------|------|
+| **Input** | `**kwargs`（ツール固有） |
+| **Process** | サブクラスで具体的な処理を実装 |
+| **Output** | `ToolResult` |
 
-**抽象メソッド**:
+**戻り値例**:
+```python
+ToolResult(success=True, output="...", confidence_factors={})
+```
 
-| メソッド | 戻り値 | 説明 |
-|---------|--------|------|
-| `execute(**kwargs)` | ToolResult | ツールを実行し結果を返す |
+```python
+# 使用例
+class MyTool(BaseTool):
+    name = "my_tool"
+    def execute(self, **kwargs) -> ToolResult:
+        return ToolResult(success=True, output="ok")
+```
 
 ---
 
 ### 4.3 RAGSearchTool クラス
 
-Qdrantベクトルデータベースから関連情報を検索するツール。
+Qdrant ベクトルDBから関連情報を検索するツール。`agent_tools.search_rag_knowledge_base_structured` に委譲し、コレクションの動的フォールバックと動的閾値調整を行います。
 
 #### コンストラクタ: `__init__`
 
-**概要**: RAGSearchToolを初期化し、Qdrant接続情報とキーワード抽出器を設定します。
+**概要**: 設定と Qdrant URL を保持し、KeywordExtractor を初期化する。
 
 ```python
 def __init__(
@@ -473,37 +393,30 @@ def __init__(
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
-| `qdrant_url` | Optional[str] | None | Qdrant接続URL |
+| `config` | Optional[GraceConfig] | None | GRACE 設定（None なら `get_config()`） |
+| `qdrant_url` | Optional[str] | None | Qdrant URL（None なら `config.qdrant.url`） |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `config: Optional[GraceConfig]`, `qdrant_url: Optional[str]` |
-| **Process** | 1. 設定を取得<br>2. Qdrant URLを設定<br>3. KeywordExtractorを初期化（オプション） |
-| **Output** | RAGSearchToolインスタンス |
+| **Input** | `config: Optional[GraceConfig] = None`, `qdrant_url: Optional[str] = None` |
+| **Process** | 1. config / qdrant_url を解決<br>2. Qdrant クライアントは遅延初期化（None で保持）<br>3. `KeywordExtractor(prefer_mecab=True)` を初期化（失敗時は None） |
+| **Output** | `RAGSearchTool` インスタンス |
 
----
-
-#### プロパティ: `client`
-
-**概要**: Qdrantクライアントを遅延初期化で取得します。
-
+**戻り値例**:
 ```python
-@property
-def client(self) -> QdrantClient
+RAGSearchTool(config=<GraceConfig>, qdrant_url="http://localhost:6333")
 ```
 
-| 項目 | 内容 |
-|------|------|
-| **Input** | なし |
-| **Process** | クライアントが未初期化なら`QdrantClient(url)`で作成 |
-| **Output** | `QdrantClient`: Qdrantクライアント |
-
----
+```python
+# 使用例
+tool = RAGSearchTool()
+print(tool.name)
+# rag_search
+```
 
 #### メソッド: `execute`
 
-**概要**: RAG検索を実行します。コレクション自動フォールバック機能付き。
+**概要**: RAG 検索を実行する。コレクションを優先順位順に試行し、結果が出た時点で採用する。
 
 ```python
 def execute(
@@ -519,100 +432,78 @@ def execute(
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
 | `query` | str | - | 検索クエリ |
-| `collection` | Optional[str] | None | 検索対象コレクション |
+| `collection` | Optional[str] | None | 検索対象コレクション（指定時は最優先で試行） |
 | `limit` | Optional[int] | None | 取得件数上限 |
 | `score_threshold` | Optional[float] | None | スコア閾値 |
+| `**kwargs` | Any | - | 追加引数 |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `query: str`, `collection: Optional[str]`, `limit: Optional[int]`, `score_threshold: Optional[float]` |
-| **Process** | 1. 検索対象コレクション候補を決定<br>2. 各コレクションを順次検索<br>3. 結果が見つかったら採用してループ終了<br>4. Dynamic Thresholding（Top1が0.98以上なら他を除外）<br>5. confidence_factorsを計算 |
-| **Output** | `ToolResult`: 検索結果 |
-
-**Dynamic Thresholding**:
-
-| 条件 | 動作 |
-|------|------|
-| Top1スコア >= 0.98 | 2位以下を除外（ノイズ除去） |
-| それ以外 | すべての結果を保持 |
-
-**confidence_factors**:
-
-| キー | 型 | 説明 |
-|-----|------|------|
-| `result_count` | int | 検索結果数 |
-| `avg_score` | float | 平均スコア |
-| `max_score` | float | 最大スコア |
-| `min_score` | float | 最小スコア |
-| `score_variance` | float | スコアの分散 |
-| `used_collection` | str | 使用されたコレクション名 |
+| **Input** | `query: str`, `collection: Optional[str] = None`, `limit: Optional[int] = None`, `score_threshold: Optional[float] = None` |
+| **Process** | 1. 検索候補コレクションを決定（指定 + `_get_all_collections_dynamic()`）<br>2. 候補を順次 `search_rag_knowledge_base_structured` で検索<br>3. 結果が出たコレクションを採用しループ終了<br>4. 動的閾値調整（1位が 0.98 以上なら上位1件のみ残す）<br>5. スコア統計を算出し `used_collection` を記録 |
+| **Output** | `ToolResult`: 検索結果リスト（成功時）/ 空リスト（結果なし時は `success=False`） |
 
 **戻り値例**:
 ```python
 ToolResult(
     success=True,
     output=[
-        {
-            "score": 0.92,
-            "payload": {
-                "question": "東京の人口は？",
-                "answer": "東京都の人口は約1400万人です。",
-                "source": "統計局データ.pdf"
-            },
-            "collection": "wikipedia_ja"
-        }
+        {"score": 0.92, "payload": {"question": "...", "answer": "..."}, "collection": "wikipedia_ja"}
     ],
     confidence_factors={
         "result_count": 1,
         "avg_score": 0.92,
+        "score_variance": 0.0,
         "max_score": 0.92,
         "min_score": 0.92,
-        "score_variance": 0.0,
         "used_collection": "wikipedia_ja"
     },
-    execution_time_ms=150
+    execution_time_ms=210
 )
 ```
 
 ```python
 # 使用例
 tool = RAGSearchTool()
-result = tool.execute(
-    query="東京の人口を教えてください",
-    collection=None  # 自動フォールバック
-)
-
+result = tool.execute(query="退職手続きについて教えて")
 if result.success:
-    for item in result.output:
-        print(f"スコア: {item['score']}, 回答: {item['payload'].get('answer')}")
+    print(f"{len(result.output)}件ヒット（{result.confidence_factors['used_collection']}）")
 ```
-
----
 
 #### メソッド: `_get_all_collections_dynamic`
 
-**概要**: Qdrantから全コレクション一覧を動的に取得し、優先順位付けして返します。
+**概要**: Qdrant から全コレクション一覧を動的取得し、設定の優先順位に従って並べ替える。
 
 ```python
 def _get_all_collections_dynamic(self) -> List[str]
 ```
 
+| パラメータ | 型 | デフォルト | 説明 |
+|------------|------|-----------|------|
+| なし（selfのみ） | - | - | - |
+
 | 項目 | 内容 |
 |------|------|
-| **Input** | なし |
-| **Process** | 1. Qdrantから全コレクション取得<br>2. 設定の優先順位リストでソート<br>3. 優先順位リストにないものを後ろに追加 |
-| **Output** | `List[str]`: ソートされたコレクション名リスト |
+| **Input** | なし（selfのみ） |
+| **Process** | 1. `client.get_collections()` で全コレクション取得<br>2. `config.qdrant.search_priority` を先頭に配置<br>3. 残りを後ろに追加<br>4. 失敗時は `search_priority` をそのまま返す |
+| **Output** | `List[str]`: 優先順位付きコレクション名リスト |
 
 **戻り値例**:
 ```python
-["wikipedia_ja", "livedoor", "cc_news", "japanese_text", "custom_collection"]
+["wikipedia_ja", "livedoor", "cc_news", "japanese_text"]
 ```
 
----
+```python
+# 使用例
+tool = RAGSearchTool()
+collections = tool._get_all_collections_dynamic()
+print(collections[0])
+# wikipedia_ja
+```
 
 #### メソッド: `_calculate_confidence_factors`
 
-**概要**: 検索結果スコアから信頼度計算用の統計情報を算出します。
+**概要**: スコアのリストから件数・平均・分散・最大・最小を算出する。
 
 ```python
 def _calculate_confidence_factors(self, scores: List[float]) -> Dict[str, Any]
@@ -620,34 +511,42 @@ def _calculate_confidence_factors(self, scores: List[float]) -> Dict[str, Any]
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `scores` | List[float] | - | 検索結果のスコアリスト |
+| `scores` | List[float] | - | スコアのリスト |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `scores: List[float]` |
-| **Process** | 平均、分散、最大、最小を計算 |
-| **Output** | `Dict[str, Any]`: 統計情報 |
+| **Process** | 1. 空なら全ゼロの統計を返す<br>2. 平均を算出<br>3. 件数2以上なら分散を算出<br>4. 件数・平均・分散・最大・最小を返す |
+| **Output** | `Dict[str, Any]`: `{result_count, avg_score, score_variance, max_score, min_score}` |
 
 **戻り値例**:
 ```python
 {
-    "result_count": 5,
-    "avg_score": 0.82,
-    "score_variance": 0.015,
-    "max_score": 0.95,
-    "min_score": 0.70
+    "result_count": 3,
+    "avg_score": 0.81,
+    "score_variance": 0.004,
+    "max_score": 0.92,
+    "min_score": 0.71
 }
+```
+
+```python
+# 使用例
+tool = RAGSearchTool()
+stats = tool._calculate_confidence_factors([0.92, 0.80, 0.71])
+print(stats["avg_score"])
+# 0.81
 ```
 
 ---
 
 ### 4.4 ReasoningTool クラス
 
-収集した情報を分析・統合して回答を生成するLLM推論ツール。
+収集した情報を統合して回答を生成する LLM 推論ツール。`grace/llm_compat.create_chat_client` 経由で Anthropic Claude（既定 `claude-sonnet-4-6`）を genai 互換インターフェースで呼び出します。
 
 #### コンストラクタ: `__init__`
 
-**概要**: ReasoningToolを初期化し、Gemini APIクライアントを設定します。
+**概要**: 設定とモデル名を保持し、Anthropic 互換クライアントを生成する。
 
 ```python
 def __init__(
@@ -659,20 +558,30 @@ def __init__(
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
-| `model_name` | Optional[str] | None | 使用するモデル名 |
+| `config` | Optional[GraceConfig] | None | GRACE 設定（None なら `get_config()`） |
+| `model_name` | Optional[str] | None | モデル名（None なら `config.llm.model`） |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `config: Optional[GraceConfig]`, `model_name: Optional[str]` |
-| **Process** | 1. 設定を取得<br>2. モデル名を設定<br>3. Gemini Clientを初期化 |
-| **Output** | ReasoningToolインスタンス |
+| **Input** | `config: Optional[GraceConfig] = None`, `model_name: Optional[str] = None` |
+| **Process** | 1. config / model_name を解決<br>2. `create_chat_client(config)` でクライアント生成 |
+| **Output** | `ReasoningTool` インスタンス |
 
----
+**戻り値例**:
+```python
+ReasoningTool(config=<GraceConfig>, model_name="claude-sonnet-4-6")
+```
+
+```python
+# 使用例
+tool = ReasoningTool()
+print(tool.model_name)
+# claude-sonnet-4-6
+```
 
 #### メソッド: `execute`
 
-**概要**: LLM推論を実行し、回答を生成します。
+**概要**: クエリ・コンテキスト・参照ソースからプロンプトを構築し、Claude で回答を生成する。
 
 ```python
 def execute(
@@ -686,58 +595,42 @@ def execute(
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `query` | str | - | ユーザーの質問 |
+| `query` | str | - | 元のクエリ |
 | `context` | Optional[str] | None | 追加コンテキスト |
-| `sources` | Optional[List[Dict]] | None | 参照ソース（RAG検索結果） |
+| `sources` | Optional[List[Dict]] | None | 参照ソース（RAG 検索結果など） |
+| `**kwargs` | Any | - | 追加引数 |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `query: str`, `context: Optional[str]`, `sources: Optional[List[Dict]]` |
-| **Process** | 1. プロンプトを構築<br>2. Gemini APIに送信<br>3. 回答を取得<br>4. トークン使用量を記録 |
-| **Output** | `ToolResult`: 生成された回答 |
-
-**confidence_factors**:
-
-| キー | 型 | 説明 |
-|-----|------|------|
-| `has_sources` | bool | ソースが提供されたか |
-| `source_count` | int | ソース数 |
-| `answer_length` | int | 回答の文字数 |
-| `token_usage` | Dict | トークン使用量 |
+| **Input** | `query: str`, `context: Optional[str] = None`, `sources: Optional[List[Dict]] = None` |
+| **Process** | 1. `_build_prompt()` でプロンプト構築<br>2. `client.models.generate_content()`（互換層 → Anthropic）で生成<br>3. `response.text` を回答とし、`usage_metadata` からトークン使用量を取得<br>4. 失敗時は `success=False` を返す |
+| **Output** | `ToolResult`: 生成された回答文字列（成功時） |
 
 **戻り値例**:
 ```python
 ToolResult(
     success=True,
-    output="東京都の人口は約1400万人です。総務省統計局のデータによると...",
+    output="社内ナレッジ（faq.csv）によると、退職手続きは...",
     confidence_factors={
         "has_sources": True,
-        "source_count": 3,
-        "answer_length": 250,
-        "token_usage": {"input_tokens": 800, "output_tokens": 100}
+        "source_count": 2,
+        "answer_length": 312,
+        "token_usage": {"input_tokens": 850, "output_tokens": 210}
     },
-    execution_time_ms=1500
+    execution_time_ms=1840
 )
 ```
 
 ```python
 # 使用例
 tool = ReasoningTool()
-sources = [
-    {"score": 0.92, "payload": {"question": "...", "answer": "..."}}
-]
-result = tool.execute(
-    query="東京の人口を教えてください",
-    sources=sources
-)
+result = tool.execute(query="退職手続きは？", sources=rag_results)
 print(result.output)
 ```
 
----
-
 #### メソッド: `_build_prompt`
 
-**概要**: 推論用のプロンプトを構築します。
+**概要**: システム指示・参照情報・補足コンテキスト・質問・回答ルールを連結した推論用プロンプトを構築する。
 
 ```python
 def _build_prompt(
@@ -751,62 +644,36 @@ def _build_prompt(
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
 | `query` | str | - | ユーザーの質問 |
-| `context` | Optional[str] | - | 追加コンテキスト |
-| `sources` | Optional[List[Dict]] | - | 参照ソース |
+| `context` | Optional[str] | - | 補足コンテキスト |
+| `sources` | Optional[List[Dict]] | - | 参照情報（payload に question/answer/content/source） |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `query: str`, `context: Optional[str]`, `sources: Optional[List[Dict]]` |
-| **Process** | システム指示、参照情報、補足コンテキスト、質問、回答ルールを結合 |
-| **Output** | `str`: 構築されたプロンプト |
+| **Process** | 1. システム指示を追加<br>2. ソースを「情報源 i」として列挙（信頼度・コレクション・Q/A・出典）<br>3. 補足コンテキストを追加<br>4. 質問と回答ルール（正確性・出典明示・捏造禁止など）を追加 |
+| **Output** | `str`: 構築済みプロンプト |
 
-**プロンプト構造**:
+**戻り値例**:
+```python
+"あなたは社内ドキュメント検索システムと連携した...\n### 【参照情報】\n--- 情報源 1 ..."
+```
 
-| 順序 | セクション | 内容 |
-|:---:|----------|------|
-| 1 | システム指示 | ハイブリッド・ナレッジ・エージェントとしての役割 |
-| 2 | 【参照情報】 | 各ソースの情報（スコア、コレクション、Q&A、出典） |
-| 3 | 【補足コンテキスト】 | 他ステップの結果など（任意） |
-| 4 | 【ユーザーの質問】 | 元のクエリ |
-| 5 | 【回答の構成ルール】 | 正確性、出典明示、捏造禁止 等 |
+```python
+# 使用例
+tool = ReasoningTool()
+prompt = tool._build_prompt("退職手続きは？", None, rag_results)
+print(prompt[:30])
+```
 
 ---
 
 ### 4.5 AskUserTool クラス
 
-ユーザーに追加情報や確認を求めるHITL用ツール。
-
-#### クラス属性: `FUNCTION_DECLARATION`
-
-**概要**: Gemini Function Calling用のツール定義。
-
-```python
-FUNCTION_DECLARATION = {
-    "name": "ask_user_for_clarification",
-    "description": "ユーザーに追加情報を求めるツール...",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "question": {"type": "string", "description": "ユーザーへの質問文"},
-            "reason": {"type": "string", "description": "なぜこの質問が必要か"},
-            "options": {"type": "array", "items": {"type": "string"}, "description": "選択肢"},
-            "urgency": {"type": "string", "enum": ["blocking", "optional"], "description": "緊急度"}
-        },
-        "required": ["question", "reason", "urgency"]
-    }
-}
-```
-
-**使用条件**:
-- 質問の意図が曖昧で、複数の解釈が可能
-- 必要な情報が検索で見つからない
-- 矛盾する情報があり、どちらを優先すべきか不明
-
----
+ユーザーに追加情報や確認を求める HITL ツール。クラス属性 `FUNCTION_DECLARATION` に Function Calling 用の関数定義（`ask_user_for_clarification`）を持ちます。
 
 #### メソッド: `execute`
 
-**概要**: ユーザーへの質問情報を生成します。
+**概要**: 質問情報を `ToolResult` として返す（実際の UI 連携は Executor が担当）。
 
 ```python
 def execute(
@@ -823,60 +690,48 @@ def execute(
 |------------|------|-----------|------|
 | `question` | str | - | ユーザーへの質問 |
 | `reason` | str | - | 質問の理由 |
-| `urgency` | str | "blocking" | 緊急度（blocking/optional） |
+| `urgency` | str | "blocking" | 緊急度（blocking / optional） |
 | `options` | Optional[List[str]] | None | 選択肢リスト |
+| `**kwargs` | Any | - | 追加引数 |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `question: str`, `reason: str`, `urgency: str`, `options: Optional[List[str]]` |
-| **Process** | 質問情報を構造化 |
-| **Output** | `ToolResult`: 質問情報（回答待ち状態） |
-
-**urgency値**:
-
-| 値 | 説明 |
-|------|------|
-| `blocking` | 回答がないと進めない |
-| `optional` | 推測で進めることも可能 |
+| **Input** | `question: str`, `reason: str`, `urgency: str = "blocking"`, `options: Optional[List[str]] = None` |
+| **Process** | 1. 質問内容をログ出力<br>2. 質問情報を dict にまとめ `awaiting_response=True` を付与 |
+| **Output** | `ToolResult`: 質問情報 dict（`success=True`） |
 
 **戻り値例**:
 ```python
 ToolResult(
     success=True,
     output={
-        "question": "東京のどの地域について知りたいですか？",
-        "reason": "検索結果に複数の地域情報があるため",
+        "question": "対象の年度はいつですか？",
+        "reason": "複数年度の情報が存在するため",
         "urgency": "blocking",
-        "options": ["23区", "多摩地域", "島嶼部"],
+        "options": ["2024年度", "2025年度"],
         "awaiting_response": True
     },
-    confidence_factors={
-        "requires_user_input": True,
-        "urgency": "blocking"
-    }
+    confidence_factors={"requires_user_input": True, "urgency": "blocking"}
 )
 ```
 
 ```python
 # 使用例
 tool = AskUserTool()
-result = tool.execute(
-    question="どの年度のデータをお探しですか？",
-    reason="複数年度のデータが見つかりました",
-    urgency="blocking",
-    options=["2023年", "2024年", "最新"]
-)
+result = tool.execute(question="対象年度は？", reason="複数年度あり", urgency="blocking")
+print(result.output["awaiting_response"])
+# True
 ```
 
 ---
 
 ### 4.6 WebSearchTool クラス
 
-Web検索で最新情報を取得するツール。SerpAPI / DuckDuckGo / Google CSE の3つの検索バックエンドに対応し、検索結果をRAG検索互換のフォーマットで返却します。
+Web 検索で最新情報を取得するツール。SerpAPI / DuckDuckGo / Google CSE のバックエンドを設定で切り替え、結果を rag_search 互換フォーマットに変換します。
 
 #### コンストラクタ: `__init__`
 
-**概要**: WebSearchToolを初期化し、設定からバックエンド・件数・言語・タイムアウトを読み込みます。
+**概要**: 設定からバックエンド・件数・言語・タイムアウトを読み込む。
 
 ```python
 def __init__(self, config: Optional[GraceConfig] = None)
@@ -884,28 +739,29 @@ def __init__(self, config: Optional[GraceConfig] = None)
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
+| `config` | Optional[GraceConfig] | None | GRACE 設定（None なら `get_config()`） |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `config: Optional[GraceConfig]` |
-| **Process** | 1. 設定を取得<br>2. `config.web_search` から `backend`, `num_results`, `language`, `timeout` を設定 |
-| **Output** | WebSearchToolインスタンス |
+| **Input** | `config: Optional[GraceConfig] = None` |
+| **Process** | `config.web_search` から `backend` / `num_results` / `language` / `timeout` を取得 |
+| **Output** | `WebSearchTool` インスタンス |
 
-**初期化される属性**:
+**戻り値例**:
+```python
+WebSearchTool(config=<GraceConfig>)  # backend="serpapi", num_results=5
+```
 
-| 属性 | 型 | ソース | 説明 |
-|------|------|--------|------|
-| `backend` | str | `config.web_search.backend` | 検索バックエンド名 |
-| `num_results` | int | `config.web_search.num_results` | デフォルト取得件数 |
-| `language` | str | `config.web_search.language` | デフォルト検索言語 |
-| `timeout` | int | `config.web_search.timeout` | HTTPタイムアウト秒数 |
-
----
+```python
+# 使用例
+tool = WebSearchTool()
+print(tool.backend)
+# serpapi
+```
 
 #### メソッド: `execute`
 
-**概要**: Web検索を実行し、RAG検索互換フォーマットで結果を返却します。
+**概要**: 設定バックエンドで Web 検索を実行し、rag_search 互換形式に変換して返す。
 
 ```python
 def execute(
@@ -920,283 +776,45 @@ def execute(
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
 | `query` | str | - | 検索クエリ |
-| `num_results` | Optional[int] | None | 取得件数（デフォルト: configの値） |
-| `language` | Optional[str] | None | 検索言語（デフォルト: configの値） |
+| `num_results` | Optional[int] | None | 取得件数（None なら config 値） |
+| `language` | Optional[str] | None | 検索言語（None なら config 値） |
+| `**kwargs` | Any | - | 追加引数 |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `query: str`, `num_results: Optional[int]`, `language: Optional[str]` |
-| **Process** | 1. パラメータのデフォルト値を適用<br>2. `backend` に応じた検索メソッドを呼び出し<br>3. `_parse_to_rag_format()` でRAG互換形式に変換<br>4. confidence_factorsを計算 |
-| **Output** | `ToolResult`: RAG互換形式の検索結果 |
-
-**バックエンド分岐**:
-
-| backend値 | 呼び出しメソッド | 説明 |
-|-----------|----------------|------|
-| `"serpapi"` | `_search_serpapi()` | SerpAPI経由のGoogle検索（リトライ付き） |
-| `"duckduckgo"` | `_search_ddg()` | DuckDuckGo検索 |
-| `"google_cse"` | `_search_google()` | Google Custom Search Engine |
-
-**confidence_factors**:
-
-| キー | 型 | 説明 |
-|-----|------|------|
-| `result_count` | int | 検索結果数 |
-| `avg_score` | float | 平均スコア |
-| `top_score` | float | 最高スコア |
-| `score_spread` | float | スコア幅（max - min） |
-| `search_engine` | str | 使用した検索エンジン名 |
+| **Input** | `query: str`, `num_results: Optional[int] = None`, `language: Optional[str] = None` |
+| **Process** | 1. backend に応じて `_search_ddg` / `_search_google` / `_search_serpapi` を呼ぶ<br>2. `_parse_to_rag_format()` で rag_search 互換に変換<br>3. 結果なしなら `success=False`<br>4. スコア統計を算出 |
+| **Output** | `ToolResult`: rag_search 互換の検索結果リスト |
 
 **戻り値例**:
 ```python
-# 成功時
 ToolResult(
     success=True,
     output=[
-        {
-            "score": 1.0,
-            "payload": {
-                "question": "",
-                "answer": "東京都の人口は約1400万人で...",
-                "content": "",
-                "source": "https://www.example.com/tokyo-population",
-                "title": "東京都の人口統計"
-            },
-            "collection": "web_search"
-        },
-        {
-            "score": 0.9,
-            "payload": {
-                "question": "",
-                "answer": "総務省統計局によると...",
-                "content": "",
-                "source": "https://www.stat.go.jp/...",
-                "title": "人口推計"
-            },
-            "collection": "web_search"
-        }
+        {"score": 1.0, "payload": {"answer": "...", "source": "https://...", "title": "..."}, "collection": "web_search"}
     ],
-    confidence_factors={
-        "result_count": 5,
-        "avg_score": 0.8,
-        "top_score": 1.0,
-        "score_spread": 0.5,
-        "search_engine": "serpapi"
-    },
-    execution_time_ms=2500
-)
-
-# 結果なし
-ToolResult(
-    success=False,
-    output=[],
-    error="Web検索結果が見つかりませんでした: 'very specific query'",
-    confidence_factors={"result_count": 0, "search_engine": "serpapi"},
-    execution_time_ms=1200
-)
-
-# エラー時
-ToolResult(
-    success=False,
-    output=None,
-    error="Web検索エラー (serpapi): ReadTimeout",
-    execution_time_ms=30000
+    confidence_factors={"result_count": 5, "avg_score": 0.8, "top_score": 1.0, "score_spread": 0.4, "search_engine": "serpapi"},
+    execution_time_ms=920
 )
 ```
 
 ```python
 # 使用例
 tool = WebSearchTool()
-result = tool.execute(
-    query="2025年 東京 人口 最新",
-    num_results=5,
-    language="ja"
-)
-
-if result.success:
-    for item in result.output:
-        print(f"[{item['score']:.2f}] {item['payload']['title']}")
-        print(f"  URL: {item['payload']['source']}")
-        print(f"  概要: {item['payload']['answer'][:80]}...")
+result = tool.execute(query="2026年 日本の祝日")
+print(result.confidence_factors["search_engine"])
+# serpapi
 ```
-
----
-
-#### メソッド: `_search_serpapi`
-
-**概要**: SerpAPI検索バックエンド。リトライ1回付きでタイムアウト耐性を確保。
-
-```python
-def _search_serpapi(self, query: str, num_results: int, language: str) -> list
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `query` | str | - | 検索クエリ |
-| `num_results` | int | - | 取得件数 |
-| `language` | str | - | 検索言語 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query: str`, `num_results: int`, `language: str` |
-| **Process** | 1. 環境変数 `SERPAPI_KEY` またはconfig設定からAPIキーを取得<br>2. `hl`（言語）, `gl`（国）パラメータを設定<br>3. `serpapi.com/search.json` にGETリクエスト送信<br>4. ReadTimeout時は最大1回リトライ（待機: 2×(attempt+1)秒） |
-| **Output** | `list`: SerpAPI `organic_results` リスト |
-
-**リトライ仕様**:
-
-| 項目 | 値 |
-|------|-----|
-| 最大試行回数 | 2（初回 + リトライ1回） |
-| リトライ待機 | 2 × (attempt + 1) 秒 |
-| リトライ対象 | `requests.exceptions.ReadTimeout` のみ |
-
-> 📝 **注意**: APIキー未設定時は `ValueError` を送出します。環境変数 `SERPAPI_KEY` の設定を推奨。
-
----
-
-#### メソッド: `_search_ddg`
-
-**概要**: DuckDuckGo検索バックエンド。
-
-```python
-def _search_ddg(self, query: str, num_results: int, language: str) -> list
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `query` | str | - | 検索クエリ |
-| `num_results` | int | - | 取得件数 |
-| `language` | str | - | 検索言語 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query: str`, `num_results: int`, `language: str` |
-| **Process** | 1. 言語からregionを決定（"ja" → "jp-jp", それ以外 → "wt-wt"）<br>2. `DDGS().text()` で検索実行 |
-| **Output** | `list`: DDG検索結果リスト（各要素に `title`, `href`, `body`） |
-
----
-
-#### メソッド: `_search_google`
-
-**概要**: Google Custom Search Engine検索バックエンド。
-
-```python
-def _search_google(self, query: str, num_results: int, language: str) -> list
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `query` | str | - | 検索クエリ |
-| `num_results` | int | - | 取得件数 |
-| `language` | str | - | 検索言語 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query: str`, `num_results: int`, `language: str` |
-| **Process** | 1. 環境変数またはconfigから `GOOGLE_CSE_API_KEY`, `GOOGLE_CSE_ENGINE_ID` を取得<br>2. Google CSE REST API にGETリクエスト送信 |
-| **Output** | `list`: Google CSE `items` リスト（各要素に `title`, `link`, `snippet`） |
-
-> ⚠️ **非推奨**: Google CSEは新規受付停止のため、`serpapi` または `duckduckgo` の使用を推奨します。
-
----
-
-#### メソッド: `_parse_to_rag_format`
-
-**概要**: 各検索バックエンドの結果をRAG検索互換のフォーマットに変換します。
-
-```python
-def _parse_to_rag_format(self, raw_results: list, num_results: int) -> list
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `raw_results` | list | - | 各バックエンドの生の検索結果 |
-| `num_results` | int | - | 取得件数（スコア正規化用） |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `raw_results: list`, `num_results: int` |
-| **Process** | 1. 検索順位ベースの正規化スコアを計算: `1.0 - (i / max(num_results, 1)) * 0.5`<br>2. バックエンド別のフィールドマッピング |
-| **Output** | `list`: RAG互換形式のリスト |
-
-**スコア正規化**:
-
-| 順位 | スコア（num_results=5の場合） |
-|------|-----|
-| 1位 | 1.00 |
-| 2位 | 0.90 |
-| 3位 | 0.80 |
-| 4位 | 0.70 |
-| 5位 | 0.60 |
-
-**バックエンド別フィールドマッピング**:
-
-| RAGフィールド | DuckDuckGo | SerpAPI / Google CSE |
-|-------------|------------|---------------------|
-| `payload.answer` | `body` | `snippet` |
-| `payload.source` | `href` | `link` |
-| `payload.title` | `title` | `title` |
-| `collection` | `"web_search"` | `"web_search"` |
-
-**戻り値例**:
-```python
-[
-    {
-        "score": 1.0,
-        "payload": {
-            "question": "",
-            "answer": "東京都の人口は...",
-            "content": "",
-            "source": "https://www.example.com/...",
-            "title": "東京の人口統計"
-        },
-        "collection": "web_search"
-    }
-]
-```
-
----
-
-#### メソッド: `_calculate_confidence_factors`
-
-**概要**: Web検索結果のConfidence統計情報を算出します。
-
-```python
-def _calculate_confidence_factors(self, scores: list) -> dict
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `scores` | list | - | スコアリスト |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `scores: list` |
-| **Process** | result_count, avg_score, top_score, score_spreadを計算 |
-| **Output** | `dict`: 統計情報 |
-
-**戻り値例**:
-```python
-{
-    "result_count": 5,
-    "avg_score": 0.8,
-    "top_score": 1.0,
-    "score_spread": 0.5,
-    "search_engine": "serpapi"
-}
-```
-
-> 📝 **注意**: RAGSearchToolの `_calculate_confidence_factors` とはキー構成が異なります（`score_variance` → `score_spread`、`search_engine` の有無）。
 
 ---
 
 ### 4.7 ToolRegistry クラス
 
-ツールの登録・取得・実行を一元管理するレジストリ。
+ツールを名前で登録・取得・実行するレジストリ。設定の `tools.enabled` に基づきデフォルトツールを自動登録します。
 
 #### コンストラクタ: `__init__`
 
-**概要**: ToolRegistryを初期化し、デフォルトツールを登録します。
+**概要**: 設定を保持し、有効ツールを登録する。
 
 ```python
 def __init__(self, config: Optional[GraceConfig] = None)
@@ -1204,118 +822,29 @@ def __init__(self, config: Optional[GraceConfig] = None)
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
+| `config` | Optional[GraceConfig] | None | GRACE 設定（None なら `get_config()`） |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `config: Optional[GraceConfig]` |
-| **Process** | 1. 設定を取得<br>2. ツール辞書を初期化<br>3. デフォルトツールを登録 |
-| **Output** | ToolRegistryインスタンス |
-
----
-
-#### メソッド: `_register_default_tools`
-
-**概要**: 設定に基づいてデフォルトツールを登録します。
-
-```python
-def _register_default_tools(self)
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | なし |
-| **Process** | `config.tools.enabled` に含まれるツールを登録 |
-| **Output** | なし |
-
-**登録されるツール**:
-
-| 設定値 | ツールクラス |
-|--------|-------------|
-| `"rag_search"` | RAGSearchTool |
-| `"web_search"` | WebSearchTool |
-| `"reasoning"` | ReasoningTool |
-| `"ask_user"` | AskUserTool |
-
----
-
-#### メソッド: `register`
-
-**概要**: ツールをレジストリに登録します。
-
-```python
-def register(self, tool: BaseTool)
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `tool` | BaseTool | - | 登録するツール |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `tool: BaseTool` |
-| **Process** | `tool.name` をキーとして辞書に登録 |
-| **Output** | なし |
-
-```python
-# カスタムツールの登録例
-class CustomTool(BaseTool):
-    name = "custom_tool"
-    description = "カスタムツール"
-
-    def execute(self, **kwargs) -> ToolResult:
-        return ToolResult(success=True, output="OK")
-
-registry = ToolRegistry()
-registry.register(CustomTool())
-```
-
----
-
-#### メソッド: `get`
-
-**概要**: 名前でツールを取得します。
-
-```python
-def get(self, name: str) -> Optional[BaseTool]
-```
-
-| パラメータ | 型 | デフォルト | 説明 |
-|------------|------|-----------|------|
-| `name` | str | - | ツール名 |
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `name: str` |
-| **Process** | 辞書からツールを取得 |
-| **Output** | `Optional[BaseTool]`: ツールまたはNone |
-
----
-
-#### メソッド: `list_tools`
-
-**概要**: 登録されているツール名のリストを取得します。
-
-```python
-def list_tools(self) -> List[str]
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | なし |
-| **Process** | 登録されたツール名を取得 |
-| **Output** | `List[str]`: ツール名リスト |
+| **Input** | `config: Optional[GraceConfig] = None` |
+| **Process** | 1. config を解決<br>2. `_register_default_tools()` で `tools.enabled` に含まれるツールを登録 |
+| **Output** | `ToolRegistry` インスタンス |
 
 **戻り値例**:
 ```python
-["rag_search", "web_search", "reasoning", "ask_user"]
+ToolRegistry(config=<GraceConfig>)  # rag_search, web_search, reasoning, ask_user を登録
 ```
 
----
+```python
+# 使用例
+registry = ToolRegistry()
+print(registry.list_tools())
+# ['rag_search', 'web_search', 'reasoning', 'ask_user']
+```
 
 #### メソッド: `execute`
 
-**概要**: ツール名を指定して実行します。
+**概要**: 名前指定でツールを取得し、`execute()` を呼び出す。
 
 ```python
 def execute(self, name: str, **kwargs) -> ToolResult
@@ -1323,39 +852,25 @@ def execute(self, name: str, **kwargs) -> ToolResult
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `name` | str | - | ツール名 |
-| `**kwargs` | Any | - | ツールへの引数 |
+| `name` | str | - | 実行するツール名 |
+| `**kwargs` | Any | - | ツールへ渡す引数 |
 
 | 項目 | 内容 |
 |------|------|
 | **Input** | `name: str`, `**kwargs` |
-| **Process** | 1. ツールを取得<br>2. 見つからなければエラー結果を返す<br>3. ツールの`execute()`を呼び出す |
-| **Output** | `ToolResult`: 実行結果 |
+| **Process** | 1. `get(name)` でツール取得<br>2. 未登録なら `success=False`<br>3. 登録済みなら `tool.execute(**kwargs)` を呼ぶ |
+| **Output** | `ToolResult` |
 
-**未登録ツールの場合**:
+**戻り値例**:
 ```python
-ToolResult(
-    success=False,
-    output=None,
-    error="Unknown tool: invalid_tool"
-)
+ToolResult(success=True, output=[...], confidence_factors={...})
 ```
 
 ```python
 # 使用例
 registry = ToolRegistry()
-
-# RAG検索
-result = registry.execute("rag_search", query="東京の人口")
-
-# Web検索
-result = registry.execute("web_search", query="東京の人口 最新")
-
-# 推論
-result = registry.execute("reasoning", query="...", sources=[...])
-
-# ユーザー質問
-result = registry.execute("ask_user", question="...", reason="...", urgency="blocking")
+result = registry.execute("rag_search", query="退職手続きについて")
+print(result.success)
 ```
 
 ---
@@ -1364,7 +879,7 @@ result = registry.execute("ask_user", question="...", reason="...", urgency="blo
 
 #### `create_tool_registry`
 
-**概要**: ToolRegistryインスタンスを作成するファクトリ関数。
+**概要**: `ToolRegistry` インスタンスを生成するファクトリ関数。
 
 ```python
 def create_tool_registry(config: Optional[GraceConfig] = None) -> ToolRegistry
@@ -1372,415 +887,117 @@ def create_tool_registry(config: Optional[GraceConfig] = None) -> ToolRegistry
 
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
-| `config` | Optional[GraceConfig] | None | GRACE設定 |
+| `config` | Optional[GraceConfig] | None | GRACE 設定（None なら `get_config()`） |
 
 | 項目 | 内容 |
 |------|------|
-| **Input** | `config: Optional[GraceConfig]` |
-| **Process** | ToolRegistryをインスタンス化 |
-| **Output** | `ToolRegistry`: インスタンス |
+| **Input** | `config: Optional[GraceConfig] = None` |
+| **Process** | `ToolRegistry(config=config)` を生成して返す |
+| **Output** | `ToolRegistry` インスタンス |
+
+**戻り値例**:
+```python
+ToolRegistry(config=<GraceConfig>)
+```
 
 ```python
 # 使用例
-from grace.tools import create_tool_registry
-
 registry = create_tool_registry()
-print(registry.list_tools())
-# 出力: ['rag_search', 'web_search', 'reasoning', 'ask_user']
+result = registry.execute("reasoning", query="...", sources=[...])
 ```
 
 ---
 
-## 5. 外部カスタムモジュール IPO詳細
+## 5. 設定・定数
 
-tools.py が依存する外部カスタムモジュールの詳細仕様を記述します。
+ツール群は `GraceConfig`（`grace/config.py`）の各セクションを参照します。
 
-### 5.1 qdrant_client_wrapper
+### 5.1 ツール関連設定
 
-**ファイル**: `qdrant_client_wrapper.py`（1184行）
-**概要**: Qdrantベクトルデータベースとの操作を一元管理するユーティリティモジュール
+| 設定キー | デフォルト値 | 説明 |
+|---------|-------------|------|
+| `tools.enabled` | `["rag_search", "web_search", "reasoning", "ask_user"]` | レジストリが自動登録するツール |
+| `tools.disabled` | `[]` | 恒久的に禁止するツール |
+| `llm.provider` | `"anthropic"` | LLM プロバイダー |
+| `llm.model` | `"claude-sonnet-4-6"` | ReasoningTool が使用するモデル |
+| `llm.temperature` | `0.7` | 生成温度 |
+| `llm.max_tokens` | `4096` | 最大出力トークン |
+| `qdrant.url` | `"http://localhost:6333"` | Qdrant 接続先 |
+| `qdrant.search_priority` | `["wikipedia_ja", "livedoor", "cc_news", "japanese_text"]` | コレクション探索の優先順位 |
+| `web_search.backend` | `"serpapi"` | Web 検索バックエンド（serpapi / duckduckgo / google_cse） |
+| `web_search.num_results` | `5` | 取得件数 |
+| `web_search.language` | `"ja"` | 検索言語 |
+| `web_search.timeout` | `30` | リクエストタイムアウト（秒） |
 
-#### 5.1.1 search_collection()
+### 5.2 クラス定数
 
-**概要**: コレクションを検索（Dense または Hybrid）。Sparse Vectorエラー時は自動的にDense Vectorのみで再試行。
+| 定数 | 所属クラス | 説明 |
+|------|-----------|------|
+| `name` / `description` | 各 `BaseTool` サブクラス | ツール名・説明（`rag_search` / `web_search` / `reasoning` / `ask_user`） |
+| `FUNCTION_DECLARATION` | `AskUserTool` | Function Calling 用の関数定義（`ask_user_for_clarification`） |
 
-```python
-def search_collection(
-    client: QdrantClient,
-    collection_name: str,
-    query_vector: List[float],
-    sparse_vector: Optional[models.SparseVector] = None,
-    limit: int = 5,
-    hybrid_alpha: float = 0.5
-) -> List[Dict[str, Any]]
-```
+### 5.3 動的閾値（RAGSearchTool）
 
-| 項目 | 内容 |
-|------|------|
-| **Input** | `client`: QdrantClientインスタンス, `collection_name`: コレクション名, `query_vector`: Dense埋め込みベクトル, `sparse_vector`: Sparseベクトル（省略可）, `limit`: 件数上限, `hybrid_alpha`: ハイブリッド検索αスコア |
-| **Process** | 1. コレクション情報を取得し名前付きベクトルかどうかを判定<br>2. sparse_vectorがある場合、Hybrid Search（RRF Fusion）を試行<br>3. Sparse Vectorエラー時はDense Vectorのみで再試行<br>4. 最終フォールバック: query_points形式 |
-| **Output** | `List[Dict[str, Any]]`: 検索結果リスト |
-
-#### 5.1.2 embed_query_unified()
-
-**概要**: クエリテキストを埋め込みベクトルに変換（プロバイダー抽象化版）
-
-```python
-def embed_query_unified(text: str, provider: str = None) -> List[float]
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `text`: 埋め込むテキスト, `provider`: "gemini" or "openai" |
-| **Process** | プロバイダーを決定→クライアント作成→embed_text実行 |
-| **Output** | `List[float]`: 埋め込みベクトル |
-
-#### 5.1.3 embed_sparse_query_unified()
-
-**概要**: クエリテキストをSparse Embeddingに変換
-
-```python
-def embed_sparse_query_unified(text: str, model_name: str = None) -> models.SparseVector
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `text`: クエリテキスト, `model_name`: Sparseモデル名 |
-| **Process** | Sparseクライアント取得→スパースベクトル生成→SparseVector変換 |
-| **Output** | `models.SparseVector`: スパースベクトル |
+| 項目 | 値 | 説明 |
+|------|----|------|
+| Dynamic Thresholding | `top_score >= 0.98` | 1位スコアが 0.98 以上かつ複数件のとき、上位1件のみ残す |
 
 ---
 
-### 5.2 services.qdrant_service
+## 6. 使用例
 
-**ファイル**: `services/qdrant_service.py`（1066行）
-
-#### 5.2.1 get_collection_embedding_params()
-
-**概要**: コレクションの設定からベクトル次元数に基づきモデル設定を推論
-
-```python
-def get_collection_embedding_params(
-    client: QdrantClient, collection_name: str
-) -> Dict[str, Any]
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `client`: QdrantClient, `collection_name`: コレクション名 |
-| **Process** | コレクション情報取得→ベクトルサイズ取得→モデル推論 |
-| **Output** | `Dict[str, Any]`: `{"model": str, "dims": int}` |
-
----
-
-### 5.3 agent_tools
-
-**ファイル**: `agent_tools.py`（645行）
-**概要**: Legacy Agent の検索ロジック。RAGSearchTool が内部で使用。
-
-#### 5.3.1 search_rag_knowledge_base_structured()
-
-**概要**: Qdrantから知識を検索（構造化データ版）
-
-```python
-def search_rag_knowledge_base_structured(
-    query: str,
-    collection_name: Optional[str] = None,
-    use_hybrid_search: bool = True
-) -> Union[List[Dict[str, Any]], str]
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `query`: 検索クエリ, `collection_name`: コレクション名, `use_hybrid_search`: ハイブリッド検索フラグ |
-| **Process** | ヘルスチェック→コレクション確認→ベクトル生成→検索→リランキング |
-| **Output** | 成功: `List[Dict]`, 失敗: `str`（エラーメッセージ） |
-
-**エラーメッセージ形式**:
-
-| パターン | 意味 |
-|---------|------|
-| `[[NO_RAG_RESULT]]` | 検索結果なし |
-| `[[NO_RAG_RESULT_LOW_SCORE]]` | スコア閾値未満 |
-| `[[RAG_TOOL_ERROR]]` | 検索エラー |
-
----
-
-### 5.4 regex_mecab
-
-**ファイル**: `regex_mecab.py`（390行）
-**概要**: MeCabと正規表現を統合したキーワード抽出システム
-
-```python
-class KeywordExtractor:
-    def __init__(self, prefer_mecab: bool = True)
-    def extract(self, text: str, top_n: int = 5, use_scoring: bool = True) -> List[str]
-    def extract_with_details(self, text: str, top_n: int = 10) -> Dict[str, List[Tuple[str, float]]]
-```
-
-| 項目 | 内容 |
-|------|------|
-| **Input** | `text`: 分析対象テキスト, `top_n`: 抽出数, `use_scoring`: スコアリング使用 |
-| **Process** | 言語判定→MeCab/正規表現で抽出→スコアリング |
-| **Output** | `List[str]`: キーワードリスト |
-
----
-
-## 6. 設定・定数
-
-### 6.1 QdrantConfig（Qdrant設定）
-
-RAGSearchToolで使用するQdrant関連の設定。
-
-| キー | デフォルト値 | 説明 |
-|-----|-------------|------|
-| `url` | `"http://localhost:6333"` | Qdrant接続URL |
-| `collection_name` | `"customer_support_faq"` | デフォルトコレクション名 |
-| `search_limit` | `5` | 検索結果の取得件数上限 |
-| `score_threshold` | `0.45` | スコア閾値 |
-| `search_priority` | `["wikipedia_ja", "livedoor", "cc_news", "japanese_text"]` | コレクション検索優先順位 |
-
-### 6.2 WebSearchConfig（Web検索設定）
-
-WebSearchToolで使用するWeb検索関連の設定。
-
-```python
-class WebSearchConfig(BaseModel):
-    backend: str = "serpapi"
-    num_results: int = 5
-    language: str = "ja"
-    timeout: int = 30
-    google_cse_api_key: str = ""
-    google_cse_engine_id: str = ""
-    serpapi_api_key: str = ""
-```
-
-| キー | デフォルト値 | 説明 |
-|-----|-------------|------|
-| `backend` | `"serpapi"` | 検索バックエンド（`"serpapi"` / `"duckduckgo"` / `"google_cse"`） |
-| `num_results` | `5` | デフォルト取得件数 |
-| `language` | `"ja"` | デフォルト検索言語 |
-| `timeout` | `30` | HTTPタイムアウト秒数 |
-| `google_cse_api_key` | `""` | Google CSE APIキー（環境変数 `GOOGLE_CSE_API_KEY` 推奨） |
-| `google_cse_engine_id` | `""` | Google CSE エンジンID（環境変数 `GOOGLE_CSE_ENGINE_ID` 推奨） |
-| `serpapi_api_key` | `""` | SerpAPI キー（環境変数 `SERPAPI_KEY` 推奨） |
-
-**grace_config.yml での設定例**:
-```yaml
-web_search:
-  backend: "serpapi"
-  num_results: 5
-  language: "ja"
-  timeout: 30
-```
-
-### 6.3 ToolsConfig（ツール設定）
-
-有効なツールを制御する設定。
-
-| キー | デフォルト値 | 説明 |
-|-----|-------------|------|
-| `enabled` | `["rag_search", "web_search", "reasoning", "ask_user"]` | 有効なツールリスト |
-
-**grace_config.yml での設定例**:
-```yaml
-tools:
-  enabled:
-    - rag_search
-    - web_search
-    - reasoning
-    - ask_user
-  disabled:
-    - write_file
-    - replace
-    - run_shell_command
-```
-
-### 6.4 ReasoningToolのプロンプトルール
-
-| ルール | 内容 |
-|--------|------|
-| 正確性と誠実さ | 参照情報にある事実のみを述べる |
-| 判明した事実を優先 | 直接的な回答を最初に述べる |
-| 出典の明示 | 「社内ナレッジ（出典）によると...」形式 |
-| 丁寧な日本語 | です・ます調で読みやすく構造化 |
-| 捏造禁止 | 事前知識での補完・推測を禁止 |
-
-### 6.5 Dynamic Thresholding
-
-RAG検索結果のノイズ除去ルール。
-
-| 条件 | 動作 |
-|------|------|
-| Top1スコア >= 0.98 | 2位以下の結果を除外 |
-| Top1スコア < 0.98 | すべての結果を保持 |
-
----
-
-## 7. 使用例
-
-### 7.1 ToolRegistryを使用した基本ワークフロー
+### 6.1 基本的なワークフロー
 
 ```python
 from grace.tools import create_tool_registry
 
-# 1. レジストリを作成
+# 1. レジストリ生成（デフォルトツールを自動登録）
 registry = create_tool_registry()
 
-# 2. 登録されているツールを確認
-print(f"利用可能なツール: {registry.list_tools()}")
-# 出力: 利用可能なツール: ['rag_search', 'web_search', 'reasoning', 'ask_user']
+# 2. RAG 検索
+rag_result = registry.execute("rag_search", query="退職手続きについて教えて")
 
-# 3. RAG検索を実行
-search_result = registry.execute(
-    "rag_search",
-    query="東京の人口を教えてください"
-)
-
-if search_result.success:
-    print(f"検索結果: {len(search_result.output)}件")
-
-    # 4. 検索結果を使って推論
-    reasoning_result = registry.execute(
+# 3. 検索結果を使って推論
+if rag_result.success:
+    answer = registry.execute(
         "reasoning",
-        query="東京の人口を教えてください",
-        sources=search_result.output
+        query="退職手続きについて教えて",
+        sources=rag_result.output,
     )
-
-    if reasoning_result.success:
-        print(f"回答: {reasoning_result.output}")
-else:
-    print(f"検索失敗: {search_result.error}")
+    print(answer.output)
 ```
 
-### 7.2 RAG検索の直接実行
-
-```python
-from grace.tools import RAGSearchTool
-
-tool = RAGSearchTool()
-result = tool.execute(
-    query="Python の基本文法",
-    collection="wikipedia_ja"
-)
-
-if result.success:
-    for item in result.output:
-        print(f"スコア: {item['score']:.2f}, コレクション: {item.get('collection')}")
-        print(f"回答: {item['payload'].get('answer', '')[:100]}...")
-```
-
-### 7.3 Web検索の直接実行
-
-```python
-from grace.tools import WebSearchTool
-
-tool = WebSearchTool()
-
-# SerpAPI（デフォルト）でWeb検索
-result = tool.execute(
-    query="Python 3.12 新機能",
-    num_results=5,
-    language="ja"
-)
-
-if result.success:
-    print(f"検索エンジン: {result.confidence_factors.get('search_engine')}")
-    print(f"検索結果: {result.confidence_factors.get('result_count')}件")
-    for item in result.output:
-        print(f"  [{item['score']:.2f}] {item['payload']['title']}")
-        print(f"    URL: {item['payload']['source']}")
-        print(f"    概要: {item['payload']['answer'][:80]}...")
-else:
-    print(f"検索失敗: {result.error}")
-```
-
-### 7.4 推論ツールの使用
-
-```python
-from grace.tools import ReasoningTool
-
-tool = ReasoningTool()
-sources = [
-    {
-        "score": 0.92,
-        "payload": {
-            "question": "東京の人口は？",
-            "answer": "東京都の人口は約1400万人です。",
-            "source": "統計局データ.pdf"
-        },
-        "collection": "wikipedia_ja"
-    }
-]
-
-result = tool.execute(
-    query="東京の人口について詳しく教えてください",
-    context="ユーザーは2024年のデータを希望",
-    sources=sources
-)
-
-if result.success:
-    print(f"回答:\n{result.output}")
-```
-
-### 7.5 AskUserToolの使用
-
-```python
-from grace.tools import AskUserTool
-
-tool = AskUserTool()
-result = tool.execute(
-    question="どの年度のデータをお探しですか？",
-    reason="検索結果に複数年度のデータが含まれているため",
-    urgency="blocking",
-    options=["2022年", "2023年", "2024年", "最新のデータ"]
-)
-
-# 実際のUIとの連携はExecutorで行う
-```
-
-### 7.6 RAG検索 → Web検索フォールバックワークフロー
+### 6.2 応用的なワークフロー（フォールバック）
 
 ```python
 from grace.tools import create_tool_registry
 
 registry = create_tool_registry()
 
-query = "2025年の最新技術トレンド"
-
-# 1. まずRAG検索を試行
-rag_result = registry.execute("rag_search", query=query)
-
-if rag_result.success and len(rag_result.output) > 0:
-    sources = rag_result.output
-    print(f"RAG検索で {len(sources)} 件の結果を取得")
+# RAG が不十分なら Web 検索へフォールバック
+rag = registry.execute("rag_search", query="最新の為替レート")
+if not rag.success or rag.confidence_factors.get("avg_score", 0) < 0.7:
+    web = registry.execute("web_search", query="最新の為替レート")
+    sources = web.output
 else:
-    # 2. RAG検索で結果が得られなければWeb検索にフォールバック
-    print("RAG検索で結果なし → Web検索にフォールバック")
-    web_result = registry.execute("web_search", query=query)
-    if web_result.success:
-        sources = web_result.output
-        print(f"Web検索で {len(sources)} 件の結果を取得")
-    else:
-        sources = []
-        print(f"Web検索も失敗: {web_result.error}")
+    sources = rag.output
 
-# 3. 取得した情報源で推論
-if sources:
-    reasoning_result = registry.execute(
-        "reasoning",
-        query=query,
-        sources=sources
+# それでも曖昧ならユーザーに確認（HITL）
+if not sources:
+    ask = registry.execute(
+        "ask_user",
+        question="どの通貨ペアの為替レートですか？",
+        reason="検索結果が見つからなかったため",
+        urgency="blocking",
+        options=["USD/JPY", "EUR/JPY"],
     )
-    if reasoning_result.success:
-        print(f"\n回答:\n{reasoning_result.output}")
 ```
 
 ---
 
-## 8. エクスポート
+## 7. エクスポート
 
-`__all__`でエクスポートされる要素：
+`grace/tools.py` の `__all__`：
 
 ```python
 __all__ = [
@@ -1802,15 +1019,17 @@ __all__ = [
 ]
 ```
 
+`grace/__init__.py` からも上記すべて（`ToolResult`, `BaseTool`, `RAGSearchTool`, `WebSearchTool`, `ReasoningTool`, `AskUserTool`, `ToolRegistry`, `create_tool_registry`）が再エクスポートされます。
+
 ---
 
-## 9. 変更履歴
+## 8. 変更履歴
 
 | バージョン | 変更内容 |
 |-----------|---------|
-| 1.0 | 初版作成（2025-01-29） |
-| 1.1 | 外部カスタムモジュール IPO詳細を追加（2025-01-29） |
-| 2.0 | WebSearchToolクラスのIPO詳細を追加（2026-02-19）: SerpAPI/DuckDuckGo/Google CSE対応、ToolRegistry登録、WebSearchConfig設定、Mermaidアーキテクチャ図更新、使用例追加 |
+| 1.0 | 初版作成 |
+| 2.0 | WebSearchTool 追加、動的コレクションフォールバック・動的閾値の反映 |
+| 2.1 | 実ソース（v2）に整合（2026-06-16）。LLM を Anthropic Claude（`llm_compat` 経由）として正確化、`ReasoningTool`/`RAGSearchTool` の挙動・パラメータ・`confidence_factors` を実装に一致、Mermaid 図を黒背景・白文字スタイルに統一、設定・定数を `GraceConfig` 実値で更新 |
 
 ---
 
@@ -1818,107 +1037,39 @@ __all__ = [
 
 ```mermaid
 flowchart LR
-    TOOLS["tools.py"]
-
-    subgraph STD["標準ライブラリ"]
-        ABC_LIB[abc]
-        DC[dataclasses]
-        TYPING[typing]
-        LOG[logging]
-    end
+    TOOLS["grace/tools.py"]
 
     subgraph EXT["外部ライブラリ"]
-        QC["qdrant_client"]
-        GENAI["google.genai"]
-        DDG_LIB["duckduckgo_search"]
+        QC["qdrant_client.QdrantClient"]
+        GENAI["google.genai.types"]
+        ANTHROPIC["anthropic.Anthropic"]
+        DDG["duckduckgo_search.DDGS"]
         REQ["requests"]
     end
 
-    subgraph CUSTOM["カスタムモジュール"]
-        QCW["qdrant_client_wrapper"]
-        QS["services.qdrant_service"]
-        AT["agent_tools"]
-        RM["regex_mecab"]
-    end
-
-    subgraph INTERNAL["内部モジュール"]
+    subgraph INT["内部モジュール"]
         CFG["grace.config"]
+        COMPAT["grace.llm_compat"]
+        ATOOLS["agent_tools"]
+        QWRAP["qdrant_client_wrapper"]
+        QSVC["services.qdrant_service"]
+        MECAB["regex_mecab.KeywordExtractor"]
     end
 
-    TOOLS --> STD
-    TOOLS --> EXT
-    TOOLS --> CUSTOM
+    TOOLS --> QC
+    TOOLS --> GENAI
+    TOOLS --> DDG
+    TOOLS --> REQ
     TOOLS --> CFG
+    TOOLS --> COMPAT
+    TOOLS --> ATOOLS
+    TOOLS --> QWRAP
+    TOOLS --> QSVC
+    TOOLS --> MECAB
+    COMPAT --> ANTHROPIC
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class TOOLS,QC,GENAI,ANTHROPIC,DDG,REQ,CFG,COMPAT,ATOOLS,QWRAP,QSVC,MECAB default
+style EXT fill:#1a1a1a,stroke:#fff,color:#fff
+style INT fill:#1a1a1a,stroke:#fff,color:#fff
 ```
-
-### ツール → 外部サービス連携図
-
-```mermaid
-flowchart TB
-    subgraph REG["ToolRegistry"]
-        direction LR
-    end
-
-    subgraph TOOLS_GRP["ツール"]
-        RAG_T["RAGSearchTool"]
-        WEB_T["WebSearchTool"]
-        REASON_T["ReasoningTool"]
-        ASK_T["AskUserTool"]
-    end
-
-    subgraph SERVICES["外部サービス"]
-        QDRANT_SVC[(Qdrant Server)]
-        GEMINI_SVC[Gemini API]
-        SERPAPI_SVC[SerpAPI]
-        DDG_SVC[DuckDuckGo]
-        GCSE_SVC[Google CSE]
-    end
-
-    REG --> RAG_T
-    REG --> WEB_T
-    REG --> REASON_T
-    REG --> ASK_T
-    RAG_T --> QDRANT_SVC
-    WEB_T --> SERPAPI_SVC
-    WEB_T --> DDG_SVC
-    WEB_T --> GCSE_SVC
-    REASON_T --> GEMINI_SVC
-```
-
----
-
-## 関連ドキュメント
-
-| ドキュメント | 説明 |
-|-------------|------|
-| `config.md` | GraceConfig設定管理の詳細ドキュメント |
-| `executor.md` | 計画実行エージェント（ToolRegistryの使用元） |
-| `confidence.md` | 信頼度計算システム（ToolResult.confidence_factorsの使用先） |
-| `schemas.md` | StepResult等のデータ構造 |
-
----
-
-## 解決済み・残存課題
-
-### Version 2.0 で解決した項目
-
-1. ✅ **WebSearchToolの全メソッドIPO詳細**:
-   - コンストラクタ、`execute()`、`_search_serpapi()`、`_search_ddg()`、`_search_google()`、`_parse_to_rag_format()`、`_calculate_confidence_factors()` → [セクション 4.6](#46-websearchtool-クラス)
-2. ✅ **ToolRegistry にWebSearchTool登録を反映**: `_register_default_tools()` に `"web_search"` 分岐を追加 → [セクション 4.7](#47-toolregistry-クラス)
-3. ✅ **WebSearchConfig設定の文書化**: grace_config.yml の `web_search` セクション → [セクション 6.2](#62-websearchconfigweb検索設定)
-4. ✅ **アーキテクチャ構成図をMermaid化**: ASCII図からMermaid v9フローチャートに移行 → [セクション 1.1](#11-システム全体構成)
-
-### 残存する課題・注意事項
-
-1. **コメントアウトされた機能**:
-   - `RAGSearchTool.execute()` 内のキーワードフィルタリング機能（tools.py 116-125行、166-179行）がコメントアウトされています。
-   - 将来の有効化が検討されている可能性があります。
-
-2. **limit, score_threshold パラメータの使用**:
-   - `RAGSearchTool.execute()` のパラメータ `limit`, `score_threshold` が定義されていますが、現在の実装では `search_rag_knowledge_base_structured` に直接渡されていません。
-
-3. **KeywordExtractor の現状**:
-   - `RAGSearchTool.__init__` で初期化されていますが、キーワードフィルタリング機能がコメントアウトされているため現在未使用。
-
-4. **Google CSE非推奨**:
-   - `google_cse` バックエンドは新規受付停止のため非推奨。`serpapi` または `duckduckgo` の使用を推奨。
