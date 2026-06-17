@@ -104,6 +104,10 @@ class InterventionConfig(BaseModel):
     default_timeout: int = 300  # 5分
     auto_proceed_on_timeout: bool = False
     max_clarification_rounds: int = 3
+    # 対話モード。True なら CONFIRM で一時停止して確認を求める（UI/streaming 想定）。
+    # ブロッキング実行（execute_plan）は非対話のため CONFIRM では停止せず自動進行する
+    # （ESCALATE は常に停止）。
+    interactive: bool = True
 
 
 class ReplanConfig(BaseModel):

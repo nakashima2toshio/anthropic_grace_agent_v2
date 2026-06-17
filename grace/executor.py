@@ -165,6 +165,9 @@ class Executor:
         self._memory = None
         if getattr(self.config, "memory", None) and self.config.memory.enabled:
             self._memory = create_execution_memory(self.config.memory.path)
+        # 非対話（ブロッキング）実行フラグ。execute_plan() の間だけ True にし、
+        # CONFIRM 介入で一時停止せず自動進行させる（ESCALATE は常に停止）。
+        self._noninteractive = False
 
         # コールバック
         self.on_step_start = on_step_start
@@ -200,6 +203,21 @@ class Executor:
             f"Executor (GRACE Native) initialized: "
             f"tools={self.tool_registry.list_tools()}, replan={replan_status}"
         )
+
+    def _should_pause_for_intervention(self, level: InterventionLevel) -> bool:
+        """介入で一時停止すべきか判定する。
+
+        - ESCALATE: 常に停止（ユーザー入力が必須）。
+        - CONFIRM : 対話モード（config.intervention.interactive）かつ非ブロッキング時のみ停止。
+          ブロッキング execute_plan（非対話）では停止せず自動進行し、後続の reasoning まで
+          完走して final_answer を生成する。
+        """
+        if level == InterventionLevel.ESCALATE:
+            return True
+        if level == InterventionLevel.CONFIRM:
+            interactive = getattr(self.config.intervention, "interactive", True)
+            return interactive and not self._noninteractive
+        return False
 
     def execute_plan_generator(
             self,
@@ -348,8 +366,8 @@ class Executor:
                     confidence_score = self.step_confidence_scores[step.step_id]
                     action_decision = self.confidence_calculator.decide_action(confidence_score)
 
-                    # CONFIRM または ESCALATE の場合は一時停止
-                    if action_decision.level in [InterventionLevel.CONFIRM, InterventionLevel.ESCALATE]:
+                    # 一時停止判定（非対話/ブロッキングでは CONFIRM は自動進行・ESCALATE は停止）
+                    if self._should_pause_for_intervention(action_decision.level):
                         logger.info(f"Pausing for intervention: {action_decision.level} (Step {step.step_id})")
 
                         state.is_paused = True
@@ -448,6 +466,9 @@ class Executor:
         """
         logger.info(f"Executing plan (blocking): {plan.plan_id}, steps={len(plan.steps)}")
 
+        # ブロッキング実行は非対話。CONFIRM 介入で停止すると再開手段が無く
+        # final_answer が生成されないため、自動進行モードで実行する（ESCALATE は停止）。
+        self._noninteractive = True
         gen = self._dispatch_generator(plan)
         try:
             while True:
@@ -457,6 +478,8 @@ class Executor:
                     logger.info(event.get("content"))
         except StopIteration as e:
             return e.value
+        finally:
+            self._noninteractive = False
 
     def _dispatch_generator(
             self, plan: ExecutionPlan
@@ -617,7 +640,7 @@ class Executor:
                 # Controller: 介入判定（既存 decide_action を再利用）
                 if conf_score is not None:
                     action_decision = self.confidence_calculator.decide_action(conf_score)
-                    if action_decision.level in [InterventionLevel.CONFIRM, InterventionLevel.ESCALATE]:
+                    if self._should_pause_for_intervention(action_decision.level):
                         logger.info(
                             f"ReAct: pausing for intervention {action_decision.level} "
                             f"(step {step.step_id})"
