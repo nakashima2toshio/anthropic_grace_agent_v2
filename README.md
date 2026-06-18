@@ -18,7 +18,7 @@
 ![confidence](assets/confidence.png)
 
 → 介入判定（Intervention）
-![intervention](assets/)
+![intervention](assets/intervention.png)
 - （作図）作成中
 
 → リプラン（Replan）
