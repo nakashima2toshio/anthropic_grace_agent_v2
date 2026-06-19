@@ -5,7 +5,7 @@
 > バージョン: v2.0
 > 最終更新: 2026-06-17
 
-![react_refrection](assets/react_refrection.png)
+![react_refrection](assets/planner_auto.png)
 # Agent RAG システム
 
 本システムは、「自律型 RAG エージェント」および統合管理プラットフォームです。
@@ -16,22 +16,6 @@ StreamlitベースのUIを通じて、データの取得・ベクトル化から
 > **補足:** 本書が対象とするのは `agent_rag.py` を起点とする **ReAct + Reflection エージェント** です。
 > `grace/` 配下に実装された **GRACE 自律エージェント (Plan + Executor)** は別アーキテクチャであり、
 > 詳細は [`readme_autonomous_agent.md`](readme_autonomous_agent.md) を参照してください。
-
-> ## ⚠️ 重要: この ReAct エージェントの LLM クライアントについて
->
-> プロジェクト全体の標準 LLM は **Anthropic Claude (`claude-sonnet-4-6`)** ですが、
-> 本書が対象とする **レガシー `ReActAgent` (`services/agent_service.py`) は Gemini ネイティブの
-> function-calling に依存しています**。具体的には:
->
-> - `google-genai` SDK を **直接** 利用します（`genai.Client` / `client.chats.create` / `chat.send_message`）。
->   `helper/helper_llm.py` の `AnthropicClient` や `grace/llm_compat.py` は **経由しません**。
-> - レスポンスは `candidates[0].content.parts` を走査し、`part.text` / `part.function_call` を解析します
->   （Anthropic の `stop_reason == "tool_use"` 方式ではありません）。
-> - モデル名が `gemini` で始まらない場合（例: `claude-sonnet-4-6`）は、Gemini エンドポイントで失敗するため
->   **レガシー既定 `gemini-2.5-flash` へ自動フォールバック** し、警告ログを出します。
-> - したがって本エージェントの推論ロールは事実上 **Gemini** です（IPO 詳細は
->   [`grace/doc/react_reasoning.md`](grace/doc/react_reasoning.md) を参照）。
-> - **Embedding は Gemini `gemini-embedding-001`（3072次元）** で共通です。
 
 **主な特徴と技術的工夫:**
 ```text
@@ -50,7 +34,6 @@ StreamlitベースのUIを通じて、データの取得・ベクトル化から
 4. スマート検索（キャッシュ + 並列検索）:
    　　前回成功コレクションを優先しつつ、キャッシュミス時は全コレクションを並列検索。
 ```
-
 ## 目次
 
 ## RAG Q/A 生成・検索システム
