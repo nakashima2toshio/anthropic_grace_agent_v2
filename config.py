@@ -487,7 +487,8 @@ class AgentConfig:
     RAG_SCORE_THRESHOLD: float = 0.50  # 検索結果として採用する最小スコア (0.7 -> 0.5に緩和)
 
     # エージェントモデル設定
-    MODEL_NAME: str = GeminiConfig.DEFAULT_MODEL
+    # [MIGRATION gemini→anthropic] 既定 LLM を Anthropic Claude に統一
+    MODEL_NAME: str = ModelConfig.DEFAULT_MODEL
 
     # ロギング設定
     CHAT_LOG_FILE_NAME: str = "agent_chat.log"
@@ -502,8 +503,9 @@ class LLMProviderConfig:
     """LLMプロバイダー設定"""
 
     # デフォルトプロバイダー
-    DEFAULT_LLM_PROVIDER: str = "gemini"  # "openai" or "gemini"
-    DEFAULT_EMBEDDING_PROVIDER: str = "gemini"  # "openai" or "gemini"
+    # [MIGRATION gemini→anthropic] LLM は Anthropic、Embedding は Gemini 維持
+    DEFAULT_LLM_PROVIDER: str = "anthropic"  # "anthropic" / "openai" / "gemini"
+    DEFAULT_EMBEDDING_PROVIDER: str = "gemini"  # Embedding は Gemini（gemini-embedding-001）
 
     @classmethod
     def get_embedding_dims(cls, provider: Optional[str] = None) -> int:

@@ -347,7 +347,7 @@ class UnifiedLLMClient:
     def __init__(self, provider: str = None, **kwargs):
         """
         Args:
-            provider: "gemini" or "openai"（Noneの場合はデフォルト）
+            provider: "anthropic" / "openai" / "gemini"（Noneの場合はデフォルト＝anthropic）
             **kwargs: プロバイダー固有の初期化パラメータ
         """
         self.provider = provider or DEFAULT_LLM_PROVIDER
@@ -437,15 +437,15 @@ def create_llm_client(provider: str = None, **kwargs) -> UnifiedLLMClient:
     統合LLMクライアントのファクトリ関数
 
     Args:
-        provider: "gemini" or "openai"
+        provider: "anthropic" / "openai" / "gemini"（既定は anthropic）
         **kwargs: クライアント初期化パラメータ
 
     Returns:
         UnifiedLLMClientインスタンス
 
     Example:
-        # Geminiクライアント
-        client = create_llm_client("gemini")
+        # Anthropic クライアント（既定）
+        client = create_llm_client("anthropic")
 
         # OpenAIクライアント
         client = create_llm_client("openai")
