@@ -1,14 +1,15 @@
-# agent_services.py
-import os
+# agent_service.py
+# [MIGRATION gemini→anthropic] google.genai (chats.create / send_message / function_call)
+#   ベースの ReActAgent を Anthropic (create_llm_client("anthropic")) + Tool Use
+#   (generate_with_tools / stop_reason=="tool_use") ベースへ全面移行。
+#   - LLM は Anthropic Claude（既定 claude-sonnet-4-6）。Embedding は Gemini 維持。
+#   - 会話履歴は self._messages で自前管理（Anthropic はステートレス設計）。
 import uuid
 from typing import Any, Dict, Generator, List, Optional
 
-from google import genai  # 新しいSDK
-from google.genai import types  # 新しいSDK
-
-# Configuration and Tools
+# noqa: F401  レガシーテストの patch ターゲットとして残置
 from qdrant_client import (
-    QdrantClient,  # noqa: F401  (レガシーテストの patch ターゲット)
+    QdrantClient,  # noqa: F401
 )
 
 from agent_tools import (
@@ -17,6 +18,10 @@ from agent_tools import (
     search_rag_knowledge_base,
     search_rag_knowledge_base_cached,
 )
+
+# [MIGRATION] from google import genai / from google.genai import types を削除
+# [MIGRATION] AnthropicClient を helper_llm 経由で使用
+from helper.helper_llm import ToolUseResponse, create_llm_client
 from qdrant_client_wrapper import get_qdrant_client
 
 # 設定サービスからロガーと設定を取得
@@ -50,7 +55,7 @@ SYSTEM_INSTRUCTION_TEMPLATE = """
 必ず以下の形式で思考を出力してから、ツールを呼び出してください。
 **Thought: [なぜ検索が必要か、どんなクエリで検索するか]**
 (この後にツール呼び出しが行われます)
-**重要: 
+**重要:
 - 検索クエリを作成する際は、提供された「重要キーワード」を必ず含めてください。
 - `collection_name` パラメータは絶対に指定しないでください。システムが自動的に全コレクションから最適なものを選択します。**
 
@@ -84,7 +89,7 @@ SYSTEM_INSTRUCTION_TEMPLATE = """
         *   **並列検索**: キャッシュミス時は全コレクションを同時並列検索
         *   **スコアベース選択**: 最もスコアが高い結果を自動的に返す
     *   あなたは `query` パラメータのみを指定してください。例: `search_rag_knowledge_base(query="カリン・フォン・アロルディンゲン")`
-    *   
+    *
     *   **参考: 利用可能なコレクション（自動選択されます）**
         *   `cc_news`: 英語のニュース記事
         *   `wikipedia_ja`: 日本語の百科事典
@@ -144,27 +149,23 @@ class ReActAgent:
         use_hybrid_search: bool = True  # ★追加: ハイブリッド検索フラグ
     ):
         self.selected_collections = selected_collections
-        # モデル名はconfig_serviceから取得（デフォルト）
-        resolved_model = model_name or get_config("models.default", "gemini-2.5-flash")
-        # 安全デカップル: このレガシー ReActAgent は Gemini ネイティブの
-        # function-calling（chats.create(tools=...) / function_call）に依存しているため、
-        # Gemini 以外（例: GRACE 本体既定の claude-sonnet-4-6）が渡されると
-        # Gemini エンドポイントに Claude モデル名を投げて失敗する。
-        # その場合は Gemini 既定モデルへ自動回避し、警告を出す。
-        legacy_default = get_config("models.legacy_default", "gemini-2.5-flash")
-        if not str(resolved_model).lower().startswith("gemini"):
-            logger.warning(
-                f"ReActAgent(legacy) は Gemini ネイティブ function-calling 専用のため、"
-                f"非 Gemini モデル '{resolved_model}' を Gemini 既定 '{legacy_default}' へ回避します。"
-            )
-            resolved_model = legacy_default
-        self.model_name = resolved_model
+        # [MIGRATION] モデルデフォルト: "claude-sonnet-4-6"
+        self.model_name = model_name or get_config("models.default", "claude-sonnet-4-6")
         self.session_id = session_id or str(uuid.uuid4())
-        self.use_hybrid_search = use_hybrid_search  # ★追加: インスタンス変数として保持
+        self.use_hybrid_search = use_hybrid_search
 
-        # クライアントとチャットの初期化
-        self.client = self._setup_client()
-        self.chat = self._create_chat()
+        # [MIGRATION] AnthropicClient (via create_llm_client)
+        # チャットセッション管理は messages リストで自前管理するため、
+        # _setup_client() / _create_chat() は廃止。
+        self.llm = create_llm_client("anthropic", default_model=self.model_name)
+
+        # [MIGRATION] Anthropic はステートレス設計のため、会話履歴を self._messages で管理する。
+        # execute_turn() の先頭でリセットされる。
+        self._messages: List[Dict[str, Any]] = []
+
+        # システムプロンプトとツール定義を事前構築
+        self.system_instruction: str = self._build_system_instruction()
+        self.tools: List[Dict[str, Any]] = self._build_tools()
 
         self.thought_log: List[str] = []
 
@@ -185,44 +186,62 @@ class ReActAgent:
             f"model: {self.model_name}, use_hybrid_search: {self.use_hybrid_search}"
         )
 
-    def _setup_client(self) -> genai.Client:
+    # [MIGRATION] _setup_client() / _create_chat() を廃止。
+    # APIキー管理は create_llm_client("anthropic") 内部で ANTHROPIC_API_KEY を参照する。
+
+    def _build_system_instruction(self) -> str:
+        """システムプロンプトを構築する。
+
+        [MIGRATION] _create_chat() の system_instruction 部分を独立メソッドに分離。
+        Anthropic は system= パラメータで渡すため、chat セッションとは切り離す。
         """
-        新しいGoogle GenAI SDKクライアントのセットアップ
-        config_service.pyから設定を取得
-        """
-        # config_serviceから取得（環境変数も自動処理される）
-        api_key = get_config("api.google_api_key")
-
-        # フォールバック：環境変数から直接取得
-        if not api_key:
-            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
-        if not api_key:
-            error_msg = get_config("error_messages.api_key_missing", "APIキーが設定されていません")
-            logger.error(f"{error_msg}: GEMINI_API_KEY or GOOGLE_API_KEY")
-            raise ValueError(f"{error_msg}: GEMINI_API_KEY or GOOGLE_API_KEY not set.")
-
-        logger.debug(f"Initializing GenAI client with API key: {api_key[:10]}...")
-        return genai.Client(api_key=api_key)
-
-    def _create_chat(self):
-        """チャットセッションの作成"""
-        collections_str = ", ".join(self.selected_collections) if self.selected_collections else "(コレクションが見つかりません)"
-        system_instruction = SYSTEM_INSTRUCTION_TEMPLATE.format(available_collections=collections_str)
-
-        # ツールリスト
-        tools_list = [search_rag_knowledge_base, list_rag_collections]
-
-        # 新しいSDKでのチャット作成（最新仕様: types.GenerateContentConfig使用）
-        logger.debug(f"Creating chat session with model: {self.model_name}")
-        chat = self.client.chats.create(
-            model=self.model_name,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                tools=tools_list
-            )
+        collections_str = (
+            ", ".join(self.selected_collections)
+            if self.selected_collections
+            else "(コレクションが見つかりません)"
         )
-        return chat
+        return SYSTEM_INSTRUCTION_TEMPLATE.format(available_collections=collections_str)
+
+    def _build_tools(self) -> List[Dict[str, Any]]:
+        """ツール定義を Anthropic Tool Use 形式（input_schema）で構築する。
+
+        [MIGRATION] Gemini 形式 (Python 関数参照) → Anthropic Tool Use 形式 (dict リスト)。
+          - "parameters" キー → "input_schema" キー
+          - Python 関数参照 → プレーンな dict
+        """
+        return [
+            {
+                "name"        : "search_rag_knowledge_base",
+                "description" : (
+                    "社内ドキュメント（Qdrant）から関連情報をベクトル検索する。"
+                    "プロジェクト固有の仕様・設定・エラー・社内規定・Wikipedia・ニュース記事など"
+                    "専門知識が必要な質問に対して使用する。"
+                    "collection_name は指定しないこと（システムが自動選択する）。"
+                ),
+                "input_schema": {
+                    "type"      : "object",
+                    "properties": {
+                        "query": {
+                            "type"       : "string",
+                            "description": (
+                                "検索クエリ。ユーザーの質問から具体的なキーワードを抽出して作成する。"
+                                "固有名詞・専門用語は原文のまま含めること。"
+                            )
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name"        : "list_rag_collections",
+                "description" : "利用可能な Qdrant コレクションの一覧を取得する。",
+                "input_schema": {
+                    "type"      : "object",
+                    "properties": {},
+                    "required"  : []
+                }
+            }
+        ]
 
     def execute_turn(self, user_input: str) -> Generator[Dict[str, Any], None, None]:
         """
@@ -230,6 +249,8 @@ class ReActAgent:
         進捗状況をイベントとしてyieldするジェネレータ。
         """
         self.thought_log = []
+        # [MIGRATION] ターン開始時に会話履歴をリセット（Anthropic はステートレス設計）
+        self._messages = []
         logger.info(f"Starting agent turn. Session: {self.session_id}, Input: {user_input[:100]}...")
 
         # --- Phase 1: ReAct Loop ---
@@ -258,15 +279,23 @@ class ReActAgent:
         yield {"type": "final_answer", "content": final_answer}
 
     def _execute_react_loop(self, user_input: str) -> Generator[Dict[str, Any], None, None]:
-        """ReActループを実行し、各ステップのイベントをyieldする"""
-        # 重要単語抽出とプロンプト拡張
+        """
+        ReAct ループを Anthropic Tool Use 形式で実装。
+
+        generate_with_tools() が返す ToolUseResponse (NamedTuple) を使用し、
+        assistant_content の手動再構築は不要。
+          - result.assistant_message: response.content をそのまま保持
+          - result.tool_calls:        ツール呼び出しリスト
+          - result.stop_reason:       ループ継続判定
+          - 会話履歴は self._messages で管理（ターン開始時にリセット）
+        """
+        # --- キーワード抽出とプロンプト拡張 ---
         augmented_input = user_input
         if self.keyword_extractor:
             try:
                 keywords = self.keyword_extractor.extract(user_input, top_n=5)
                 if keywords:
                     keywords_str = ", ".join(keywords)
-                    # Phase 4 STEP 10 改善: プロンプトを具体化
                     augmented_input = (
                         f"{user_input}\n\n"
                         f"【重要: 検索クエリ作成の指示】\n"
@@ -281,140 +310,146 @@ class ReActAgent:
             except Exception as e:
                 logger.warning(f"Keyword extraction failed during turn: {e}")
 
-        # メッセージ送信
-        current_response = self.chat.send_message(message=augmented_input)
+        # [MIGRATION] Anthropic: messages リストで会話履歴を管理
+        # Gemini の chat.send_message(augmented_input) に相当する初期化
+        self._messages.append({"role": "user", "content": augmented_input})
 
         max_turns = get_config("agent.max_turns", 10)
-        turn_count = 0
         final_text_from_react = ""
 
-        while turn_count < max_turns:
-            turn_count += 1
+        for turn_count in range(1, max_turns + 1):
             logger.debug(f"ReAct turn {turn_count}/{max_turns}")
-            function_call_found = False
-            current_turn_text_from_model = ""
 
-            # レスポンスの処理
-            if current_response.candidates and len(current_response.candidates) > 0:
-                candidate = current_response.candidates[0]
+            # [MIGRATION] LLM 呼び出し（戻り値は ToolUseResponse (NamedTuple)）
+            result: ToolUseResponse = self.llm.generate_with_tools(
+                messages   = self._messages,
+                tools      = self.tools,
+                system     = self.system_instruction,
+                max_tokens = get_config("agent.max_tokens", 4096),
+            )
 
-                if candidate.content and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        # テキスト部分の処理
-                        if hasattr(part, 'text') and part.text:
-                            text = part.text.strip()
-                            if "Thought:" in text or "考え:" in text:
-                                self.thought_log.append(f"🧠 **Thought:**\n{text}")
-                                yield {"type": "log", "content": f"🧠 **Thought:**\n{text}"}
-                                current_turn_text_from_model = text
-                            else:
-                                current_turn_text_from_model = text
+            # テキスト部分のログ出力（Thought / 通常テキスト）
+            if result.text and ("Thought:" in result.text or "考え:" in result.text):
+                self.thought_log.append(f"🧠 **Thought:**\n{result.text}")
+                yield {"type": "log", "content": f"🧠 **Thought:**\n{result.text}"}
 
-                        # 関数呼び出しの処理
-                        if hasattr(part, 'function_call') and part.function_call:
-                            function_call_found = True
-                            fn = part.function_call
-                            tool_name = fn.name
-                            tool_args = dict(fn.args) if hasattr(fn, 'args') else {}
-
-                            logger.info(f"Agent Tool Call: {tool_name}({tool_args})")
-                            self.thought_log.append(f"🛠️ **Tool Call:** `{tool_name}`\nArgs: `{tool_args}`")
-                            yield {"type": "tool_call", "name": tool_name, "args": tool_args}
-
-                            tool_result = ""
-                            try:
-                                if tool_name in TOOLS_MAP:
-                                    # search_rag_knowledge_base の場合はキャッシュ版を使用
-                                    if tool_name == 'search_rag_knowledge_base':
-                                        # ★変更: use_hybrid_search パラメータを渡す
-                                        tool_result = search_rag_knowledge_base_cached(
-                                            query=tool_args.get('query', ''),
-                                            session_id=self.session_id,
-                                            collection_name=tool_args.get('collection_name'),
-                                            use_hybrid_search=self.use_hybrid_search  # ★追加
-                                        )
-                                    else:
-                                        tool_result = TOOLS_MAP[tool_name](**tool_args)
-                                else:
-                                    tool_result = f"Error: Tool '{tool_name}' not found."
-                            except RAGToolError as e:
-                                tool_result = f"エラーが発生しました: {str(e)}"
-                                logger.error(f"RAG Tool Error during '{tool_name}': {e}")
-                            except Exception as e:
-                                tool_result = f"予期せぬエラー: {str(e)}"
-                                logger.error(f"Unexpected error during tool '{tool_name}': {e}", exc_info=True)
-
-                            log_tool_result = str(tool_result)[:500] + "..." if len(str(tool_result)) > 500 else str(
-                                tool_result)
-                            self.thought_log.append(f"📝 **Tool Result:**\n{log_tool_result}")
-                            yield {"type": "tool_result", "content": log_tool_result}
-                            logger.info(f"Tool Result: {log_tool_result}")
-
-                            if isinstance(tool_result, str) and tool_result.startswith("[[NO_RAG_RESULT"):
-                                reason = "NO_RESULT"
-                                if "LOW_SCORE" in tool_result:
-                                    reason = "LOW_SCORE"
-                                collection_arg = tool_args.get('collection_name', 'unknown')
-                                log_unanswered_question(
-                                    query=user_input,
-                                    collections=[collection_arg],
-                                    reason=reason,
-                                    agent_response="(Search Failed)"
-                                )
-
-                            # ツール結果を送信（新しいSDK形式）
-                            # tool_nameを明示的にstrにキャスト（型エラー回避）
-                            function_response_part = types.Part.from_function_response(
-                                name=str(tool_name),
-                                response={'result': tool_result}
-                            )
-
-                            # 最新SDK: Partオブジェクトを直接渡す
-                            # (Content型はsend_messageで受け付けないため、Partを使用)
-                            current_response = self.chat.send_message(
-                                message=function_response_part
-                            )
-                            break
-
-            if not function_call_found:
-                final_text_from_react = current_turn_text_from_model
+            # ツール呼び出し検出: stop_reason == "tool_use" + tool_calls で判定
+            if result.stop_reason != "tool_use" or not result.tool_calls:
+                # ツール呼び出しなし → 最終回答
+                final_text_from_react = result.text
                 break
+
+            # --- ツール呼び出し処理 ---
+            # assistant ターンを会話履歴に追記（response.content をそのまま保持）
+            self._messages.append(result.assistant_message)
+
+            # 複数ツールの同時呼び出しに対応。全ツール結果を同一 user メッセージにまとめて追記
+            tool_results_content: List[Dict[str, Any]] = []
+
+            for tc in result.tool_calls:
+                tool_name = tc["name"]
+                tool_args = tc["input"]
+                tool_id   = tc["id"]
+
+                logger.info(f"Agent Tool Call: {tool_name}({tool_args})")
+                self.thought_log.append(f"🛠️ **Tool Call:** `{tool_name}`\nArgs: `{tool_args}`")
+                yield {"type": "tool_call", "name": tool_name, "args": tool_args}
+
+                tool_result = ""
+                try:
+                    if tool_name in TOOLS_MAP:
+                        if tool_name == "search_rag_knowledge_base":
+                            tool_result = search_rag_knowledge_base_cached(
+                                query             = tool_args.get("query", ""),
+                                session_id        = self.session_id,
+                                collection_name   = tool_args.get("collection_name"),
+                                use_hybrid_search = self.use_hybrid_search,
+                            )
+                        else:
+                            tool_result = TOOLS_MAP[tool_name](**tool_args)
+                    else:
+                        tool_result = f"Error: Tool '{tool_name}' not found."
+                except RAGToolError as e:
+                    tool_result = f"エラーが発生しました: {str(e)}"
+                    logger.error(f"RAG Tool Error during '{tool_name}': {e}")
+                except Exception as e:
+                    tool_result = f"予期せぬエラー: {str(e)}"
+                    logger.error(f"Unexpected error during tool '{tool_name}': {e}", exc_info=True)
+
+                log_tool_result = (
+                    str(tool_result)[:500] + "..."
+                    if len(str(tool_result)) > 500
+                    else str(tool_result)
+                )
+                self.thought_log.append(f"📝 **Tool Result:**\n{log_tool_result}")
+                yield {"type": "tool_result", "content": log_tool_result}
+                logger.info(f"Tool Result: {log_tool_result}")
+
+                # NO_RAG_RESULT ログ
+                if isinstance(tool_result, str) and tool_result.startswith("[[NO_RAG_RESULT"):
+                    reason = "LOW_SCORE" if "LOW_SCORE" in tool_result else "NO_RESULT"
+                    log_unanswered_question(
+                        query          = user_input,
+                        collections    = [tool_args.get("collection_name", "unknown")],
+                        reason         = reason,
+                        agent_response = "(Search Failed)"
+                    )
+
+                # [MIGRATION] Anthropic: tool_result を tool_results_content に蓄積
+                # {"type":"tool_result", "tool_use_id":..., "content":...}
+                tool_results_content.append({
+                    "type"       : "tool_result",
+                    "tool_use_id": tool_id,          # LLM が返した id と必ず一致させる
+                    "content"    : str(tool_result),
+                })
+
+            # [MIGRATION] 全ツール結果を1件の user メッセージとして追記
+            self._messages.append({"role": "user", "content": tool_results_content})
+            # → 次のループで generate_with_tools() が更新済み messages を受け取る
 
         yield {"type": "final_text", "content": final_text_from_react}
 
     def _execute_reflection_phase(self, draft_answer: str) -> Generator[Dict[str, Any], None, str]:
-        """Reflectionフェーズを実行し、修正後の回答を返す"""
+        """
+        [MIGRATION] Reflection フェーズを Anthropic 版に書き換え。
+
+        Gemini との主な差異:
+          - self.chat.send_message(reflection_msg)
+              → self.llm.generate_with_tools(tools=[]) で Tool Use なし呼び出し
+          - response.candidates[0].content.parts 走査
+              → ToolUseResponse.text を直接利用（走査不要）
+          - 会話履歴: self._messages に reflection_msg を追記してコンテキストを維持
+        """
         final_response_text = draft_answer
         try:
             reflection_msg = f"{REFLECTION_INSTRUCTION}\n\n**あなたの回答案:**\n{draft_answer}"
-            reflection_response = self.chat.send_message(message=reflection_msg)
 
-            reflection_text = ""
-
-            # レスポンスからテキストを抽出
-            if reflection_response.candidates and len(reflection_response.candidates) > 0:
-                candidate = reflection_response.candidates[0]
-                if candidate.content and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'text') and part.text:
-                            reflection_text += part.text
-                        elif hasattr(part, 'function_call') and part.function_call:
-                            logger.warning("Reflection phase generated a function call, ignoring.")
+            # [MIGRATION] generate_with_tools(tools=[]) を使い、self._messages を全件渡して
+            # ReAct ループの検索結果・思考ログを引き継いだまま推敲する（ハルシネーション抑制）。
+            self._messages.append({"role": "user", "content": reflection_msg})
+            result: ToolUseResponse = self.llm.generate_with_tools(
+                messages   = self._messages,
+                tools      = [],                # Tool Use なし（Reflection ではツール不要）
+                system     = self.system_instruction,
+                model      = self.model_name,
+                max_tokens = get_config("agent.reflection_max_tokens", 2048),
+            )
+            reflection_text = result.text
 
             if not reflection_text:
                 logger.warning("Reflection phase did not generate text.")
                 return draft_answer
 
             reflection_thought = ""
-            reflection_answer = ""
+            reflection_answer  = ""
 
             if "Final Answer:" in reflection_text:
                 parts = reflection_text.split("Final Answer:", 1)
                 reflection_thought = parts[0].strip()
-                reflection_answer = parts[1].strip()
+                reflection_answer  = parts[1].strip()
             else:
                 reflection_thought = "Format mismatch in reflection."
-                reflection_answer = reflection_text
+                reflection_answer  = reflection_text
 
             if reflection_thought:
                 clean_thought = reflection_thought.replace("Thought:", "").strip()
@@ -429,6 +464,10 @@ class ReActAgent:
             if reflection_answer:
                 final_response_text = reflection_answer
                 logger.info(f"Reflection Answer: {reflection_answer[:100]}...")
+
+            # Reflection 応答を会話履歴に追記（次回ターンへの引き継ぎ用）
+            if reflection_text:
+                self._messages.append(result.assistant_message)
 
         except Exception as e:
             logger.error(f"Error during reflection phase: {e}")

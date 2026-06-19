@@ -567,9 +567,10 @@ async def chunks_all_async(
     """テキストを3段階で意味的にチャンク化"""
     import os
 
-    api_key = os.getenv("GOOGLE_API_KEY")
+    # [MIGRATION gemini→anthropic] チャンク化の LLM は Anthropic Claude を使用する。
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise ValueError("GOOGLE_API_KEYが設定されていません")
+        raise ValueError("ANTHROPIC_API_KEYが設定されていません")
 
     client = AsyncAPIClient(
         api_key=api_key,

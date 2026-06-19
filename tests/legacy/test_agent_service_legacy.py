@@ -22,6 +22,15 @@ from services.agent_service import (
     get_available_collections_from_qdrant_helper,
 )
 
+# [MIGRATION gemini→anthropic] 本ファイルは google.genai
+# (services.agent_service.genai / chats.create / function_call) を patch する
+# レガシーテスト。ReActAgent は Anthropic Tool Use へ移行済みのため現行コードと
+# 整合しない。Anthropic 版ユニットテストは tests/services/test_agent_service.py を参照。
+# collection 時の patch エラー回避のためモジュール全体を skip する。
+pytestmark = pytest.mark.skip(
+    reason="Legacy Gemini-based agent tests; superseded by tests/services/test_agent_service.py after Anthropic migration."
+)
+
 # モックGeminiレスポンス用のヘルパークラス
 #
 # 新しい google-genai SDK では応答は

@@ -1,15 +1,20 @@
 """
 LLMクライアント抽象化レイヤー
 
-OpenAI API と Gemini API の両方に対応する統一インターフェースを提供。
-google.genai (新パッケージ) に対応。
+本プロジェクトの LLM 既定は Anthropic（Claude）。Anthropic / OpenAI / Gemini の
+3プロバイダーに対応する統一インターフェースを提供する。
+  - テキスト生成: generate_content()
+  - 構造化出力: generate_structured()
+  - Tool Use（ReAct ループ）: generate_with_tools() / build_tool_result_message()
+Embedding は別モジュール（helper_embedding）が担当し、本モジュールは LLM 生成のみ。
+Gemini は後方互換のため残置（google.genai は GeminiClient 内で遅延 import）。
 """
 
 import json
 import logging
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, NamedTuple, Optional, Type
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -96,6 +101,21 @@ EMBEDDING_DIMS = {
 }
 
 DEFAULT_LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
+
+
+class ToolUseResponse(NamedTuple):
+    """generate_with_tools() の戻り値。
+
+    text:              LLM のテキスト応答
+    tool_calls:        [{"name":..., "input":..., "id":...}, ...]
+    stop_reason:       "tool_use" | "end_turn" | "stop" | "length"
+    assistant_message: {"role": "assistant", "content": response.content}
+                       会話履歴 (_messages) にそのまま追記できる形式
+    """
+    text: str
+    tool_calls: List[Dict[str, Any]]
+    stop_reason: str
+    assistant_message: Dict[str, Any]
 
 
 class LLMClient(ABC):
@@ -305,6 +325,73 @@ class AnthropicClient(LLMClient):
         # tiktoken による近似（Anthropic 専用トークナイザは未使用）
         encoding = tiktoken.get_encoding("cl100k_base")
         return len(encoding.encode(text))
+
+    def generate_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system: str = "",
+        model: Optional[str] = None,
+        max_tokens: int = 4096,
+    ) -> ToolUseResponse:
+        """Tool Use を含む ReAct ループの 1 ステップを実行する（Anthropic 形式）。
+
+        Anthropic Messages API の Tool Use（input_schema 形式のツール定義）を用い、
+        stop_reason=="tool_use" でツール呼び出しを検出する。tools=[] を渡すと
+        ツールなしの純粋なテキスト生成（Reflection など）として動作する。
+        """
+        model_name = model or self.default_model
+
+        create_kwargs: Dict[str, Any] = {
+            "model": model_name,
+            "max_tokens": max_tokens,
+            "tools": tools,
+            "messages": messages,
+        }
+        if system:
+            create_kwargs["system"] = system
+
+        response = self._get_client().messages.create(**create_kwargs)
+        usage = getattr(response, "usage", None)
+        self.last_usage = {
+            "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+            "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+        }
+
+        tool_calls = [
+            {"name": b.name, "input": b.input, "id": b.id}
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+        text = " ".join(b.text for b in response.content if b.type == "text")
+        assistant_message = {"role": "assistant", "content": response.content}
+
+        return ToolUseResponse(
+            text=text,
+            tool_calls=tool_calls,
+            stop_reason=response.stop_reason,
+            assistant_message=assistant_message,
+        )
+
+    def build_tool_result_message(
+        self,
+        tool_calls: List[Dict[str, Any]],
+        results: List[str],
+    ) -> Dict[str, Any]:
+        """ツール実行結果を Anthropic の tool_result メッセージ形式へ変換する。
+
+        Anthropic 仕様: 同一ターンの全ツール結果を1つの user メッセージに
+        まとめ、各ブロックの tool_use_id を LLM が返した id と一致させる。
+        """
+        content = [
+            {
+                "type": "tool_result",
+                "tool_use_id": tc["id"],
+                "content": result,
+            }
+            for tc, result in zip(tool_calls, results)
+        ]
+        return {"role": "user", "content": content}
 
 
 def create_llm_client(provider: str = None, **kwargs) -> LLMClient:
