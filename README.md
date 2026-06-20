@@ -10,6 +10,7 @@
 
 * 系統B（メニューの: 自律型Agent(最新：動的Agent)) ＝ 「最新」表記の推奨版
 ・経路は動的、計画を状況に合わせて組み替える（高機能・自律適応）。
+![a_b](assets/AI_Agent_a_b.png)
 
 ### 計画策定（Plan）
 ![plan](assets/planner_auto.png)
