@@ -109,6 +109,7 @@
 - (2-2) RAG: Chunkデータの作成
 - (2-3) RAG: Qdrant(ベクターDB)への登録、検索
 ![データ・ダウンロード]
+![ダウンロード](assets/huggingface_download.png)
 ### HuggingFace Data Download概要
 - `down_load_non_qa_rag_data_from_huggingface.py`は、HuggingFace Hub および直接ダウンロードによる
 - 非Q&A型データセットの取得・検証・前処理を行う Streamlit Web アプリケーション。
