@@ -70,15 +70,17 @@
 | 3 | [docs/uv_install.md](./docs/uv_install.md)（uv パッケージ管理） | `pyproject.toml`, `uv.lock` | `requirements.txt` |
 | 4 | [down_load_non_qa_rag_data_from_huggingface.md](./down_load_non_qa_rag_data_from_huggingface.md)（RAGデータ取得） | `down_load_non_qa_rag_data_from_huggingface.py` | `datasets/` 配下 |
 | 5 | [readme_usage_tools.md](./readme_usage_tools.md)（RAGツール操作手順） | `chunking/csv_text_to_chunks_text_csv.py`, `qa_qdrant/make_qa_register_qdrant.py`, `qa_qdrant/register_to_qdrant.py` | `chunking/*`（`async_api_client.py`, `checkpoint_manager.py`, `prompts.py` 等）, `qa_qdrant/make_qa.py` |
-| 6 | [readme_rag.md](./readme_rag.md)（RAG Q/A生成・検索システム設計） | `chunking/`, `qa_generation/`（`semantic.py`, `smart_qa_generator.py`, `pipeline.py`, `evaluation.py`）, `qa_qdrant/`, `qdrant_client_wrapper.py` | `helper/helper_rag*.py`, `helper/helper_embedding*.py`, `services/qdrant_service.py`, `models.py` |
-| 7 | [docs/agent_rag.md](./docs/agent_rag.md)（Streamlitアプリ設計書） | `agent_rag.py` | `ui/app.py`, `ui/pages/*`（`grace_chat_page.py`, `agent_chat_page.py`, `qdrant_*` 等）, `ui/components/*` |
-| 8 | [readme_react_reflection.md](./readme_react_reflection.md)（ReAct+Reflectionエージェント） | `services/agent_service.py`（`ReActAgent`） | `agent_main.py`, `agent_tools.py`, `agent_parallel_search.py`, `agent_cache.py`, `ui/pages/agent_chat_page.py`, `services/qa_service.py`, `services/qdrant_service.py`, `helper/helper_llm.py`, `helper/helper_embedding*.py` |
-| 9 | [readme_autonomous_agent.md](./readme_autonomous_agent.md)（自律型Agent — GRACE） | `grace/` パッケージ（`planner.py`, `executor.py`, `confidence.py`, `intervention.py`, `replan.py`, `calibration.py`, `llm_compat.py`, `schemas.py`, `config.py`, `tools.py`） | `grace/benchmark.py`, `ui/pages/grace_chat_page.py`, `ui/components/grace_components.py` |
+| 6 | [docs/agent_a_b.md](./docs/agent_a_b.md)（系統A/系統B エージェント比較） | `services/agent_service.py`（`ReActAgent`＝系統A）, `grace/`（`planner.py`, `executor.py`＝系統B） | `ui/pages/agent_chat_page.py`, `ui/pages/grace_chat_page.py`, `grace/confidence.py`, `grace/replan.py`, `grace/tools.py`, `agent_rag.py` |
+| 7 | [readme_rag.md](./readme_rag.md)（RAG Q/A生成・検索システム設計） | `chunking/`, `qa_generation/`（`semantic.py`, `smart_qa_generator.py`, `pipeline.py`, `evaluation.py`）, `qa_qdrant/`, `qdrant_client_wrapper.py` | `helper/helper_rag*.py`, `helper/helper_embedding*.py`, `services/qdrant_service.py`, `models.py` |
+| 8 | [docs/agent_rag.md](./docs/agent_rag.md)（Streamlitアプリ設計書） | `agent_rag.py` | `ui/app.py`, `ui/pages/*`（`grace_chat_page.py`, `agent_chat_page.py`, `qdrant_*` 等）, `ui/components/*` |
+| 9 | [readme_react_reflection.md](./readme_react_reflection.md)（ReAct+Reflectionエージェント） | `services/agent_service.py`（`ReActAgent`） | `agent_main.py`, `agent_tools.py`, `agent_parallel_search.py`, `agent_cache.py`, `ui/pages/agent_chat_page.py`, `services/qa_service.py`, `services/qdrant_service.py`, `helper/helper_llm.py`, `helper/helper_embedding*.py` |
+| 10 | [readme_autonomous_agent.md](./readme_autonomous_agent.md)（自律型Agent — GRACE） | `grace/` パッケージ（`planner.py`, `executor.py`, `confidence.py`, `intervention.py`, `replan.py`, `calibration.py`, `llm_compat.py`, `schemas.py`, `config.py`, `tools.py`） | `grace/benchmark.py`, `ui/pages/grace_chat_page.py`, `ui/components/grace_components.py` |
 
 **補足:**
 
-- `agent_rag.py` は Streamlit アプリのエントリで、`ui/pages/` 配下の各ページを束ねます。README.md（#0）と docs/agent_rag.md（#7）はこのアプリ層が主対象です。
-- #8（ReAct+Reflection）と #9（GRACE）は別系統のエージェントです。ReAct は `services/agent_service.py`（google-genai 直叩き＋Reflection フェーズ・レガシー経路で、モデル名は Gemini 系へ自動フォールバック）、GRACE は `grace/` パッケージ（Plan→Execute→Confidence→Intervention→Replan、`grace/llm_compat.py` 経由で Anthropic Claude 既定）。
+- `agent_rag.py` は Streamlit アプリのエントリで、`ui/pages/` 配下の各ページを束ねます。README.md（#0）と docs/agent_rag.md（#8）はこのアプリ層が主対象です。
+- #6（系統A/系統B 比較）は両エージェントの違いをまとめた対比ドキュメントです。
+- #9（ReAct+Reflection）と #10（GRACE）は別系統のエージェントです。ReAct は `services/agent_service.py`（`create_llm_client("anthropic")` + Anthropic Tool Use `generate_with_tools`／`stop_reason=="tool_use"` の ReAct ループ＋Reflection フェーズ）、GRACE は `grace/` パッケージ（Plan→Execute→Confidence→Intervention→Replan、`grace/llm_compat.py` 経由で Anthropic Claude 既定）。いずれも LLM は Anthropic Claude（既定 `claude-sonnet-4-6`）。
 - 技術スタック規約：LLM = Anthropic Claude（`claude-sonnet-4-6`、`grace/llm_compat.py` 経由）、Embedding = Gemini（`gemini-embedding-001`・3072次元）。ただしチャンキング/Q&A 生成の CLI ツール（`chunking/`・`qa_qdrant/`）は argparse 既定が `gemini-2.5-flash` で、`--model claude-sonnet-4-6` で上書き可能。
 
 ---
