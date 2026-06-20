@@ -6,9 +6,10 @@
 ![自律型Agent](assets/ReActAgent.png)
 ##### 2つのエージェントの位置づけ（メニュー順・ラベル）:
 * 系統A `agent_chat`:  `"Agent(ReAct+Reflection)"` ＝ メニューで先に並ぶ標準版
-　　　　　　　　　　　　　経路は静的、「いつ止めるか」をLLMが動的に決める（単純・LLM任せ）
+・経路は静的、「いつ止めるか」をLLMが動的に決める（単純・LLM任せ）
 * 系統B `grace_chat`:  `"[最新] 自律型Agent(Plan+Executor)"` ＝ 「最新」表記の推奨版
-　　　　　　　　　　　　　経路は動的（コードが決める）、計画を状況に合わせて組み替える（高機能・自律適応）。
+・経路は動的（コードが決める）、計画を状況に合わせて組み替える（高機能・自律適応）。
+
 
 ・計画策定（Plan）
 ![plan](assets/planner_auto.png)
