@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系統A vs 系統B エージェント比較インフォグラフィック — anthropic_grace_agent_v2</title>
+<style>
+  :root{
+    --bg:#0b0b0d; --panel:#16161a; --panel2:#1f1f25; --line:#3a3a44;
+    --txt:#f3f3f5; --mut:#a9a9b6;
+    --a:#4aa3ff; --a-soft:#12273d;   /* 系統A: 青 */
+    --b:#46d39a; --b-soft:#10301f;   /* 系統B: 緑 */
+    --warn:#ffd166; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 50% -10%, #15151b, var(--bg));
+    color:var(--txt);font-family:"Segoe UI","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+    line-height:1.6;padding:32px 16px 60px}
+  .wrap{max-width:1120px;margin:0 auto}
+  header.hero{text-align:center;margin-bottom:28px}
+  header.hero h1{font-size:30px;margin:0 0 8px;letter-spacing:.5px}
+  header.hero h1 .a{color:var(--a)} header.hero h1 .b{color:var(--b)}
+  header.hero p{color:var(--mut);margin:4px 0;font-size:14px}
+  code{background:#000;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.86em;color:#e6e6ea}
+  .cmd{display:inline-block;background:#000;border:1px solid var(--line);border-radius:8px;
+    padding:8px 14px;color:#cfe8ff;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;margin-top:6px}
+
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:26px 0}
+  @media(max-width:780px){.cards{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .card.A{border-top:4px solid var(--a)} .card.B{border-top:4px solid var(--b)}
+  .card .head{padding:18px 20px;display:flex;align-items:center;gap:12px}
+  .card.A .head{background:linear-gradient(180deg,var(--a-soft),transparent)}
+  .card.B .head{background:linear-gradient(180deg,var(--b-soft),transparent)}
+  .badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .card.A .badge{background:var(--a);color:#04203b} .card.B .badge{background:var(--b);color:#053021}
+  .card .head .ic{font-size:30px}
+  .card .head h2{font-size:18px;margin:0}
+  .card .head h2 small{display:block;font-weight:400;color:var(--mut);font-size:12px;margin-top:2px}
+  .card .body{padding:6px 20px 20px}
+  .lead{color:var(--txt);font-size:14px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px;margin:10px 0 14px}
+  .kv{display:flex;gap:8px;font-size:13px;margin:6px 0;color:var(--mut)}
+  .kv b{color:var(--txt);min-width:78px;display:inline-block}
+  .steps{list-style:none;padding:0;margin:12px 0 6px;counter-reset:s}
+  .steps li{position:relative;padding:8px 10px 8px 38px;margin:8px 0;background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;font-size:13px;counter-increment:s}
+  .steps li::before{content:counter(s);position:absolute;left:8px;top:50%;transform:translateY(-50%);
+    width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#000}
+  .card.A .steps li::before{background:var(--a)} .card.B .steps li::before{background:var(--b)}
+  .loop{font-size:11px;color:var(--mut);text-align:center;margin:2px 0 8px}
+  .dyn{margin-top:12px;border-radius:10px;padding:10px 12px;font-size:12.5px}
+  .card.A .dyn{background:var(--a-soft);border:1px solid #1f4d77}
+  .card.B .dyn{background:var(--b-soft);border:1px solid #1c5e3f}
+  .dyn b{color:#fff}
+
+  h3.sec{font-size:18px;margin:34px 0 12px;padding-left:10px;border-left:4px solid #6b6bff}
+  table{width:100%;border-collapse:collapse;font-size:13px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{background:#101016;font-size:12px;letter-spacing:.4px}
+  thead th.colA{color:var(--a)} thead th.colB{color:var(--b)}
+  tbody tr:nth-child(even){background:#131318}
+  td.k{color:var(--mut);font-weight:600;width:22%}
+  .yes{color:var(--b);font-weight:700} .no{color:var(--bad);font-weight:700}
+  .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut)}
+
+  .use{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  @media(max-width:780px){.use{grid-template-columns:1fr}}
+  .use .box{border-radius:14px;padding:16px 18px;border:1px solid var(--line);background:var(--panel)}
+  .use .box.A{border-left:4px solid var(--a)} .use .box.B{border-left:4px solid var(--b)}
+  .use h4{margin:0 0 8px;font-size:15px} .use.A h4{color:var(--a)}
+  .use .box ul{margin:0;padding-left:18px;font-size:13px;color:var(--txt)}
+  .use .box li{margin:5px 0}
+
+  .base{margin-top:30px;background:var(--panel);border:1px dashed var(--line);border-radius:14px;
+    padding:16px 18px;display:flex;flex-wrap:wrap;gap:10px 22px;justify-content:center;font-size:13px;color:var(--mut)}
+  .base b{color:var(--txt)}
+  .rel{margin-top:18px;text-align:center;font-size:13px;color:var(--mut)}
+  .rel .tag{color:var(--a);font-weight:700} .rel .tag2{color:var(--b);font-weight:700}
+  footer{margin-top:34px;text-align:center;color:#70707e;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <h1><span class="a">系統A: ReAct + Reflection</span> &nbsp;vs&nbsp; <span class="b">系統B: GRACE 動的Agent</span></h1>
+    <p>2種類のRAGエージェント機構を比較 — <code>anthropic_grace_agent_v2</code></p>
+    <p>共通エントリ（左メニューで切替）</p>
+    <div class="cmd">uv run streamlit run agent_rag.py --server.port 8501</div>
+  </header>
+
+  <!-- 2カード -->
+  <section class="cards">
+    <!-- 系統A -->
+    <div class="card A">
+      <div class="head">
+        <span class="ic">🤖</span>
+        <div>
+          <span class="badge">系統A</span>
+          <h2 style="margin-top:6px">自立型 Agent（ReAct + Reflection）<small>agent_chat → ReActAgent（services/agent_service.py）</small></h2>
+        </div>
+      </div>
+      <div class="body">
+        <div class="lead">LLM が「思考→行動→観察」を反復し、<b>毎ターン自分でツール要否を判断</b>。最後に Reflection で推敲する2段構成。</div>
+        <div class="kv"><b>制御方式</b><span>LLM主導（毎ターン判断）</span></div>
+        <div class="kv"><b>ツール定義</b><span><code>_build_tools()</code> に dict スキーマ直書き（<code>input_schema</code>）</span></div>
+        <ol class="steps">
+          <li>入力拡張：MeCab で重要キーワード注入</li>
+          <li><code>generate_with_tools()</code> で LLM に問い合わせ</li>
+          <li><b>stop_reason == tool_use</b> ならツール実行 → 履歴に追記</li>
+        </ol>
+        <div class="loop">↑ tool_use の間は②へループ（最大 max_turns）／ end_turn で抜ける</div>
+        <ol class="steps" start="4" style="counter-reset:s 3">
+          <li>Phase2 Reflection：<code>tools=[]</code> で自己評価・推敲 → Final Answer</li>
+        </ol>
+        <div class="dyn">⚡ <b>動的の正体</b>：「ループを続けるか・どのツールをどのクエリで呼ぶか」を<b>LLMが毎ターン決める</b>（構造 ReAct→Reflection は固定）</div>
+      </div>
+    </div>
+
+    <!-- 系統B -->
+    <div class="card B">
+      <div class="head">
+        <span class="ic">🧭</span>
+        <div>
+          <span class="badge">系統B ［最新］</span>
+          <h2 style="margin-top:6px">自律型 Agent（GRACE / Plan + Execute）<small>grace_chat → Planner + Executor（grace/）</small></h2>
+        </div>
+      </div>
+      <div class="body">
+        <div class="lead">先に<b>実行計画を立て</b>、1ステップずつ実行しながら、結果に応じて<b>フォールバック・SKIP・リプラン・人間介入</b>を行う自律適応型。</div>
+        <div class="kv"><b>制御方式</b><span>計画主導（Plan→Execute）＋実行時適応</span></div>
+        <div class="kv"><b>ツール定義</b><span><code>BaseTool</code> クラス＋<code>ToolRegistry</code> 登録</span></div>
+        <ol class="steps">
+          <li><b>Plan</b>：複雑度推定 → 単純=ルールベース / 複雑=LLM計画</li>
+          <li><b>Execute</b>：依存チェック＋並列先行検索 → ツール実行 → 信頼度算出</li>
+          <li><b>動的フォールバック</b>：RAG不足なら web_search、失敗なら ask_user／十分なら SKIP</li>
+          <li><b>動的介入</b>：信頼度で SILENT / NOTIFY / CONFIRM / ESCALATE</li>
+          <li><b>動的リプラン</b>：失敗・低信頼度で計画を作り直す（最大3回）</li>
+        </ol>
+        <div class="dyn">⚡ <b>動的の正体</b>：「どの経路を通り、失敗したらどう立て直すか」を<b>コードのルール（スコア / 成功失敗 / 信頼度）</b>が状況適応で決める</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 比較表 -->
+  <h3 class="sec">📊 処理の比較・違い</h3>
+  <table>
+    <thead>
+      <tr><th>観点</th><th class="colA">系統A — ReAct+Reflection</th><th class="colB">系統B — GRACE 動的Agent</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">制御方式</td><td>LLM主導（毎ターン判断）</td><td>計画主導（Plan→Execute）＋実行時適応</td></tr>
+      <tr><td class="k">事前計画</td><td><span class="no">なし</span>（その場で判断）</td><td><span class="yes">あり</span>（複雑度で rule / LLM 切替）</td></tr>
+      <tr><td class="k">判断主体</td><td><b>LLM</b></td><td><b>コードのルール</b>（一部 LLM 補助）</td></tr>
+      <tr><td class="k">「動的」の正体</td><td>ループ継続/終了・ツール要否（<code>stop_reason</code>）</td><td>経路切替・SKIP・リプラン・介入</td></tr>
+      <tr><td class="k">フォールバック</td><td><span class="no">なし</span></td><td><span class="yes">あり</span>（rag→web→ask_user）</td></tr>
+      <tr><td class="k">失敗時のやり直し</td><td><span class="no">なし</span>（max_turns で打ち切り）</td><td><span class="yes">あり</span>（リプラン最大3回）</td></tr>
+      <tr><td class="k">Human-in-the-loop</td><td><span class="no">なし</span></td><td><span class="yes">あり</span>（CONFIRM / ESCALATE）</td></tr>
+      <tr><td class="k">並列検索</td><td><span class="no">なし</span>（逐次）</td><td><span class="yes">あり</span>（先行プリフェッチ）</td></tr>
+      <tr><td class="k">品質担保</td><td>Reflection（自己評価・推敲）</td><td>多軸信頼度 ＋ リプラン ＋ 介入</td></tr>
+      <tr><td class="k">透明性表示</td><td>Thought / ツール呼び出しログ</td><td>計画(Plan) ＋ 実行ログ(Execute) ＋ 複雑度</td></tr>
+      <tr><td class="k">レイテンシ/コスト</td><td><span class="pill">中</span> ターン数依存</td><td><span class="pill">低〜高</span> 単純=LLMゼロ / 複雑=計画+リプラン</td></tr>
+    </tbody>
+  </table>
+
+  <!-- 使い分け -->
+  <h3 class="sec">🎯 使い分けの指針</h3>
+  <div class="use A">
+    <div class="box A">
+      <h4 style="color:var(--a)">系統A が向くケース</h4>
+      <ul>
+        <li>単発の Q&amp;A、検索→回答が素直なタスク</li>
+        <li>思考過程（Thought）を見せたいデモ</li>
+        <li>軽量・素早い応答を優先したいとき</li>
+      </ul>
+    </div>
+    <div class="box B">
+      <h4 style="color:var(--b)">系統B が向くケース</h4>
+      <ul>
+        <li>複数ステップ・複数情報源を跨ぐ調査</li>
+        <li>検索失敗時に Web / ユーザー確認へ自動切替したい</li>
+        <li>信頼度に応じた人間介入、計画と実行の可視化が欲しい</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 関係 -->
+  <div class="rel">🔗 関係：<span class="tag">系統A</span> は基盤。<span class="tag2">系統B</span> は実行中に <code>run_legacy_agent</code> ステップで<span class="tag">系統A</span>を1手段として<b>内包しうる</b>（上位）。</div>
+
+  <!-- 共通基盤 -->
+  <div class="base">
+    <span>🧠 LLM：<b>Anthropic Claude</b>（<code>claude-sonnet-4-6</code>）</span>
+    <span>🔢 Embedding：<b>Gemini</b>（<code>gemini-embedding-001</code>・3072次元）</span>
+    <span>🗄️ Vector DB：<b>Qdrant</b></span>
+    <span>🖥️ UI：<b>Streamlit</b>（agent_rag.py）</span>
+  </div>
+
+  <footer>anthropic_grace_agent_v2 — agent_a_b インフォグラフィック ｜ v1.0 ｜ 出典: docs/agent_a_b.md</footer>
+</div>
+</body>
+</html>
