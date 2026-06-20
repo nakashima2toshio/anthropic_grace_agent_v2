@@ -40,10 +40,11 @@
 > | 3 | [uv パッケージマネージャー (docs/uv_install.md)](./docs/uv_install.md) | pip → uv 移行・仮想環境管理手順 |
 > | 4 | [RAG データ取得ガイド (down_load_non_qa_rag_data_from_huggingface.md)](./down_load_non_qa_rag_data_from_huggingface.md) | RAG データを HuggingFace からダウンロード・前処理する手順 |
 > | 5 | [RAG ツール使用ガイド (readme_usage_tools.md)](./readme_usage_tools.md) | チャンク作成 → Q/A 生成・Qdrant 登録 → Agent 検索の操作手順 |
-> | 6 | [RAG Q/A 生成・検索システム (readme_rag.md)](./readme_rag.md) | RAG パイプライン全体の設計・クラス・関数 IPO 詳細（セマンティックチャンキング / Q&A 生成 / Qdrant 検索） |
-> | 7 | [Streamlit アプリ設計書 (docs/agent_rag.md)](./docs/agent_rag.md) | agent_rag.py のアーキテクチャ・ページ構成・Anthropic Claude 設定・モデル一覧 |
-> | 8 | [ReAct+Reflection エージェント (readme_react_reflection.md)](./readme_react_reflection.md) | ReAct（Reasoning+Acting）ループ + Reflection 自己評価による自律型 RAG エージェントの設計と実装 |
-> | 9 | [自律型 Agent — GRACE (readme_autonomous_agent.md)](./readme_autonomous_agent.md) | GRACE（Plan→Execute→Confidence→Intervention→Replan）アーキテクチャの設計・IPO 詳細 |
+> | 6 | [自立型/自律型 Agent 比較 (docs/agent_a_b.md)](./docs/agent_a_b.md) | 系統A(ReAct+Reflection) と 系統B(GRACE/最新・動的Agent) のアーキテクチャ・処理フロー・違いの比較 |
+> | 7 | [RAG Q/A 生成・検索システム (readme_rag.md)](./readme_rag.md) | RAG パイプライン全体の設計・クラス・関数 IPO 詳細（セマンティックチャンキング / Q&A 生成 / Qdrant 検索） |
+> | 8 | [Streamlit アプリ設計書 (docs/agent_rag.md)](./docs/agent_rag.md) | agent_rag.py のアーキテクチャ・ページ構成・Anthropic Claude 設定・モデル一覧 |
+> | 9 | [ReAct+Reflection エージェント (readme_react_reflection.md)](./readme_react_reflection.md) | ReAct（Reasoning+Acting）ループ + Reflection 自己評価による自律型 RAG エージェントの設計と実装 |
+> | 10 | [自律型 Agent — GRACE (readme_autonomous_agent.md)](./readme_autonomous_agent.md) | GRACE（Plan→Execute→Confidence→Intervention→Replan）アーキテクチャの設計・IPO 詳細 |
 >
 > **技術参考資料**
 >
