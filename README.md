@@ -4,15 +4,27 @@
 - 計画策定（Plan） → 実行（Execute）- → 信頼度評価（Confidence） → 介入判定（Intervention） → リプラン（Replan）
 
 ![自律型Agent](assets/ReActAgent.png)
-##### 2つのエージェントの位置づけ（メニュー順・ラベル）:
-* 系統A `agent_chat`:  `"Agent(ReAct+Reflection)"` ＝ メニューで先に並ぶ標準版
+##### 2つのエージェントの位置づけ（メニュー・ラベル）:
+* 系統A（メニューの: Agent(ReAct+Reflection)) ＝ メニューで先に並ぶ標準版
 ・経路は静的、「いつ止めるか」をLLMが動的に決める（単純・LLM任せ）
-* 系統B `grace_chat`:  `"[最新] 自律型Agent(Plan+Executor)"` ＝ 「最新」表記の推奨版
-・経路は動的（コードが決める）、計画を状況に合わせて組み替える（高機能・自律適応）。
+
+* 系統B（メニューの: 自律型Agent(最新：動的Agent)) ＝ 「最新」表記の推奨版
+・経路は動的、計画を状況に合わせて組み替える（高機能・自律適応）。
 
 
 ・計画策定（Plan）
 ![plan](assets/planner_auto.png)
+## Planner概要
+`planner.py`は、GRACE自律エージェントの「計画生成（Plan）」層を担うモジュールです。ユーザーの質問を分析し、`rag_search` → `reasoning` を中心とした実行計画（`ExecutionPlan`）を生成します。計画生成は二層方式を採用しており、単純なクエリはルールベースで即時に計画を作り（LLM呼び出しなし）、複雑なクエリや明示的なWeb検索指示のあるクエリのみ LLM（Anthropic Claude）で計画を生成します。
+LLM 呼び出しは `grace/llm_compat.py` の `create_chat_client()` で生成したクライアント経由で行います。このクライアントは google-genai 互換の `client.models.generate_content(...)` インターフェースを保ったまま、内部では Anthropic Claude（既定 `claude-sonnet-4-6`、軽量用途 `claude-haiku-4-5-20251001`）を呼び出すアダプターです。Embedding（検索）は別途 Gemini `gemini-embedding-001`（3072次元）を使用します。
+
+### Planner主な責務
+- ユーザークエリの複雑度推定（キーワードベース / LLMベース）
+- 二層方式による実行計画の生成（ルールベース計画 / LLM計画の振り分け）
+- LLM（Anthropic Claude）を用いた実行計画の自動生成
+- 利用可能なコレクション（Qdrant）の動的取得
+- フィードバックに基づく計画の修正（リファインメント）
+- LLMエラー時のフォールバック計画の提供
 
 → 実行（Execute）
 ![executor](assets/executor.png)

@@ -159,8 +159,8 @@ def main():
             format_func=lambda x: {
                 "explanation": "📖 説明",
                 "qdrant_search": "🔎 Qdrant検索",
-                "agent_chat": "🤖 Agent(ReAct+Reflection)",
-                "grace_chat": "[最新] 自律型Agent(Plan+Executor)",
+                "agent_chat": "自立型Agent(ReAct+Reflection)",
+                "grace_chat": "自律型Agent(最新：動的Agent)",
                 "log_viewer": "📊 未回答ログ",
                 "rag_data_creation": "📄 RAGデータ作成",
                 "qdrant_crud": "🗄️ QdrantのCRUD",
