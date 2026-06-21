@@ -5,7 +5,7 @@
 > バージョン: v3.0
 > 最終更新: 2026-06-21
 
-![react_refrection](assets/react_refrection.png)
+![react_refrection](assets/planner_auto.png)
 # Agent RAG システム
 
 本システムは、「自律型 RAG エージェント」および統合管理プラットフォームです。
@@ -50,7 +50,6 @@ StreamlitベースのUIを通じて、データの取得・ベクトル化から
 4. スマート検索（キャッシュ + 並列検索）:
    　　前回成功コレクションを優先しつつ、キャッシュミス時は全コレクションを並列検索。
 ```
-
 ## 目次
 
 ## RAG Q/A 生成・検索システム

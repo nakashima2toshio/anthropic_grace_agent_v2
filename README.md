@@ -1,35 +1,146 @@
 # 自律型Agent + RAG (Anthropic Claude API版) プロジェクト
-#### (1) 自律型Agent　（Anthropic Claude API利用、スクラッチで作成）
-- (1-1) 計画策定（Plan）
-- → 実行（Execute）
-- → 信頼度評価（Confidence）
-- → 介入判定（Intervention）
-- → リプラン（Replan）
+#### (1) 自律型Agent（Anthropic Claude API利用、スクラッチで作成）
+- (1-1) 自立型Agentの全体ロジック・流れ
+- 計画策定（Plan） → 実行（Execute）- → 信頼度評価（Confidence） → 介入判定（Intervention） → リプラン（Replan）
 
 ![自律型Agent](assets/ReActAgent.png)
+##### 2つのエージェントの位置づけ（メニュー・ラベル）:
+* 系統A（メニューの: Agent(ReAct+Reflection)) ＝ メニューで先に並ぶ標準版
+・経路は静的、「いつ止めるか」をLLMが動的に決める（単純・LLM任せ）
 
-・計画策定（Plan）
+* 系統B（メニューの: 自律型Agent(最新：動的Agent)) ＝ 「最新」表記の推奨版
+・経路は動的、計画を状況に合わせて組み替える（高機能・自律適応）。
+![a_b](assets/AI_Agent_a_b.png)
+
+### 計画策定（Plan）
 ![plan](assets/planner_auto.png)
+## Planner概要
+- `planner.py`は、GRACE自律エージェントの「計画生成（Plan）」層を担うモジュールです。ユーザーの質問を分析し、`rag_search` → `reasoning` を中心とした実行計画（`ExecutionPlan`）を生成します。
+- 計画生成は二層方式を採用しており、単純なクエリはルールベースで即時に計画を作り（LLM呼び出しなし）、複雑なクエリや明示的なWeb検索指示のあるクエリのみ LLM（Anthropic Claude）で計画を生成します。
+- LLM 呼び出しは `grace/llm_compat.py` の `create_chat_client()` で生成したクライアント経由で行います。
+- このクライアントは google-genai 互換の `client.models.generate_content(...)` インターフェースを保ったまま、内部では Anthropic Claude（既定 `claude-sonnet-4-6`、軽量用途 `claude-haiku-4-5-20251001`）を呼び出すアダプターです。Embedding（検索）は別途 Gemini `gemini-embedding-001`（3072次元）を使用します。
 
-→ 実行（Execute）
+### Planner主な責務
+- ユーザークエリの複雑度推定（キーワードベース / LLMベース）
+- 二層方式による実行計画の生成（ルールベース計画 / LLM計画の振り分け）
+- LLM（Anthropic Claude）を用いた実行計画の自動生成
+- 利用可能なコレクション（Qdrant）の動的取得
+- フィードバックに基づく計画の修正（リファインメント）
+- LLMエラー時のフォールバック計画の提供
+
+### 実行（Execute）
 ![executor](assets/executor.png)
+## Executor概要
+- `executor.py`は、GRACE（Guided Reasoning with Adaptive Confidence Execution）エージェントの計画実行コンポーネントです。
+- Plannerが生成した`ExecutionPlan`を受け取り、各ステップを順次実行して結果を管理します。
+- LLM呼び出しは`grace/llm_compat.py`の互換クライアント（`create_chat_client`）経由で Anthropic Claude（デフォルト `claude-sonnet-4-6`）に委譲され、
+- Embedding は Gemini（`gemini-embedding-001`、3072次元）を継続利用します。
 
-→ 信頼度評価（Confidence）
+### Executor主な責務
+- 計画の順次実行（ブロッキング版／ジェネレータ版）
+- ステップ間の依存関係管理と検索ステップの並列プリフェッチ
+- ツールの呼び出しと結果管理（ToolRegistry経由、timeout制御付き）
+- RAG検索結果に基づく動的フォールバック連鎖（web_search／ask_user の動的挿入）
+- 信頼度（Confidence）の計算と評価（LLM版／Heuristic版／groundedness較正）
+- Human-in-the-Loop（HITL）介入処理（NOTIFY／CONFIRM／ESCALATE）
+- 失敗時・低信頼度時のリプラン連携（ReplanOrchestrator）
+- 実行状態の追跡とコールバック通知
+
+### 信頼度評価（Confidence）
 ![confidence](assets/confidence.png)
+## Confidence概要
+- `confidence.py` は、GRACE（Guided Reasoning with Adaptive Confidence Execution）における信頼度計算システムを実装するモジュールです。
+- ハイブリッド方式（重み付き平均 + LLM 自己評価 + 根拠妥当性検証）による多軸の信頼度算出と、
+- その結果に基づく介入レベル（自動進行〜ユーザー入力要求）の判定を担います。
 
-→ 介入判定（Intervention）
-![intervention](assets/)
-- （作図）作成中
+- LLM 呼び出しは `llm_compat.create_chat_client()` が返す genai 互換クライアント経由で行われ、
+- 本プロジェクトでは Anthropic Claude（既定 `claude-sonnet-4-6`）が実体となります。
+- 一方、ソース一致度計算の Embedding は Gemini（`gemini-embedding-001`、3072次元）を継続利用します。
 
-→ リプラン（Replan）
+### Confidence主な責務
+- RAG 検索品質・ツール成功率などの要素から多軸信頼度を計算する
+- LLM 自己評価により回答の確信度・網羅度を取得する
+- 複数ソース間の意味的一致度を計算する
+- 最終回答の各主張が引用ソースに支持されるか（groundedness）を検証する
+- 信頼度スコアに基づいて介入レベル（アクション）を決定する
+- 複数ステップの信頼度を集計する
+
+### 介入判定（Intervention）
+![intervention](assets/intervention.png)
+## Intervention概要
+- `intervention.py`は、GRACE（GRaded Autonomy and Confidence-based Escalation）フレームワークにおけるHITL（Human-in-the-Loop）介入システムを提供するモジュールです。
+- 信頼度に応じた4段階の介入レベル（SILENT、NOTIFY、CONFIRM、ESCALATE）を管理し、人間とAIの協調的な意思決定を実現します。
+
+- 本モジュールは純粋な介入制御ロジックであり、
+- LLM（Anthropic Claude `claude-sonnet-4-6`）やEmbedding（Gemini `gemini-embedding-001`）のAPIを直接呼び出しません。
+- 信頼度スコアやアクション決定（`ActionDecision`）は上流の `confidence.py` から受け取り、
+- 本モジュールはそれに応じた人間への介入要求とレスポンス処理に専念します。
+
+### Intervention主な責務
+- 信頼度レベルに応じた介入リクエストの生成
+- ユーザーからの介入レスポンスの処理
+- 計画確認フロー（確認→修正→実行）の管理
+- ユーザーフィードバックに基づく動的閾値調整
+- 介入履歴の記録と管理
+
+### リプラン（Replan）
 ![replan](assets/replanning.png)
+### Replan概要
+- `replan.py`は、GRACE自律エージェントの「動的リプランニング（Replan）」層を担うモジュールです。
+- ステップ実行の失敗・低信頼度・ユーザーフィードバック等のトリガーを検知し、
+- 状況に応じた戦略（全体再計画・部分再計画・フォールバック・スキップ・中断）で計画（`ExecutionPlan`）を動的に修正します。
+- 再計画の実体は `Planner.create_plan()` に委譲するため、
+- LLM（Anthropic Claude、既定 `claude-sonnet-4-6`）の呼び出しは `planner.py` を経由します。
+
+- 本モジュールは、リプラントリガー/戦略を表す `Enum`、
+- リプラン時の状態を保持するデータクラス、
+- 判定・戦略決定・計画再生成を行う `ReplanManager`、
+- Executor と統合して自動リプランフローを管理する `ReplanOrchestrator` から構成されます。
+
+### Replan主な責務
+- リプラントリガー（失敗・低信頼度・フィードバック・新情報・タイムアウト）の定義
+- リプラン戦略（全体・部分・フォールバック・スキップ・中断）の定義と選択
+- ステップ結果・ユーザーフィードバックからのリプラン要否判定
+- 戦略に応じた新しい実行計画の生成（Plannerへの委譲を含む）
+- フォールバックチェーン（rag_search ↔ web_search）の適用
+- Executor と統合した自動リプランフローの管理
 
 ## (2) Chunking（意味ある文章に分割する）
 - (2-1) 評価用データ：HuggingFaceからダウンロード
 - (2-2) RAG: Chunkデータの作成
 - (2-3) RAG: Qdrant(ベクターDB)への登録、検索
-![step123](assets/img_step1_2_3.png)
+![データ・ダウンロード]
+![ダウンロード](assets/huggingface_download.png)
+### HuggingFace Data Download概要
+- `down_load_non_qa_rag_data_from_huggingface.py`は、HuggingFace Hub および直接ダウンロードによる
+- 非Q&A型データセットの取得・検証・前処理を行う Streamlit Web アプリケーション。
+- RAG（Retrieval-Augmented Generation）パイプラインの入力データを準備するためのツールであり、
+- 日本語・英語の多様なデータセットに対応する。
+
+### データ・ダウンロード主な責務
+- HuggingFace Hub / 直接URL からのデータセットダウンロード
+- データセット種別に応じた品質検証（Wikipedia / ニュース / 学術 / コード）
+- RAG 用テキスト抽出・クレンジング・結合前処理
+- トークン使用量とコストの推定表示
+- CSV / TXT / JSON フォーマットでの出力・保存
+
+![チャンキング]
 ![RagデータDL・登録](assets/img_csv_text_to_chunks_text_csv.png)
+## 概要
+- `csv_text_to_chunks_text_csv.py` は、テキストまたは CSV ファイルを入力として受け取り、
+- LLM ベースの 3 段階アルゴリズム（階層構造化 → 意味的チャンキング → 文脈連続性チェック）で
+- 意味的なチャンクに分割するパイプラインモジュールです。
+- `asyncio` による並列化、`CheckpointManager` による再開機能、最終チャンクの最大トークン数強制
+- （Embedding の無言切り捨て防止）、CSV 出力時の改行正規化、メタデータ付き CSV と
+- シンプル CSV（`Text` カラムのみ）の二系統同時出力を提供します。
+
+### チャンキング・主な責務
+- 入力ファイル（`.txt` / `.csv`）の読み込みとテキスト抽出
+- 3 段階 LLM 処理（段落分割 / 意味的分割 / 連続性結合）の実行
+- `asyncio.gather` による並列 API 呼び出しと進捗表示（tqdm）
+- チェックポイントによる中断・再開のサポート
+- 最終チャンクの最大トークン数強制（Embedding 入力上限超過防止）
+- CSV 形式での保存（メタデータ付き + シンプル版）
 
 > **はじめにお読みください**
 >
