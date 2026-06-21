@@ -27,6 +27,9 @@ DEFAULT_ENCODING = "cl100k_base"
 
 # モデル別エンコーディング対応表
 MODEL_ENCODINGS = {
+    # Anthropic Claude（本プロジェクト既定 LLM。tiktokenでは近似）
+    "claude-sonnet-4-6": "cl100k_base",
+    "claude-haiku-4-5-20251001": "cl100k_base",
     # OpenAI GPT-4o系
     "gpt-4o": "cl100k_base",
     "gpt-4o-mini": "cl100k_base",
@@ -42,7 +45,7 @@ MODEL_ENCODINGS = {
     "o3-mini": "cl100k_base",
     "o4": "cl100k_base",
     "o4-mini": "cl100k_base",
-    # Gemini系 (tiktokenでは近似)
+    # Gemini系 (後方互換・tiktokenでは近似)
     "gemini-2.0-flash": "cl100k_base",
     "gemini-2.0-pro": "cl100k_base",
     "gemini-1.5-pro-latest": "cl100k_base",
@@ -51,10 +54,15 @@ MODEL_ENCODINGS = {
 
 # LLMモデル価格 ($/1000トークン)
 LLM_PRICING = {
+    # Anthropic Claude（本プロジェクト既定 LLM）
+    "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+    "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
+    # Gemini系（後方互換）
     "gemini-2.0-flash": {"input": 0.0001, "output": 0.0002},
     "gemini-2.0-pro": {"input": 0.002, "output": 0.004},
     "gemini-1.5-pro-latest": {"input": 0.0035, "output": 0.0105},
     "gemini-1.5-flash-latest": {"input": 0.00035, "output": 0.00105},
+    # OpenAI系（後方互換）
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4o": {"input": 0.005, "output": 0.015},
 }
@@ -68,6 +76,9 @@ EMBEDDING_PRICING = {
 
 # モデル制限
 MODEL_LIMITS = {
+    # Anthropic Claude（本プロジェクト既定 LLM）
+    "claude-sonnet-4-6": {"max_tokens": 200000, "max_output": 8192},
+    "claude-haiku-4-5-20251001": {"max_tokens": 200000, "max_output": 8192},
     "gpt-4o": {"max_tokens": 128000, "max_output": 4096},
     "gpt-4o-mini": {"max_tokens": 128000, "max_output": 4096},
     "gpt-4.1": {"max_tokens": 128000, "max_output": 4096},
