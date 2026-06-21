@@ -1,5 +1,7 @@
 # semantic.py 完全ガイド
 
+> **最終更新**: 2026-06-21（LLM 文脈の表記を Anthropic Claude に統一。Embedding は Gemini 維持）
+
 ## 概要
 
 `qa_generation/semantic.py` は、**セマンティック（意味的）分析とカバレッジ測定を行うモジュール**です。文書のセマンティックチャンク分割、埋め込みベクトル生成、コサイン類似度計算など、Q/A生成システムの基盤となる機能を提供します。
@@ -85,7 +87,7 @@ graph TB
     end
 
     subgraph "埋め込み生成"
-        J[チャンク/テキスト] --> K[Gemini API呼び出し]
+        J[チャンク/テキスト] --> K[Gemini Embedding API呼び出し]
         K --> L[L2正規化]
         L --> M[埋め込みベクトル]
     end
@@ -95,6 +97,12 @@ graph TB
         P[ベクトルB] --> O
         O --> Q[類似度スコア]
     end
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q default
+style "チャンク分割" fill:#1a1a1a,stroke:#fff,color:#fff
+style "埋め込み生成" fill:#1a1a1a,stroke:#fff,color:#fff
+style "類似度計算" fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -132,7 +140,7 @@ graph TB
 | 区分 | 内容 |
 |-----|------|
 | **Input** | `embedding_model`: str（埋め込みモデル名、デフォルト: "gemini-embedding-001"） |
-| **Process** | 1. 埋め込みクライアント初期化（Gemini）<br>2. 埋め込み次元数取得（3072）<br>3. LLMクライアント初期化（トークン計算用）<br>4. tiktokenエンコーダ初期化<br>5. MeCab利用可否チェック |
+| **Process** | 1. 埋め込みクライアント初期化（Gemini / gemini-embedding-001）<br>2. 埋め込み次元数取得（3072）<br>3. LLMクライアント初期化（Anthropic Claude・トークン計算用）<br>4. tiktokenエンコーダ初期化<br>5. MeCab利用可否チェック |
 | **Output** | SemanticCoverageインスタンス |
 
 #### プロセスフロー
@@ -145,6 +153,9 @@ flowchart TD
     D --> E[tiktoken初期化]
     E --> F[MeCab利用可否チェック]
     F --> G[インスタンス完成]
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class A,B,C,D,E,F,G default
 ```
 
 ---
@@ -186,6 +197,11 @@ flowchart TD
     L -->|Yes| M[_apply_chunk_overlap]
     L -->|No| N[チャンクリスト返却]
     M --> N
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class A,B,C,D,E,F,G,H,I,J,K,L,M,N default
+style "段落ベース分割" fill:#1a1a1a,stroke:#fff,color:#fff
+style "文ベース分割" fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 #### 出力構造

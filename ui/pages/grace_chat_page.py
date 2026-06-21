@@ -16,7 +16,7 @@ import pandas as pd
 import streamlit as st
 
 # Configuration and Services
-from config import AgentConfig, GeminiConfig
+from config import AgentConfig, ModelConfig
 from grace import (
     ExecutionPlan,
     ExecutionResult,
@@ -133,9 +133,9 @@ def show_grace_chat_page():
         # モデル選択
         selected_model = st.selectbox(
             "使用モデル (Model)",
-            options=GeminiConfig.AVAILABLE_MODELS,
-            index=GeminiConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
-            if AgentConfig.MODEL_NAME in GeminiConfig.AVAILABLE_MODELS else 0
+            options=ModelConfig.AVAILABLE_MODELS,
+            index=ModelConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
+            if AgentConfig.MODEL_NAME in ModelConfig.AVAILABLE_MODELS else 0
         )
 
         # コレクション一覧の取得（表示用・参考情報）

@@ -14,7 +14,6 @@ import pandas as pd
 import streamlit as st
 
 from helper.helper_llm import (
-    DEFAULT_LLM_PROVIDER,
     get_available_embedding_models,
     get_available_llm_models,
     get_embedding_model_pricing,
@@ -31,12 +30,9 @@ logger = logging.getLogger(__name__)
 def select_model(key: str = "model_selection") -> str:
     """モデル選択UI"""
     models = get_available_llm_models()
-    default_model = DEFAULT_LLM_PROVIDER
-
-    try:
-        default_index = models.index(default_model)
-    except ValueError:
-        default_index = 0
+    # 既定 LLM は Anthropic Claude（models[0] = claude-sonnet-4-6）。
+    # DEFAULT_LLM_PROVIDER はプロバイダー名のためモデル一覧には含まれない。
+    default_index = 0
 
     selected = st.sidebar.selectbox(
         "🤖 モデルを選択",
@@ -70,27 +66,25 @@ def show_model_info(selected_model: str) -> None:
             st.write(f"- 入力: ${pricing.get('input', 0.0):.5f}")
             st.write(f"- 出力: ${pricing.get('output', 0.0):.5f}")
 
-            # モデル特性（Geminiに特化）
-            if "gemini-2.0" in selected_model:
-                st.info("✨ Gemini 2.0 シリーズ")
-                st.caption("高速・高性能な次世代モデル")
-            elif "gemini-1.5" in selected_model:
-                st.info("💡 Gemini 1.5 シリーズ")
-                st.caption("長文コンテキスト・マルチモーダル対応")
-            elif "gpt" in selected_model:
-                st.info("⚙️ OpenAI互換モデル")
-                st.caption("OpenAI APIを介して利用可能")
+            # モデル特性（Anthropic Claude に特化）
+            if "claude-sonnet" in selected_model:
+                st.info("✨ Claude Sonnet シリーズ")
+                st.caption("推論・生成のバランスに優れた標準モデル")
+            elif "claude-haiku" in selected_model:
+                st.info("💡 Claude Haiku シリーズ")
+                st.caption("高速・低コストな軽量モデル")
+            elif "claude" in selected_model:
+                st.info("💬 Anthropic Claude モデル")
+                st.caption("Anthropic API を介して利用可能")
             else:
                 st.info("💬 その他のLLMモデル")
 
             # RAG用途での推奨度
             st.write("**RAG用途推奨度**")
-            if "flash" in selected_model:
+            if "claude-haiku" in selected_model:
                 st.success("✅ 最適（高速・コスト効率良好）")
-            elif "pro" in selected_model:
+            elif "claude-sonnet" in selected_model:
                 st.info("💡 高品質（詳細な推論に最適）")
-            elif "gpt" in selected_model:
-                st.info("💬 OpenAI互換（用途に応じて選択）")
             else:
                 st.info("💬 標準的な性能")
 
@@ -211,10 +205,9 @@ def show_usage_instructions(dataset_type: str) -> None:
     - **Gemini Embedding対応**: `gemini-embedding-001`等に最適化
     - **検索性能向上**: 意味的検索の精度向上
 
-    ### 💡 推奨モデル
-    - **コスト重視**: `gemini-2.0-flash`
-    - **品質重視**: `gemini-2.0-pro`
-    - **OpenAI互換**: `gpt-4o-mini`, `gpt-4o` （OpenAI APIキーが必要）
+    ### 💡 推奨モデル（LLM: Anthropic Claude）
+    - **コスト重視**: `claude-haiku-4-5-20251001`
+    - **品質重視**: `claude-sonnet-4-6`
     """
 
     # データセット特有の説明

@@ -415,7 +415,7 @@ def show_qdrant_search_page():
             if hits:
                 best_hit = hits[0]
                 st.divider()
-                st.subheader("🧠 AI応答（Gemini）")
+                st.subheader("🧠 AI応答（Anthropic Claude）")
 
                 best_payload = best_hit.payload or {}
                 best_question = best_payload.get("question", "")

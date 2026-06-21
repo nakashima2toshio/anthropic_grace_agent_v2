@@ -17,7 +17,11 @@ from helper.helper_llm import create_llm_client
 logger = logging.getLogger(__name__)
 
 class SemanticCoverage:
-    """意味的な網羅性を測定するクラス（Gemini API使用）"""
+    """意味的な網羅性を測定するクラス
+
+    Embedding は Gemini（gemini-embedding-001 / 3072次元）を使用し、
+    トークンカウント等の LLM 文脈は Anthropic Claude（統一クライアント）を使用する。
+    """
 
     def __init__(self, embedding_model="gemini-embedding-001"):
         self.embedding_model = embedding_model

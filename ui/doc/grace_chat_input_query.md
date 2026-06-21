@@ -1,6 +1,6 @@
 # grace_chat_input_query - ユーザークエリ入力〜Embedding処理 詳細設計ドキュメント
 
-**Version 1.1** | 最終更新: 2026-02-09
+**Version 1.2** | 最終更新: 2026-06-21
 
 ---
 
@@ -29,7 +29,7 @@
 
 - ユーザー入力テキストの受け取りとセッション状態への記録
 - ReActAgent への質問の委譲（`execute_turn`）
-- LLM（Gemini）による検索クエリの生成判断（Thought → Action）
+- LLM（Anthropic Claude）による検索クエリの生成判断（Thought → Action）
 - オプションのキーワード抽出によるクエリ拡張（MeCab/Regex）
 - Gemini Embedding API を用いた Dense ベクトル（3072次元）の生成
 - スパースベクトル（TF-IDF / BM25系）の生成（ハイブリッド検索有効時）
@@ -50,7 +50,7 @@
     ├─ (オプション) KeywordExtractor.extract(prompt) → キーワード拡張
     │
     ▼
-[Gemini LLM] → Thought → Action: search_rag_knowledge_base(query=...)
+[Anthropic Claude] → Thought → Action: search_rag_knowledge_base(query=...)
     │
     ▼
 [search_rag_knowledge_base_cached(query, session_id, ...)]
@@ -110,7 +110,7 @@ flowchart TB
     end
 
     subgraph LLM_LAYER["LLM層"]
-        GEMINI_CHAT["Gemini Chat API<br/>(検索判断・クエリ生成)"]
+        CLAUDE_CHAT["Anthropic Claude API<br/>(検索判断・クエリ生成)"]
         GEMINI_EMB["Gemini Embedding API<br/>(Dense Vector 3072D)"]
     end
 
@@ -133,8 +133,8 @@ flowchart TB
 
     UI_INPUT --> REACT
     REACT --> KW
-    REACT --> GEMINI_CHAT
-    GEMINI_CHAT -->|"Action: search_rag_knowledge_base"| CACHED
+    REACT --> CLAUDE_CHAT
+    CLAUDE_CHAT -->|"Action: search_rag_knowledge_base"| CACHED
     CACHED --> CACHE
     CACHED --> PARALLEL
     CACHED --> STRUCTURED
@@ -144,6 +144,15 @@ flowchart TB
     STRUCTURED --> QDRANT
     STRUCTURED --> COHERE
     REACT --> UI_DISPLAY
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class UI_INPUT,UI_DISPLAY,REACT,KW,CLAUDE_CHAT,GEMINI_EMB,CACHED,STRUCTURED,PARALLEL,CACHE,DENSE,SPARSE,QDRANT,COHERE default
+style CLIENT fill:#1a1a1a,stroke:#fff,color:#fff
+style AGENT fill:#1a1a1a,stroke:#fff,color:#fff
+style LLM_LAYER fill:#1a1a1a,stroke:#fff,color:#fff
+style SEARCH fill:#1a1a1a,stroke:#fff,color:#fff
+style EMBEDDING fill:#1a1a1a,stroke:#fff,color:#fff
+style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 データフロー
@@ -151,8 +160,8 @@ flowchart TB
 1. ユーザーが `st.chat_input()` で質問テキスト（prompt）を入力
 2. `ReActAgent.execute_turn(prompt)` に委譲
 3. （オプション）`KeywordExtractor.extract()` でキーワード抽出、プロンプトを拡張
-4. 拡張済みプロンプトを Gemini Chat API に送信
-5. Gemini が `Thought:` で思考し、`Action: search_rag_knowledge_base(query="...")` を決定
+4. 拡張済みプロンプトを Anthropic Messages API（Tool Use）に送信
+5. Claude が思考し、`tool_use`（`search_rag_knowledge_base(query="...")`）を決定（`stop_reason == "tool_use"`）
 6. ツール関数 `search_rag_knowledge_base_cached()` が呼び出される
 7. キャッシュチェック → コレクション決定
 8. `embed_query(query)` で Dense ベクトル（3072次元）を生成
@@ -343,7 +352,7 @@ def execute_turn(self, user_input: str) -> Generator[Dict[str, Any], None, None]
 | 項目 | 内容 |
 |------|------|
 | **Input** | `user_input: str` |
-| **Process** | 1. （オプション）KeywordExtractor でキーワードを抽出し、プロンプトを拡張<br>2. 拡張済みプロンプトを Gemini Chat API に送信<br>3. レスポンスの `parts` を解析（text / function_call）<br>4. `function_call` の場合、ツール名と引数を抽出<br>5. ツール関数を実行（`search_rag_knowledge_base` 等）<br>6. ツール結果を `function_response` として Gemini に返送<br>7. 最大10ターンまでループ<br>8. 最終テキストを Reflection フェーズで推敲 |
+| **Process** | 1. （オプション）KeywordExtractor でキーワードを抽出し、プロンプトを拡張<br>2. 拡張済みプロンプトを Anthropic Messages API（Tool Use）に送信<br>3. レスポンスの `content` ブロックを解析（text / tool_use）<br>4. `stop_reason == "tool_use"` の場合、ツール名と引数を抽出<br>5. ツール関数を実行（`search_rag_knowledge_base` 等）<br>6. ツール結果を `tool_result` ブロックとして Claude に返送<br>7. 最大10ターンまでループ<br>8. 最終テキストを Reflection フェーズで推敲 |
 | **Output** | `Generator[Dict]`: `{"type": "log"/"tool_call"/"tool_result"/"final_answer", "content": ...}` |
 
 > 📝 **注意**: `execute_turn` はジェネレータとして実装されており、各イベントを `yield` で逐次返却します。grace_chat_page.py はこのイベントをリアルタイムに UI に反映します。
@@ -606,7 +615,7 @@ def set(self, session_id: str, collection_name: str, score: float, query: str = 
 |-----|-------------|------|
 | `RAG_DEFAULT_COLLECTION` | (設定値) | デフォルト検索コレクション名 |
 | `RAG_SEARCH_LIMIT` | (設定値) | Rerank 後の最終取得件数 |
-| `MODEL_NAME` | (設定値) | デフォルト Gemini モデル名 |
+| `MODEL_NAME` | `claude-sonnet-4-6` | デフォルト LLM（Anthropic Claude）モデル名 |
 
 ### 5.2 CollectionCache 設定
 
@@ -652,7 +661,7 @@ for event in agent.execute_turn(prompt):
 # 3. 内部では以下が順に実行される:
 #    a. KeywordExtractor.extract("レベッカ・クローンについて教えてください")
 #       → ["レベッカ", "クローン"]
-#    b. Gemini LLM が Thought → Action を決定
+#    b. Anthropic Claude が Thought → Action（tool_use）を決定
 #    c. search_rag_knowledge_base_cached(query="レベッカ・クローン", session_id="...")
 #    d. embed_query("レベッカ・クローン") → [0.012, -0.034, ...] (3072D)
 #    e. embed_sparse_query_unified("レベッカ・クローン") → sparse vector
@@ -730,7 +739,7 @@ flowchart LR
     PARALLEL["agent_parallel_search.py"]
 
     subgraph EXTERNAL["外部API"]
-        GEMINI_CHAT["Gemini Chat API"]
+        CLAUDE_CHAT["Anthropic Messages API<br/>(Claude / Tool Use)"]
         GEMINI_EMB["Gemini Embedding API"]
         QDRANT["Qdrant Vector DB"]
         COHERE["Cohere Rerank API"]
@@ -743,7 +752,7 @@ flowchart LR
     GRACE --> AGENT_SVC
     AGENT_SVC --> TOOLS
     AGENT_SVC --> MECAB
-    AGENT_SVC --> GEMINI_CHAT
+    AGENT_SVC --> CLAUDE_CHAT
     TOOLS --> WRAPPER
     TOOLS --> CACHE
     TOOLS --> PARALLEL

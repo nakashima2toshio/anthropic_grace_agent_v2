@@ -1,6 +1,8 @@
 
 ## pipeline.py 完全ガイド（v3.0）
 
+> **最終更新**: 2026-06-21（LLM を Anthropic Claude へ統一。Embedding は Gemini 維持）
+
 ## アーキテクチャ概要
 
 ```
@@ -124,7 +126,7 @@ QAPipeline
 ├──────────────────────────────────────────┤
 │  Infrastructure Layer                    │
 │  ├─ Celery (並列処理)                     │
-│  ├─ LLMClient (Gemini API)               │
+│  ├─ LLMClient (Anthropic Claude API)     │
 │  └─ SemanticCoverage (埋め込み生成)        │
 └──────────────────────────────────────────┘
 ```
@@ -164,7 +166,7 @@ QAPipeline
 def __init__(self,
              dataset_name: Optional[str] = None,
              input_file: Optional[str] = None,
-             model: str = "gemini-2.0-flash",
+             model: str = "claude-sonnet-4-6",
              output_dir: str = "qa_output/pipeline",
              max_docs: Optional[int] = None,
              client: Optional[LLMClient] = None)
@@ -174,7 +176,7 @@ def __init__(self,
 |----------|---|----------|------|
 | `dataset_name` | Optional[str] | None | 事前定義データセット名 |
 | `input_file` | Optional[str] | None | チャンク済みCSVファイルパス |
-| `model` | str | "gemini-2.0-flash" | 使用モデル |
+| `model` | str | "claude-sonnet-4-6" | 使用モデル（Anthropic Claude） |
 | `output_dir` | str | "qa_output/pipeline" | 出力ディレクトリ |
 | `max_docs` | Optional[int] | None | 最大処理チャンク数 |
 | `client` | Optional[LLMClient] | None | LLMクライアント（DI用） |
@@ -261,9 +263,8 @@ def _generate_sync(self, chunks: List[Dict], batch_size: int,
 **処理フロー**:
 
 1. 各チャンクに対して `SmartQAGenerator.process_chunk()` を実行
-2. チャンク分析（`analyze_chunk`）で適切なQ/A数を動的決定
-3. 分析結果に基づいてQ/Aペアを生成
-4. 結果をリストに蓄積
+2. `analyze_and_generate()` による構造化出力1回呼び出しで、適切なQ/A数の決定とQ/A生成を同時実行（Anthropic Claude）
+3. 結果をリストに蓄積
 
 ---
 
@@ -337,7 +338,7 @@ from qa_generation.pipeline import QAPipeline
 # チャンク済みCSVからQ/A生成
 pipeline = QAPipeline(
     input_file="output_chunked/data_chunks.csv",
-    model="gemini-2.0-flash",
+    model="claude-sonnet-4-6",
     output_dir="qa_output/pipeline"
 )
 
@@ -384,7 +385,7 @@ result = pipeline.run(
 |----------|:---:|---|----------|------|
 | `dataset_name` | △ | str | None | データセット名 |
 | `input_file` | △ | str | None | 入力CSVパス |
-| `model` | - | str | "gemini-2.0-flash" | LLMモデル |
+| `model` | - | str | "claude-sonnet-4-6" | LLMモデル（Anthropic Claude） |
 | `output_dir` | - | str | "qa_output/pipeline" | 出力先 |
 | `max_docs` | - | int | None | 最大処理数 |
 | `client` | - | LLMClient | None | カスタムクライアント |
@@ -627,7 +628,7 @@ result = pipeline.run(use_celery=True, celery_workers=24)
 ```python
 from qa_generation.smart_qa_generator import SmartQAGenerator
 
-generator = SmartQAGenerator(model="gemini-2.0-flash")
+generator = SmartQAGenerator(model="claude-sonnet-4-6")
 result = generator.process_chunk(chunk_text)
 
 print(f"分析結果: {result['analysis']}")
