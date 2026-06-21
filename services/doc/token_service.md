@@ -23,7 +23,7 @@
 
 `token_service.py`は、トークンカウント・コスト推定・テキスト切り詰めを統合的に提供するサービスモジュールです。`tiktoken`を用いたトークン数算出を中核とし、複数モデルのエンコーディング・価格・トークン制限を一元管理します。複数の旧ヘルパー（`helper_api.py::TokenManager`、`helper_rag.py::TokenManager`、`helper_text.py::count_tokens`）を統合した後継実装です。
 
-技術スタックではLLMに Anthropic Claude、Embedding に Gemini を採用していますが、本モジュールの定数表（`MODEL_ENCODINGS` / `LLM_PRICING` / `EMBEDDING_PRICING` / `MODEL_LIMITS`）はソース定義のモデル名をそのまま保持します。
+技術スタックではLLMに **Anthropic Claude**（既定 `claude-sonnet-4-6` / 軽量 `claude-haiku-4-5-20251001`）、Embedding に **Gemini**（`gemini-embedding-001`）を採用します。本モジュールの定数表（`MODEL_ENCODINGS` / `LLM_PRICING` / `EMBEDDING_PRICING` / `MODEL_LIMITS`）には既定 LLM の Claude を先頭に定義し、Gemini / OpenAI 系のエントリは後方互換のため残置しています。
 
 ### 主な責務
 
@@ -572,8 +572,8 @@ def get_model_limits(model: str) -> Dict[str, int]
 
 ```python
 # 使用例
-print(get_model_limits("gemini-2.0-flash"))
-# 出力: {"max_tokens": 1048576, "max_output": 8192}
+print(get_model_limits("claude-sonnet-4-6"))
+# 出力: {"max_tokens": 200000, "max_output": 8192}
 ```
 
 ---
@@ -590,10 +590,13 @@ DEFAULT_ENCODING = "cl100k_base"
 
 ### 5.2 MODEL_ENCODINGS
 
-モデル別エンコーディング対応表。Gemini系は`tiktoken`での近似として`cl100k_base`を割り当てています。
+モデル別エンコーディング対応表。本プロジェクト既定 LLM の Anthropic Claude を含む各モデルに、`tiktoken` での近似として `cl100k_base` を割り当てています（Claude 専用トークナイザは未使用）。
 
 ```python
 MODEL_ENCODINGS = {
+    # Anthropic Claude（本プロジェクト既定 LLM。tiktokenでは近似）
+    "claude-sonnet-4-6": "cl100k_base",
+    "claude-haiku-4-5-20251001": "cl100k_base",
     # OpenAI GPT-4o系
     "gpt-4o": "cl100k_base",
     "gpt-4o-mini": "cl100k_base",
@@ -609,7 +612,7 @@ MODEL_ENCODINGS = {
     "o3-mini": "cl100k_base",
     "o4": "cl100k_base",
     "o4-mini": "cl100k_base",
-    # Gemini系 (tiktokenでは近似)
+    # Gemini系 (後方互換・tiktokenでは近似)
     "gemini-2.0-flash": "cl100k_base",
     "gemini-2.0-pro": "cl100k_base",
     "gemini-1.5-pro-latest": "cl100k_base",
@@ -619,14 +622,19 @@ MODEL_ENCODINGS = {
 
 ### 5.3 LLM_PRICING
 
-LLMモデル価格表（$/1000トークン）。
+LLMモデル価格表（$/1000トークン）。本プロジェクト既定 LLM は **Anthropic Claude**。Gemini / OpenAI 系は後方互換のため残置しています。
 
 ```python
 LLM_PRICING = {
+    # Anthropic Claude（本プロジェクト既定 LLM）
+    "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+    "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
+    # Gemini系（後方互換）
     "gemini-2.0-flash": {"input": 0.0001, "output": 0.0002},
     "gemini-2.0-pro": {"input": 0.002, "output": 0.004},
     "gemini-1.5-pro-latest": {"input": 0.0035, "output": 0.0105},
     "gemini-1.5-flash-latest": {"input": 0.00035, "output": 0.00105},
+    # OpenAI系（後方互換）
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4o": {"input": 0.005, "output": 0.015},
 }
@@ -634,6 +642,8 @@ LLM_PRICING = {
 
 | モデル | input ($/1K) | output ($/1K) |
 |--------|-------------|---------------|
+| `claude-sonnet-4-6` | 0.003 | 0.015 |
+| `claude-haiku-4-5-20251001` | 0.001 | 0.005 |
 | `gemini-2.0-flash` | 0.0001 | 0.0002 |
 | `gemini-2.0-pro` | 0.002 | 0.004 |
 | `gemini-1.5-pro-latest` | 0.0035 | 0.0105 |
@@ -665,6 +675,9 @@ EMBEDDING_PRICING = {
 
 ```python
 MODEL_LIMITS = {
+    # Anthropic Claude（本プロジェクト既定 LLM）
+    "claude-sonnet-4-6": {"max_tokens": 200000, "max_output": 8192},
+    "claude-haiku-4-5-20251001": {"max_tokens": 200000, "max_output": 8192},
     "gpt-4o": {"max_tokens": 128000, "max_output": 4096},
     "gpt-4o-mini": {"max_tokens": 128000, "max_output": 4096},
     "gpt-4.1": {"max_tokens": 128000, "max_output": 4096},
@@ -682,6 +695,8 @@ MODEL_LIMITS = {
 
 | モデル | max_tokens | max_output |
 |--------|-----------|------------|
+| `claude-sonnet-4-6` | 200000 | 8192 |
+| `claude-haiku-4-5-20251001` | 200000 | 8192 |
 | `gpt-4o` | 128000 | 4096 |
 | `gpt-4o-mini` | 128000 | 4096 |
 | `gpt-4.1` | 128000 | 4096 |
