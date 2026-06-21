@@ -225,9 +225,9 @@ def analyze_qa_statistics(results: List[Dict]) -> Dict:
 if __name__ == "__main__":
     import os
 
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        print("エラー: GOOGLE_API_KEY (または GEMINI_API_KEY) が設定されていません")
+        print("エラー: ANTHROPIC_API_KEY が設定されていません")
         exit(1)
 
     generator = SmartQAGenerator(api_key=api_key)

@@ -68,7 +68,7 @@ from qa_generation.semantic import SemanticCoverage  # noqa: E402
 
 [Q/A生成クラス]
 
-8. LLMBasedQAGenerator - LLM（GPT-5-mini）を使用したQ/A生成クラス（基本Q/A生成、多様な種類のQ/A生成）
+8. LLMBasedQAGenerator - LLM（Anthropic Claude / claude-sonnet-4-6）を使用したQ/A生成クラス（基本Q/A生成、多様な種類のQ/A生成）
 9. ChainOfThoughtQAGenerator -
 思考の連鎖（Chain-of-Thought）を使った高品質Q/A生成クラス（推論過程付きQ/A生成、信頼度スコア算出）
 10. RuleBasedQAGenerator - ルールベースのQ/A生成クラス（定義文抽出、事実情報抽出、列挙パターン抽出）
@@ -1598,7 +1598,7 @@ class LLMBasedQAGenerator:
         self.model = model
 
     def generate_basic_qa(self, text: str, num_pairs: int = 5) -> List[Dict]:
-        """基本的なQ/A生成（Gemini API使用）"""
+        """基本的なQ/A生成（Anthropic Claude API使用）"""
 
         prompt = f"""
         以下のテキストから{num_pairs}個の質問と回答のペアを生成してください。
@@ -1627,7 +1627,7 @@ class LLMBasedQAGenerator:
         """
 
         try:
-            # Gemini構造化出力APIを使用
+            # Anthropic Claude 構造化出力APIを使用
             response = self.client.generate_structured(
                 prompt=prompt,
                 response_schema=QAPairsList,
@@ -1639,7 +1639,7 @@ class LLMBasedQAGenerator:
             return []
 
     def generate_diverse_qa(self, text: str) -> List[Dict]:
-        """多様な種類のQ/A生成（Gemini API使用）"""
+        """多様な種類のQ/A生成（Anthropic Claude API使用）"""
 
         qa_types = {
             "factual"    : "事実確認の質問（Who/What/When/Where）",
@@ -1663,7 +1663,7 @@ class LLMBasedQAGenerator:
             """
 
             try:
-                # Gemini構造化出力APIを使用
+                # Anthropic Claude 構造化出力APIを使用
                 response = self.client.generate_structured(
                     prompt=prompt,
                     response_schema=QAPairsList,
@@ -1692,7 +1692,7 @@ class ChainOfThoughtQAGenerator:
         self.client = create_llm_client(provider="anthropic")
 
     def generate_with_reasoning(self, text: str) -> Dict:
-        """推論過程付きのQ/A生成（Gemini API使用）"""
+        """推論過程付きのQ/A生成（Anthropic Claude API使用）"""
 
         prompt = f"""
         以下のテキストから質の高いQ/Aペアを生成します。
@@ -1709,7 +1709,7 @@ class ChainOfThoughtQAGenerator:
         """
 
         try:
-            # Gemini構造化出力APIを使用
+            # Anthropic Claude 構造化出力APIを使用
             response = self.client.generate_structured(
                 prompt=prompt,
                 response_schema=ChainOfThoughtResponse,
@@ -2104,7 +2104,7 @@ class QAGenerationOptimizer:
 
 class OptimizedHybridQAGenerator:
     """
-    ハイブリッドアプローチによる最適化されたQ/A生成クラス（Gemini API使用）
+    ハイブリッドアプローチによる最適化されたQ/A生成クラス（LLM: Anthropic Claude / Embedding: Gemini）
     ルールベース抽出 + LLM品質向上 + 埋め込みベースカバレージ計算
     """
 
@@ -2199,7 +2199,7 @@ class OptimizedHybridQAGenerator:
         return results
 
     def _enhance_with_llm(self, text: str, rule_result: Dict, doc_type: str) -> Dict:
-        """LLMでQ/A品質を向上（Gemini API使用）"""
+        """LLMでQ/A品質を向上（Anthropic Claude API使用）"""
         # 文書タイプ別のプロンプト調整
         type_instructions = {
             "news": "Focus on 5W1H questions (Who, What, When, Where, Why, How)",
@@ -2223,7 +2223,7 @@ Instructions:
 """
 
         try:
-            # Gemini構造化出力APIを使用
+            # Anthropic Claude 構造化出力APIを使用
             response = self.client.generate_structured(
                 prompt=prompt,
                 response_schema=EnhancedQAPairsList,
@@ -2234,7 +2234,7 @@ Instructions:
 
             return {
                 "qa_pairs": qa_pairs,
-                "tokens_used": 0  # Gemini APIはトークン数を直接返さない
+                "tokens_used": 0  # generate_structured 経由のため本パスではトークン数を集計しない
             }
         except Exception as e:
             print(f"LLM enhancement failed: {e}")
@@ -2449,9 +2449,9 @@ Instructions:
         return dot_product / (norm1 * norm2)
 
     def _calculate_cost(self, tokens: int) -> float:
-        """API使用コストを計算（Gemini料金）"""
-        # Geminiモデル別の料金（1Mトークンあたり、USD）
-        # https://ai.google.dev/pricing
+        """API使用コストを計算（モデル別料金表に基づく）"""
+        # モデル別の料金（1Mトークンあたり、USD）
+        # Anthropic: https://www.anthropic.com/pricing / Gemini: https://ai.google.dev/pricing
         pricing = {
             "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
             "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
@@ -2475,7 +2475,7 @@ Instructions:
 
 class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
     """
-    バッチ処理に最適化されたハイブリッドQ/A生成クラス（Gemini API使用）
+    バッチ処理に最適化されたハイブリッドQ/A生成クラス（LLM: Anthropic Claude / Embedding: Gemini）
     API呼び出しを大幅に削減し、処理を高速化
     品質重視モード追加（カバレージ95%目標）
     """
@@ -2866,7 +2866,7 @@ class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
         show_progress: bool,
         lang: str = "en"
     ) -> List[Dict]:
-        """LLMでバッチ処理によるQ/A品質向上（Gemini API使用）"""
+        """LLMでバッチ処理によるQ/A品質向上（Anthropic Claude API使用）"""
         from tqdm import tqdm
 
         enhanced_results = []
@@ -2883,7 +2883,7 @@ class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
             batch_prompt = self._create_batch_prompt(batch_texts, batch_rules, doc_type, lang)
 
             try:
-                # Gemini API で generate_content を使用（JSON出力）
+                # Anthropic Claude の generate_content を使用（JSON出力）
                 system_instruction = "You are a Q&A generation expert. Process multiple documents. Always respond with valid JSON."
 
                 response_text = self.client.generate_content(
@@ -2896,7 +2896,7 @@ class BatchHybridQAGenerator(OptimizedHybridQAGenerator):
                 self.batch_stats["llm_batches"] += 1
                 self.batch_stats["total_llm_calls"] += 1
 
-                # バッチ応答のパース（Gemini形式）
+                # バッチ応答のパース（JSON形式）
                 batch_results = self._parse_batch_response_gemini(response_text, len(batch_texts))
 
                 # 結果が足りない場合は個別処理にフォールバック
@@ -3083,7 +3083,7 @@ IMPORTANT: Return your response in JSON format.
         return [entity for entity, count in entity_counts.most_common(10)]
 
     def _parse_batch_response_gemini(self, response_text: str, expected_count: int) -> List[Dict]:
-        """Gemini APIのバッチ応答をパース"""
+        """LLM（Anthropic Claude）のバッチ応答（JSON）をパース"""
         try:
             # JSONブロックを抽出（```json ... ``` または直接JSON）
             json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response_text)
@@ -3099,13 +3099,13 @@ IMPORTANT: Return your response in JSON format.
             for doc_result in parsed.get("results", []):
                 results.append({
                     "qa_pairs": doc_result.get("qa_pairs", []),
-                    "tokens_used": 0  # Gemini APIはトークン数を直接返さない
+                    "tokens_used": 0  # generate_structured 経由のため本パスではトークン数を集計しない
                 })
 
             return results
 
         except Exception as e:
-            print(f"Geminiバッチ応答のパースエラー: {e}")
+            print(f"バッチ応答のパースエラー: {e}")
             return []
 
     def _batch_calculate_coverage(

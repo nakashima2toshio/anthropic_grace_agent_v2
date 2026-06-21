@@ -76,7 +76,7 @@ class ModelConfig:
     @classmethod
     def uses_max_completion_tokens(cls, model: str) -> bool:
         """max_completion_tokensを使用するモデルかどうか"""
-        # Geminiでは全モデルでmax_output_tokensを使用
+        # Anthropic Claude は max_tokens（出力上限）を使用するため常に False
         return False
 
 
@@ -389,7 +389,7 @@ class CeleryConfig:
     ENABLE_UTC: bool = True
     TASK_TIME_LIMIT: int = 300  # 5分
     TASK_SOFT_TIME_LIMIT: int = 240  # 4分
-    WORKER_CONCURRENCY: int = 8  # Gemini APIレート制限対策のためデフォルトを8に設定
+    WORKER_CONCURRENCY: int = 8  # LLM/Embedding APIレート制限対策のためデフォルトを8に設定
     WORKER_PREFETCH_MULTIPLIER: int = 1
 
 
@@ -408,7 +408,7 @@ class CohereConfig:
 # ===================================================================
 
 class GeminiConfig:
-    """Gemini 3 API設定"""
+    """Gemini API設定（既定 Embedding = gemini-embedding-001 用。LLM の既定は Anthropic Claude=ModelConfig。下記 LLM モデルは後方互換）"""
 
     # 利用可能なモデル一覧
     AVAILABLE_MODELS: List[str] = [

@@ -1,6 +1,6 @@
 # agent_chat_page.py - ハイブリッド・ナレッジ・エージェント チャット画面 ドキュメント
 
-**Version 1.1** | 最終更新: 2025-01-29
+**Version 1.2** | 最終更新: 2026-06-21
 
 ---
 
@@ -23,7 +23,7 @@
 
 ## 概要
 
-`agent_chat_page.py`は、Gemini API を使用した ReAct 型エージェントとの対話インターフェースを提供する Streamlit ページです。Qdrant 上のナレッジベース（コレクション）を動的に選択し、RAG（Retrieval-Augmented Generation）検索を行いながらユーザーの質問に回答します。
+`agent_chat_page.py`は、Anthropic Claude を使用した ReAct 型エージェントとの対話インターフェースを提供する Streamlit ページです。Qdrant 上のナレッジベース（コレクション）を動的に選択し、RAG（Retrieval-Augmented Generation）検索を行いながらユーザーの質問に回答します。
 
 ### 主な責務
 
@@ -69,7 +69,7 @@ flowchart LR
 
         subgraph MAIN["📄 メインエリア"]
             direction TB
-            M1["🤖 エージェント対話<br/>Gemini 3.0 Flash + ReAct + Qdrant"]
+            M1["🤖 エージェント対話<br/>Anthropic Claude + ReAct + Qdrant"]
             M2["📊 コレクションデータの表示<br/>expander"]
             M3["💬 チャット履歴エリア<br/>user/assistant messages"]
             M4["🤔 エージェントの思考プロセス<br/>expander - Thought/Tool/Result"]
@@ -78,6 +78,12 @@ flowchart LR
             M1 --> M2 --> M3 --> M4 --> M5 --> M6
         end
     end
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class S1,S2,S3,S4,S5,S6,S7,M1,M2,M3,M4,M5,M6 default
+style BROWSER fill:#1a1a1a,stroke:#fff,color:#fff
+style SIDEBAR fill:#1a1a1a,stroke:#fff,color:#fff
+style MAIN fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ### 1.2 コンポーネント配置図
@@ -87,7 +93,7 @@ flowchart TB
     subgraph PAGE["agent_chat_page.py"]
         subgraph MAIN_AREA["メインエリア"]
             TITLE["st.title<br/>🤖 エージェント対話"]
-            CAPTION["st.caption<br/>Gemini 3.0 Flash + ReAct + ..."]
+            CAPTION["st.caption<br/>Anthropic Claude + ReAct + ..."]
 
             subgraph EXP_DATA["expander: コレクションデータの表示"]
                 ED1["st.markdown - 説明文"]
@@ -125,6 +131,15 @@ flowchart TB
 
     TITLE --> CAPTION --> EXP_DATA --> CHAT_AREA --> RESPONSE --> INPUT
     SH --> SS --> SM --> SC --> SB1 --> SB2 --> SE --> METRICS
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class TITLE,CAPTION,ED1,ED2,ED3,ED4,ED5,CA1,CA2,R1,R2,R3,INPUT,SH,SS,SM,SC,SB1,SB2,SE,METRICS default
+style PAGE fill:#1a1a1a,stroke:#fff,color:#fff
+style MAIN_AREA fill:#1a1a1a,stroke:#fff,color:#fff
+style EXP_DATA fill:#1a1a1a,stroke:#fff,color:#fff
+style CHAT_AREA fill:#1a1a1a,stroke:#fff,color:#fff
+style RESPONSE fill:#1a1a1a,stroke:#fff,color:#fff
+style SIDEBAR_AREA fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -136,7 +151,7 @@ flowchart TB
 | コンポーネント | 種類 | キー | デフォルト値 | 説明 |
 |---------------|------|------|-------------|------|
 | エージェント設定ヘッダー | `st.header` | - | - | セクションヘッダー |
-| モデル選択 | `st.selectbox` | - | `AgentConfig.MODEL_NAME` (`gemini-2.5-flash`) | 使用するLLMモデル |
+| モデル選択 | `st.selectbox` | - | `AgentConfig.MODEL_NAME` (`claude-sonnet-4-6`) | 使用するLLMモデル |
 | コレクション選択 | `st.multiselect` | - | 全コレクション | 検索対象コレクション（複数選択可） |
 | ハイブリッド検索 | `st.checkbox` | - | `True` | Sparse+Dense検索の有効化 |
 | 会話履歴クリア | `st.button` | - | - | 会話履歴とエージェント状態のクリア |
@@ -148,22 +163,18 @@ flowchart TB
 ```python
 selected_model = st.selectbox(
     "使用モデル (Model)",
-    options=GeminiConfig.AVAILABLE_MODELS,
-    index=GeminiConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
-    if AgentConfig.MODEL_NAME in GeminiConfig.AVAILABLE_MODELS else 0
+    options=ModelConfig.AVAILABLE_MODELS,
+    index=ModelConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
+    if AgentConfig.MODEL_NAME in ModelConfig.AVAILABLE_MODELS else 0
 )
 ```
 
-**オプション一覧** (`GeminiConfig.AVAILABLE_MODELS`):
+**オプション一覧** (`ModelConfig.AVAILABLE_MODELS`):
 
 | モデル名 | 説明 |
 |---------|------|
-| `gemini-2.5-flash` | デフォルト・高速推論モデル |
-| `gemini-3-pro-preview` | 最新Pro（思考モード対応） |
-| `gemini-3-pro-image-preview` | 画像対応Pro |
-| `gemini-2.5-flash-preview` | プレビュー版Flash |
-| `gemini-2.5-pro-preview` | プレビュー版Pro |
-| `gemini-2.0-flash` | 安定版Flash |
+| `claude-sonnet-4-6` | デフォルト・推論/生成モデル |
+| `claude-haiku-4-5-20251001` | 高速・文字列処理向けモデル |
 
 #### コレクション選択の詳細
 
@@ -191,7 +202,7 @@ selected_collections = st.multiselect(
 | コンポーネント | 種類 | 説明 |
 |---------------|------|------|
 | タイトル | `st.title` | "🤖 エージェント対話 (Agent Chat)" |
-| キャプション | `st.caption` | "Gemini 3.0 Flash + ReAct + Qdrant Hybrid RAG (Dense + Sparse)" |
+| キャプション | `st.caption` | "Anthropic Claude + ReAct + Qdrant Hybrid RAG (Dense + Sparse)" |
 | コレクションデータ表示 | `st.expander` | Q/Aデータプレビュー（折りたたみ） |
 | チャット履歴 | `st.chat_message` | ユーザー/アシスタントメッセージの表示 |
 | 思考プロセス | `st.expander` | エージェント推論のリアルタイム表示 |
@@ -333,7 +344,7 @@ flowchart TB
 
     STEP1["1. ページアクセス<br/>→ 初期状態で画面表示<br/>→ エージェント自動初期化"]
 
-    STEP2["2. オプション サイドバーで設定変更<br/>├─ モデル選択 gemini-2.5-flash等<br/>├─ コレクション選択 複数可<br/>└─ ハイブリッド検索ON/OFF<br/>→ 変更時はエージェント自動再初期化"]
+    STEP2["2. オプション サイドバーで設定変更<br/>├─ モデル選択 claude-sonnet-4-6等<br/>├─ コレクション選択 複数可<br/>└─ ハイブリッド検索ON/OFF<br/>→ 変更時はエージェント自動再初期化"]
 
     STEP3["3. オプション コレクションデータ確認<br/>→ エキスパンダーを開く<br/>→ コレクション選択<br/>→ Q/Aデータ100件をプレビュー"]
 
@@ -350,6 +361,9 @@ flowchart TB
     START --> STEP1 --> STEP2 --> STEP3 --> STEP4 --> STEP5 --> STEP6 --> DECISION
     DECISION -->|Yes| STEP4
     DECISION -->|No| END_OR_CLEAR
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class START,STEP1,STEP2,STEP3,STEP4,STEP5,STEP6,DECISION,END_OR_CLEAR default
 ```
 
 ### 4.2 操作シーケンス図
@@ -427,7 +441,7 @@ def show_agent_chat_page() -> None
 ```python
 def show_agent_chat_page():
     st.title("🤖 エージェント対話 (Agent Chat)")
-    st.caption("Gemini 3.0 Flash + ReAct + Qdrant Hybrid RAG (Dense + Sparse)")
+    st.caption("Anthropic Claude + ReAct + Qdrant Hybrid RAG (Dense + Sparse)")
 
     # 1. コレクションデータの表示エリア
     with st.expander("📊 コレクションデータの表示", expanded=False):
@@ -507,7 +521,7 @@ def get_available_collections_from_qdrant_helper() -> List[str]
 
 ### 6.3 `ReActAgent` クラス
 
-**概要**: ReAct（Reasoning + Acting）パターンを実装したエージェントクラス。Gemini APIとQdrant RAGを統合。
+**概要**: ReAct（Reasoning + Acting）パターンを実装したエージェントクラス。Anthropic Claude（`create_llm_client("anthropic")`）とQdrant RAGを統合。
 
 **参照**: `services/agent_service.py`
 
@@ -526,7 +540,7 @@ def __init__(
 | パラメータ | 型 | デフォルト | 説明 |
 |------------|------|-----------|------|
 | `selected_collections` | `List[str]` | - | 検索対象コレクションのリスト |
-| `model_name` | `str` | `gemini-2.5-flash` | 使用するGeminiモデル名 |
+| `model_name` | `str` | `claude-sonnet-4-6` | 使用するClaudeモデル名 |
 | `session_id` | `Optional[str]` | `uuid.uuid4()` | セッション識別子（キャッシュ用） |
 | `use_hybrid_search` | `bool` | `True` | ハイブリッド検索（Sparse+Dense）の有効化 |
 
@@ -538,7 +552,7 @@ def __init__(
 | `model_name` | `str` | 使用モデル名 |
 | `session_id` | `str` | セッションID |
 | `use_hybrid_search` | `bool` | ハイブリッド検索フラグ |
-| `client` | `genai.Client` | Google GenAI クライアント |
+| `client` | Anthropic クライアント | `create_llm_client("anthropic")` で生成 |
 | `chat` | `Chat` | チャットセッション |
 | `thought_log` | `List[str]` | 思考プロセスログ |
 | `keyword_extractor` | `KeywordExtractor` | キーワード抽出器（オプション） |
@@ -683,7 +697,7 @@ class CollectionCacheEntry:
 | `streamlit` | 1.52.1 | UIフレームワーク |
 | `pandas` | 2.3.3 | データフレーム表示 |
 | `qdrant-client` | 1.16.1 | Qdrant接続 |
-| `google-genai` | 1.52.0 | Gemini API SDK |
+| `anthropic` | 0.40.0 | Anthropic API SDK |
 
 ### 7.2 内部モジュール
 
@@ -704,9 +718,9 @@ class CollectionCacheEntry:
 
 | 設定クラス | 設定項目 | 値 | 説明 |
 |-----------|---------|-----|------|
-| `GeminiConfig` | `AVAILABLE_MODELS` | `["gemini-2.5-flash", ...]` | 利用可能モデル一覧 |
-| `GeminiConfig` | `DEFAULT_MODEL` | `"gemini-2.5-flash"` | デフォルトモデル |
-| `AgentConfig` | `MODEL_NAME` | `GeminiConfig.DEFAULT_MODEL` | エージェント使用モデル |
+| `ModelConfig` | `AVAILABLE_MODELS` | `["claude-sonnet-4-6", "claude-haiku-4-5-20251001"]` | 利用可能モデル一覧 |
+| `ModelConfig` | `DEFAULT_MODEL` | `"claude-sonnet-4-6"` | デフォルトモデル |
+| `AgentConfig` | `MODEL_NAME` | `ModelConfig.DEFAULT_MODEL` | エージェント使用モデル |
 | `AgentConfig` | `RAG_SEARCH_LIMIT` | `3` | 検索結果取得件数 |
 | `AgentConfig` | `RAG_SCORE_THRESHOLD` | `0.50` | 検索スコア閾値 |
 
@@ -859,7 +873,7 @@ except Exception as e:
 
 1. ページにアクセス（サイドメニューから「エージェント対話」を選択）
 2. サイドバーで必要に応じて設定を変更
-   - 使用モデルの選択（デフォルト: `gemini-2.5-flash`）
+   - 使用モデルの選択（デフォルト: `claude-sonnet-4-6`）
    - 検索対象コレクションの選択（デフォルト: 全コレクション）
    - ハイブリッド検索の有効/無効（デフォルト: 有効）
 3. （オプション）「📊 コレクションデータの表示」を開いてデータを確認

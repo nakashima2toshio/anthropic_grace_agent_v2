@@ -28,7 +28,7 @@ from helper_llm import (
     OpenAIClient,  # 後方互換性のため再エクスポート
 )
 
-# Gemini 3 Migration: 抽象化レイヤー
+# LLM 抽象化レイヤー（既定プロバイダー: Anthropic Claude）
 from helper_llm import (
     create_llm_client as create_unified_llm_client,
 )
@@ -318,7 +318,7 @@ class ResponseProcessor:
 
 
 # ==================================================
-# Gemini 3 Migration: 統合LLMクライアント
+# 統合LLMクライアント（既定プロバイダー: Anthropic Claude）
 # ==================================================
 
 # デフォルトプロバイダー（環境変数で設定可能）
@@ -329,10 +329,11 @@ class UnifiedLLMClient:
     """
     プロバイダー切り替え対応の統合LLMクライアント
 
-    Gemini 3 Migration: OpenAIとGeminiの両方に対応する統一インターフェース
+    Anthropic（既定）/ OpenAI / Gemini（後方互換）に対応する統一インターフェース。
+    本プロジェクトの既定 LLM プロバイダーは Anthropic（Claude）。
 
     Usage:
-        # デフォルト（Gemini）
+        # デフォルト（Anthropic Claude）
         client = UnifiedLLMClient()
         response = client.generate("Hello, world!")
 
@@ -499,7 +500,7 @@ __all__ = [
     'ResponseProcessor',
     'OpenAIClient',
 
-    # Gemini 3 Migration: 統合クライアント
+    # 統合LLMクライアント（既定: Anthropic Claude）
     'UnifiedLLMClient',
     'create_llm_client',
     'get_default_llm_client',

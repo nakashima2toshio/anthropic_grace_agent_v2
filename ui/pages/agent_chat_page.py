@@ -4,7 +4,7 @@
 """
 agent_chat_page.py - ハイブリッド・ナレッジ・エージェント チャット画面
 ================================================================
-Gemini 2.0 Flash を使用した ReAct 型エージェントとの対話インターフェース。
+Anthropic Claude を使用した ReAct 型エージェントとの対話インターフェース。
 Qdrant 上のナレッジベース(コレクション)を動的に選択し、RAG 検索を行いながら回答します。
 """
 
@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 
 # Configuration and Tools
-from config import AgentConfig, GeminiConfig
+from config import AgentConfig, ModelConfig
 from qdrant_client_wrapper import get_qdrant_client
 from services.agent_service import (
     ReActAgent,
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def show_agent_chat_page():
     st.title("🤖 エージェント対話 (Agent Chat)")
-    st.caption("Gemini 3.0 Flash + ReAct + Qdrant Hybrid RAG (Dense + Sparse)")
+    st.caption("Anthropic Claude + ReAct + Qdrant Hybrid RAG (Dense + Sparse)")
 
     # -------------------------------------------------------------------------
     # コレクションデータの表示エリア (Modified)
@@ -112,9 +112,9 @@ def show_agent_chat_page():
         # モデル選択の追加
         selected_model = st.selectbox(
             "使用モデル (Model)",
-            options=GeminiConfig.AVAILABLE_MODELS,
-            index=GeminiConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
-            if AgentConfig.MODEL_NAME in GeminiConfig.AVAILABLE_MODELS else 0
+            options=ModelConfig.AVAILABLE_MODELS,
+            index=ModelConfig.AVAILABLE_MODELS.index(AgentConfig.MODEL_NAME)
+            if AgentConfig.MODEL_NAME in ModelConfig.AVAILABLE_MODELS else 0
         )
 
         # コレクション一覧の取得
