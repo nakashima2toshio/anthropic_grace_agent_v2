@@ -448,7 +448,9 @@ class BenchmarkLogger:
             session.cost_usd = float(cost)
 
         # ステップ別指標
-        rag_top_score = 0.0
+        # RAG 最高スコアは executor が集約した result.rag_max_score を最優先で使う
+        # （StepResult.output は表示用の整形済み文字列のため、ここから score は読めない）。
+        rag_top_score: Optional[float] = getattr(result, "rag_max_score", None)
         web_fired = False
         for step_result in getattr(result, "step_results", []):
             session.tool_calls += 1
@@ -458,21 +460,23 @@ class BenchmarkLogger:
             if sources:
                 session.rag_step_count += 1
                 session.sources_total  += len(sources)
-            # RAG 最高スコア: step.output が検索結果リスト（dict に "score"）の場合に抽出
+            # フォールバック: 万一 output が生の検索結果リスト（dict に "score"）の場合は抽出。
+            # 初期値 None / 比較で負スコアも正しく扱う（0.0 への丸め込みを避ける）。
             out = getattr(step_result, "output", None)
             if isinstance(out, list):
                 for item in out:
                     if isinstance(item, dict) and "score" in item:
                         try:
-                            rag_top_score = max(rag_top_score, float(item["score"]))
+                            s_val = float(item["score"])
                         except (TypeError, ValueError):
-                            pass
+                            continue
+                        rag_top_score = s_val if rag_top_score is None else max(rag_top_score, s_val)
             # web_search 切替の検出: ソースに URL を含む（RAG ソースは原典タイトル等）
             for s in sources:
                 if isinstance(s, str) and s.startswith(("http://", "https://")):
                     web_fired = True
 
-        session.rag_top_score = rag_top_score
+        session.rag_top_score = rag_top_score if rag_top_score is not None else 0.0
 
         # Confidence → Intervention Level
         session.intervention_level = self._score_to_intervention(

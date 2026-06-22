@@ -254,6 +254,11 @@ class ExecutionResult(BaseModel):
         description="総コスト（USD）"
     )
 
+    rag_max_score: Optional[float] = Field(
+        None,
+        description="RAG検索ステップの最高類似度スコア（ベンチマーク計測用。検索未実行ならNone）"
+    )
+
     created_at: Optional[datetime] = Field(
         default_factory=datetime.now,
         description="結果作成日時"
