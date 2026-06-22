@@ -259,6 +259,16 @@ class ExecutionResult(BaseModel):
         description="RAG検索ステップの最高類似度スコア（ベンチマーク計測用。検索未実行ならNone）"
     )
 
+    rag_search_count: int = Field(
+        0,
+        description="実行された rag_search ステップ数（ベンチマーク計測用）"
+    )
+
+    web_search_used: bool = Field(
+        False,
+        description="web_search ステップが実際に実行されたか（ベンチマーク計測用）"
+    )
+
     created_at: Optional[datetime] = Field(
         default_factory=datetime.now,
         description="結果作成日時"
