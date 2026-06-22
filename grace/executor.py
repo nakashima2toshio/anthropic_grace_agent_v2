@@ -1905,6 +1905,20 @@ class Executor:
                     final_answer = result.output
                     break
 
+        # RAG検索ステップの最高スコアを集約（ベンチマーク計測用）。
+        # StepResult.output は表示用に整形済み文字列のため、生スコアは
+        # step_confidence_scores の factors.search_max_score から取得する。
+        rag_step_ids = {
+            s.step_id for s in state.plan.steps if s.action == "rag_search"
+        }
+        rag_max_score: Optional[float] = None
+        for sid in rag_step_ids:
+            cs = self.step_confidence_scores.get(sid)
+            factors = getattr(cs, "factors", None) if cs else None
+            score = getattr(factors, "search_max_score", None) if factors else None
+            if score is not None:
+                rag_max_score = score if rag_max_score is None else max(rag_max_score, score)
+
         return ExecutionResult(
             plan_id=state.plan.plan_id or create_plan_id(),
             original_query=state.plan.original_query,
@@ -1916,6 +1930,7 @@ class Executor:
             total_execution_time_ms=state.get_execution_time_ms(),
             total_token_usage=None,
             total_cost_usd=None,
+            rag_max_score=rag_max_score,
         )
 
     def cancel(self, state: ExecutionState):
