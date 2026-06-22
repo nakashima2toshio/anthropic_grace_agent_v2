@@ -356,10 +356,44 @@ class BenchmarkLogger:
         self._ensure_csv_headers()
 
     def _ensure_csv_headers(self) -> None:
-        """CSV ファイルが存在しない場合のみヘッダー行を書き込む"""
+        """CSV ヘッダーを保証する。
+
+        - ファイルが無ければヘッダーを書く。
+        - 既存ファイルのヘッダーが現行 ``CSV_HEADERS`` と不一致なら、旧ファイルを
+          タイムスタンプ付きでバックアップ退避してから新規にヘッダーを書き直す
+          （スキーマ変更時の列ズレ追記を防止する）。
+        """
         if not self.csv_path.exists():
             with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
                 csv.DictWriter(fh, fieldnames=CSV_HEADERS).writeheader()
+            return
+
+        # 既存ヘッダーを読み取り、現行スキーマと一致するか検査
+        try:
+            with open(self.csv_path, "r", newline="", encoding="utf-8") as fh:
+                existing_header = next(csv.reader(fh), [])
+        except Exception:
+            existing_header = []
+
+        if existing_header == CSV_HEADERS:
+            return
+
+        # スキーマ不一致 → 旧ファイルを退避して作り直す
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup = self.csv_path.with_name(
+            f"{self.csv_path.stem}.{ts}.bak{self.csv_path.suffix}"
+        )
+        try:
+            self.csv_path.rename(backup)
+            logger.warning(
+                "[BENCHMARK] CSV schema mismatch detected. "
+                "Rotated old file -> %s (new schema: %d cols)",
+                backup, len(CSV_HEADERS),
+            )
+        except Exception as e:
+            logger.error("[BENCHMARK] CSV rotation failed: %s", e)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            csv.DictWriter(fh, fieldnames=CSV_HEADERS).writeheader()
 
     # ── record helpers ──────────────────────────────────────────────────────────────────────
 
