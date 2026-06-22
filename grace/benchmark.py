@@ -451,15 +451,15 @@ class BenchmarkLogger:
         # RAG 最高スコアは executor が集約した result.rag_max_score を最優先で使う
         # （StepResult.output は表示用の整形済み文字列のため、ここから score は読めない）。
         rag_top_score: Optional[float] = getattr(result, "rag_max_score", None)
-        web_fired = False
+        # web 実行の有無は executor の web_search_used を最優先（replan とは別物）。
+        web_fired = bool(getattr(result, "web_search_used", False))
         for step_result in getattr(result, "step_results", []):
             session.tool_calls += 1
             conf = getattr(step_result, "confidence", 0.0)
             session.step_confidences.append(conf)
             sources = getattr(step_result, "sources", []) or []
             if sources:
-                session.rag_step_count += 1
-                session.sources_total  += len(sources)
+                session.sources_total += len(sources)
             # フォールバック: 万一 output が生の検索結果リスト（dict に "score"）の場合は抽出。
             # 初期値 None / 比較で負スコアも正しく扱う（0.0 への丸め込みを避ける）。
             out = getattr(step_result, "output", None)
@@ -471,10 +471,21 @@ class BenchmarkLogger:
                         except (TypeError, ValueError):
                             continue
                         rag_top_score = s_val if rag_top_score is None else max(rag_top_score, s_val)
-            # web_search 切替の検出: ソースに URL を含む（RAG ソースは原典タイトル等）
+            # web_search 切替のフォールバック検出: ソースに URL を含む
             for s in sources:
                 if isinstance(s, str) and s.startswith(("http://", "https://")):
                     web_fired = True
+
+        # RAG ステップ数は executor の集計値を採用（web ステップを混同しない）。
+        rsc = getattr(result, "rag_search_count", None)
+        if rsc is not None:
+            session.rag_step_count = rsc
+        else:
+            # フォールバック: ソースを持つステップ数（旧挙動）
+            session.rag_step_count = sum(
+                1 for sr in getattr(result, "step_results", [])
+                if getattr(sr, "sources", None)
+            )
 
         session.rag_top_score = rag_top_score if rag_top_score is not None else 0.0
 
@@ -513,8 +524,9 @@ class BenchmarkLogger:
         # rag_hit_in_target: 十分なスコアで RAG ヒットしたか
         session.rag_hit_in_target = session.rag_top_score >= sufficient
 
-        # web_fallback_fired: URLソース、またはリプラン発生（fallback_chain でweb挿入）
-        session.web_fallback_fired = bool(web_fired) or session.replan_count > 0
+        # web_fallback_fired: 実際に web_search が実行されたかのみで判定する。
+        # （リプラン発生＝web実行 ではないため、replan_count とは切り離す）
+        session.web_fallback_fired = bool(web_fired)
 
         # replan_converged: 上限内で破綻せず収束したか
         converged = (session.replan_count <= max_replans) and not failed
@@ -601,8 +613,16 @@ class BenchmarkLogger:
             f"[BENCHMARK] {sep}\n",
         ]
         log_text = "\n".join(lines)
-        logger.info(log_text)
+        # コンソールへは print のみで出力（logger ハンドラ経由の二重表示を防ぐ）。
+        # ログファイル用には1行サマリのみ残す。
         print(log_text)
+        logger.info(
+            "[BENCHMARK] %s recorded: case=%s mode=%s route_correct=%s "
+            "rag_top=%.4f replan=%d status=%s",
+            session.query_id, session.expected_case, session.agent_mode,
+            session.route_correct, session.rag_top_score,
+            session.replan_count, session.overall_status,
+        )
 
     def save_to_csv(self, session: BenchmarkSession) -> None:
         """ベンチマーク結果を CSV ファイルに追記"""

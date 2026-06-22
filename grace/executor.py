@@ -1267,6 +1267,8 @@ class Executor:
         Returns:
             StepResult or None: web_search の結果
         """
+        # ベンチマーク計測用: 動的 web_search が実行されたことを記録
+        state.web_search_executed = True
         web_step_id = rag_step.step_id + 100  # 動的挿入用に大きなIDを付与
         web_step = PlanStep(
             step_id=web_step_id,
@@ -1908,6 +1910,7 @@ class Executor:
         # RAG検索ステップの最高スコアを集約（ベンチマーク計測用）。
         # StepResult.output は表示用に整形済み文字列のため、生スコアは
         # step_confidence_scores の factors.search_max_score から取得する。
+        executed_ids = set(state.step_results.keys())
         rag_step_ids = {
             s.step_id for s in state.plan.steps if s.action == "rag_search"
         }
@@ -1918,6 +1921,14 @@ class Executor:
             score = getattr(factors, "search_max_score", None) if factors else None
             if score is not None:
                 rag_max_score = score if rag_max_score is None else max(rag_max_score, score)
+
+        # 実行された rag_search / web_search の集計（ベンチマーク計測用）。
+        # web_search は計画ステップに加え、動的挿入された web_search も拾う。
+        rag_search_count = len(rag_step_ids & executed_ids)
+        web_search_used = any(
+            s.action == "web_search" and s.step_id in executed_ids
+            for s in state.plan.steps
+        ) or getattr(state, "web_search_executed", False)
 
         return ExecutionResult(
             plan_id=state.plan.plan_id or create_plan_id(),
@@ -1931,6 +1942,8 @@ class Executor:
             total_token_usage=None,
             total_cost_usd=None,
             rag_max_score=rag_max_score,
+            rag_search_count=rag_search_count,
+            web_search_used=web_search_used,
         )
 
     def cancel(self, state: ExecutionState):
