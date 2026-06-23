@@ -137,16 +137,27 @@ BENCHMARK_QUERIES: List[Dict[str, Any]] = [
     {"id": "Q11", "level": "Hard",   "category": "Web・回復",  "path": "llm_plan+web_fallback", "case": "C",
      "text": "2025年の暗号資産（ビットコイン）市場の最新ニュースを検索して、価格動向をまとめてください",
      "expected": {"intervention": None, "web": True, "replan": None, "min_rag_score": None}},
-    # ── case D: 要リプラン（1段目失敗 → replan発火 かつ 収束）──
-    {"id": "Q12", "level": "Hard",   "category": "Web・回復",  "path": "replan+web_fallback", "case": "D",
-     "text": "コレクションに存在しないトピック（日本の量子コンピュータ政策）を検索し、情報が不足した場合のリプランやフォールバックの過程を示してください",
-     "expected": {"intervention": None, "web": True, "replan": True, "min_rag_score": None}},
+    # ── case D: 検索ミス → 回復 ────────────────────────────────────────────────
+    # Q12: RAG が低スコア（非空）で命中せず、動的 web フォールバックで回復するケース。
+    #      この経路は replan_count を増やさない（成功扱いの低スコア → web 動的挿入）ため、
+    #      期待は「web で回復」（replan は不問）とする。
+    {"id": "Q12", "level": "Hard",   "category": "Web・回復",  "path": "rag_miss+web_fallback", "case": "D",
+     "text": "コレクションに存在しないトピック（日本の量子コンピュータ政策）を検索し、情報が不足した場合のフォールバックの過程を示してください",
+     "expected": {"intervention": None, "web": True, "replan": None, "min_rag_score": None}},
+    # Q13: 真に replan を強制するケース。
+    #      ``force_collection`` で初回 RAG を存在しないコレクションへ向け、結果ゼロ →
+    #      ステップ failed → _should_trigger_replan が必ず発火 → 回復プランへ差し替え。
+    #      期待は「replan が発火し かつ 上限内で収束」。web は回復手段に依存するため不問。
+    {"id": "Q13", "level": "Hard",   "category": "Web・回復",  "path": "forced_replan+recovery", "case": "D",
+     "text": "ナレッジベースを検索して、2027年のG7サミット開催地に関する公式発表をまとめてください。該当情報が見つからない場合は代替手段で補完してください",
+     "expected": {"intervention": None, "web": None, "replan": True, "min_rag_score": None},
+     "force_collection": "__grace_bench_missing_collection__"},
 ]
 
 # 高速完了モード（--fast）で実行する代表クエリ ID。
 # 検索ハンドリングの 5 ケース（A:高スコア命中 / B:中スコア境界 / C:低スコア不一致 /
 # D:要リプラン / E:曖昧）を 1 本ずつ最小構成で通過させる。
-FAST_QUERY_IDS: List[str] = ["Q01", "Q03", "Q11", "Q12", "Q10"]
+FAST_QUERY_IDS: List[str] = ["Q01", "Q03", "Q11", "Q13", "Q10"]
 
 
 def select_queries(
@@ -674,6 +685,7 @@ class BenchmarkRunner:
         expected_case: str = "",
         expected:   Optional[Dict[str, Any]] = None,
         agent_mode: str = "grace_dynamic",
+        force_collection: Optional[str] = None,
     ) -> BenchmarkSession:
         """
         1クエリをフルパイプラインで実行し、各指標を計測して返す。
@@ -688,6 +700,9 @@ class BenchmarkRunner:
             expected_case: 検索ハンドリングケース A〜E
             expected:   期待挙動 dict（intervention/web/replan/min_rag_score）
             agent_mode: "grace_dynamic"（Plan+Executor）または "react"（ReAct+Reflection）
+            force_collection: 指定時、初回プランの全 rag_search ステップの検索先を
+                            この（通常は存在しない）コレクションへ固定する。結果ゼロ →
+                            ステップ failed → リプランを確定的に発火させる Case D 用。
 
         Returns:
             BenchmarkSession: 計測結果
@@ -723,6 +738,21 @@ class BenchmarkRunner:
             plan = planner.create_plan(query_text)
             session.plan_end   = time.monotonic()
             self.bm_logger.record_plan_result(session, plan)
+
+            # Case D: 初回 RAG を存在しないコレクションへ向けて確定的に空振りさせ、
+            # ステップ failed 経由でリプランを強制する（回復プランは executor 内で
+            # 新規生成されるため、ここでは初回プランの rag_search のみ書き換える）。
+            if force_collection:
+                forced = 0
+                for _step in getattr(plan, "steps", None) or []:
+                    if getattr(_step, "action", None) == "rag_search":
+                        _step.collection = force_collection
+                        forced += 1
+                logger.info(
+                    "[BENCHMARK] %s: force_collection=%s を %d 個の rag_search に適用"
+                    "（初回検索を空振りさせ replan を強制）",
+                    query_id, force_collection, forced,
+                )
 
             # ── Phase 2-5: Execute / Confidence / Intervention / Replan ──
             try:
@@ -962,6 +992,7 @@ class BenchmarkRunner:
                         expected_case = query.get("case", ""),
                         expected   = query.get("expected"),
                         agent_mode = agent_mode,
+                        force_collection = query.get("force_collection"),
                     )
                     sessions.append(session)
 
