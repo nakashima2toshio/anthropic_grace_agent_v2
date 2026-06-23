@@ -571,8 +571,18 @@ CSV_HEADERS = [
 | `expected.web` | web_fallback を期待するか（True/False/None） |
 | `expected.replan` | リプラン発火＋収束を期待するか（True/False/None） |
 | `expected.min_rag_score` | 期待する RAG 最高スコア下限（`None`=不問） |
+| `force_collection` | （任意）初回プランの全 rag_search の検索先を指定コレクションへ固定。存在しない名前を与えると結果ゼロ → ステップ failed → リプランを確定発火させる（Case D 用） |
 
-`FAST_QUERY_IDS = ["Q01", "Q03", "Q11", "Q12", "Q10"]`（A〜E 各1本）。
+Case D は 2 本構成です。
+
+- **Q12**: RAG が低スコア（非空）で命中せず、動的 web フォールバックで回復する経路。
+  この経路は `replan_count` を増やさない（成功扱いの低スコア → web 動的挿入）ため、
+  期待は「web で回復」（`replan=None`）。
+- **Q13**: `force_collection` で初回 RAG を存在しないコレクションへ向け、結果ゼロ →
+  ステップ failed → `_should_trigger_replan` が必ず発火 → 回復プランへ差し替え。
+  期待は「リプラン発火＋上限内収束」（`replan=True`）。真に replan を強制する設計。
+
+`FAST_QUERY_IDS = ["Q01", "Q03", "Q11", "Q13", "Q10"]`（A〜E 各1本。D 枠は真の replan を測る Q13）。
 
 ---
 
