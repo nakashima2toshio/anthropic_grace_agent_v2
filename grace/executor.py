@@ -1006,6 +1006,13 @@ class Executor:
             # ソースを抽出
             sources = self._extract_sources(tool_result)
 
+            # トークン使用量: reasoning 等のツールが confidence_factors に格納する
+            # token_usage を StepResult へ引き継ぐ（ベンチマークの総トークン集計用）。
+            _cf = getattr(tool_result, "confidence_factors", None)
+            _step_tu = _cf.get("token_usage") if isinstance(_cf, dict) else None
+            if not isinstance(_step_tu, dict):
+                _step_tu = None
+
             return StepResult(
                 step_id=step.step_id,
                 status="success" if tool_result.success else "failed",
@@ -1014,7 +1021,7 @@ class Executor:
                 sources=sources,
                 error=tool_result.error if not tool_result.success else None,
                 execution_time_ms=execution_time,
-                token_usage=None,
+                token_usage=_step_tu,
             )
 
         except Exception as e:
