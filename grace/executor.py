@@ -1818,8 +1818,13 @@ class Executor:
         # 補助項（検索ベース集約）の重み
         w_aux = float(getattr(cc, "search_aux_weight", 0.2))
 
-        if not gres.verified:
-            # 未検証: 従来の self_eval / coverage / aggregated のブレンドにフォールバック
+        # 判定できた主張数（supported + contradicted）。0 の場合は groundedness を
+        # 「裏付け0」ではなく「判定不能（中立）」として扱い、support_rate=0 を
+        # 信頼度の罰点に使わない（全クエリが不当に CONFIRM/ESCALATE に落ちるのを防ぐ）。
+        decided = getattr(gres, "supported", 0) + getattr(gres, "contradicted", 0)
+
+        if not gres.verified or decided == 0:
+            # 未検証 or 判定不能: self_eval / coverage / aggregated の従来ブレンドへ
             comps = [(v, w) for v, w in (
                 (self_eval, 0.5), (coverage, 0.3), (aggregated, 0.2)
             ) if v is not None]
@@ -1828,7 +1833,8 @@ class Executor:
             # 事実回答なのにソース皆無 → 過信抑制
             if not sources:
                 answer_conf *= 0.85
-            logger.info(f"Groundedness unverified ({gres.reason}); "
+            _reason = gres.reason if not gres.verified else f"0 decided of {getattr(gres, 'total', 0)}"
+            logger.info(f"Groundedness neutral ({_reason}); "
                         f"fallback answer_conf={answer_conf:.3f}")
             return (1.0 - w_aux) * answer_conf + w_aux * aggregated
 
@@ -1930,6 +1936,20 @@ class Executor:
             for s in state.plan.steps
         ) or getattr(state, "web_search_executed", False)
 
+        # 各 StepResult.token_usage を合算して総トークンを集計（ベンチマーク計測用）。
+        # ツール本体の入出力トークンが対象（confidence評価等の補助LLM呼び出しは別管理）。
+        _in_tok = 0
+        _out_tok = 0
+        for r in state.step_results.values():
+            tu = getattr(r, "token_usage", None)
+            if isinstance(tu, dict):
+                _in_tok += int(tu.get("input_tokens") or tu.get("prompt_tokens") or 0)
+                _out_tok += int(tu.get("output_tokens") or tu.get("completion_tokens") or 0)
+        total_token_usage = (
+            {"input_tokens": _in_tok, "output_tokens": _out_tok}
+            if (_in_tok or _out_tok) else None
+        )
+
         return ExecutionResult(
             plan_id=state.plan.plan_id or create_plan_id(),
             original_query=state.plan.original_query,
@@ -1939,7 +1959,7 @@ class Executor:
             overall_status=overall_status,
             replan_count=state.replan_count,
             total_execution_time_ms=state.get_execution_time_ms(),
-            total_token_usage=None,
+            total_token_usage=total_token_usage,
             total_cost_usd=None,
             rag_max_score=rag_max_score,
             rag_search_count=rag_search_count,
