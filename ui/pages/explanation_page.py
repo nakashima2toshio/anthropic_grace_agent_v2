@@ -12,13 +12,30 @@ import re
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-try:
-    import streamlit_mermaid as stmd
 
-    MERMAID_AVAILABLE = True
-except ImportError:
-    MERMAID_AVAILABLE = False
+def render_mermaid(code: str) -> None:
+    """mermaid.js (CDN) を用いて Mermaid 図を描画する。
+
+    streamlit-mermaid パッケージは altair<5 / setuptools<76 に依存し、
+    本プロジェクトの streamlit / altair（>=5）と両立しないため、CDN の
+    mermaid.js を streamlit.components.v1.html で読み込んで描画する。
+    """
+    # 図の行数からおおよその表示高さを見積もる（最小/最大でクランプ）
+    line_count = code.count("\n") + 1
+    height = min(2000, max(320, line_count * 34 + 120))
+    html = (
+        '<div class="mermaid" style="background:#000;">\n'
+        + code
+        + "\n</div>\n"
+        '<script type="module">\n'
+        "  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
+        "  mermaid.initialize({ startOnLoad: true, securityLevel: 'loose', theme: 'base' });\n"
+        "  await mermaid.run();\n"
+        "</script>\n"
+    )
+    components.html(html, height=height, scrolling=True)
 
 
 def get_image_base64(image_path_str):
@@ -111,15 +128,11 @@ def render_markdown_with_mermaid(content: str):
         #   空表示になる。注入はせず、コードをそのまま streamlit-mermaid に渡す。
         mermaid_code = match.group(1).strip()
 
-        if MERMAID_AVAILABLE:
-            try:
-                stmd.st_mermaid(mermaid_code)
-            except Exception as e:
-                st.code(mermaid_code, language="mermaid")
-                st.warning(f"Mermaid 図のレンダリングに失敗: {e}")
-        else:
+        try:
+            render_mermaid(mermaid_code)
+        except Exception as e:
             st.code(mermaid_code, language="mermaid")
-            st.info("Mermaid 図を表示するには: pip install streamlit-mermaid")
+            st.warning(f"Mermaid 図のレンダリングに失敗: {e}")
 
         last_end = match.end()
 
