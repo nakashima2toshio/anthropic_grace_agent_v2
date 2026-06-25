@@ -13,13 +13,6 @@ from pathlib import Path
 
 import streamlit as st
 
-try:
-    import streamlit_mermaid as stmd
-
-    MERMAID_AVAILABLE = True
-except ImportError:
-    MERMAID_AVAILABLE = False
-
 
 def get_image_base64(image_path_str):
     """
@@ -105,25 +98,15 @@ def render_markdown_with_mermaid(content: str):
         if before_text.strip():
             st.markdown(before_text, unsafe_allow_html=True)
 
-        # Mermaid 図を表示
+        # Mermaid コードを表示
         mermaid_code = match.group(1).strip()
 
-        # Inject classDef after the first line (graph declaration)
-        if mermaid_code.startswith("flowchart") or mermaid_code.startswith("graph"):
-            lines = mermaid_code.split('\n')
-            if len(lines) > 0:
-                lines.insert(1, "classDef default fill:#000,stroke:#fff,stroke-width:1px,color:#fff;")
-                mermaid_code = "\n".join(lines)
-
-        if MERMAID_AVAILABLE:
-            try:
-                stmd.st_mermaid(mermaid_code)
-            except Exception as e:
-                st.code(mermaid_code, language="mermaid")
-                st.warning(f"Mermaid 図のレンダリングに失敗: {e}")
-        else:
-            st.code(mermaid_code, language="mermaid")
-            st.info("Mermaid 図を表示するには: pip install streamlit-mermaid")
+        # 開閉部品（expander）を使わず、常に表示されるコードブロックで表示する。
+        # ※ 以前は streamlit-mermaid で描画していたが、README の各 mermaid が
+        #   末尾に持つ `classDef default ...`（プロジェクト規約スタイル）と、
+        #   ここで先頭へ注入していた classDef が二重定義となり、パースエラーで
+        #   図が空表示になる不具合があった。注入をやめ、コード表示に固定する。
+        st.code(mermaid_code, language="mermaid")
 
         last_end = match.end()
 
