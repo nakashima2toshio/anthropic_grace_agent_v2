@@ -7,11 +7,82 @@ README.md の内容を表示（Mermaid図対応）
 """
 
 import base64
+import html as html_lib
 import mimetypes
 import re
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
+
+# Mermaid.js（CDN）。ノード背景=黒・文字=白の黒テーマで描画する。
+_MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"
+
+# 黒背景・白文字テーマ（プロジェクト規約: ノード fill:#000 / color:#fff、
+# サブグラフ fill:#1a1a1a）。README 側の classDef があればそちらが優先される。
+_MERMAID_INIT = """{
+  startOnLoad: false,
+  securityLevel: 'loose',
+  theme: 'base',
+  themeVariables: {
+    background: '#000000',
+    primaryColor: '#000000',
+    primaryTextColor: '#ffffff',
+    primaryBorderColor: '#ffffff',
+    secondaryColor: '#1a1a1a',
+    tertiaryColor: '#1a1a1a',
+    mainBkg: '#000000',
+    secondBkg: '#1a1a1a',
+    lineColor: '#ffffff',
+    textColor: '#ffffff',
+    nodeTextColor: '#ffffff',
+    clusterBkg: '#1a1a1a',
+    clusterBorder: '#ffffff',
+    edgeLabelBackground: '#1a1a1a',
+    fontFamily: 'sans-serif',
+    fontSize: '15px'
+  },
+  flowchart: { htmlLabels: true, useMaxWidth: true }
+}"""
+
+
+def _estimate_mermaid_height(code: str) -> int:
+    """Mermaid コードから描画iframeの概算高さ(px)を見積もる。"""
+    lines = [ln for ln in code.splitlines() if ln.strip()]
+    head = code.lstrip()[:40]
+    if head.startswith("sequenceDiagram"):
+        msgs = sum(1 for ln in lines if "->>" in ln or "-->>" in ln or "->" in ln)
+        return max(320, min(1200, 180 + msgs * 46))
+    edges = sum(1 for ln in lines if "-->" in ln or "->>" in ln or "---" in ln or "-.->" in ln)
+    subgraphs = sum(1 for ln in lines if ln.strip().startswith("subgraph"))
+    is_lr = bool(re.match(r"(flowchart|graph)\s+(LR|RL)", head))
+    per_edge = 26 if is_lr else 40
+    base = 240 + edges * per_edge + subgraphs * 70
+    return max(320, min(1700, base))
+
+
+def _render_mermaid(code: str) -> None:
+    """Mermaid コードを mermaid.js で図として描画する（黒背景・白文字）。
+
+    開閉部品（expander）は使わず常に表示する。ブラウザが <br/> 等を
+    実DOM化しないよう HTML エスケープし、textContent として mermaid に渡す。
+    """
+    height = _estimate_mermaid_height(code)
+    escaped = html_lib.escape(code)
+    html = (
+        '<div style="background:#000000;padding:8px 4px;border-radius:6px;">'
+        f'<pre class="mermaid" style="background:#000000;color:#ffffff;'
+        f'margin:0;border:none;white-space:pre;">{escaped}</pre>'
+        "</div>"
+        f'<script src="{_MERMAID_CDN}"></script>'
+        "<script>"
+        f"mermaid.initialize({_MERMAID_INIT});"
+        "try { mermaid.run({ querySelector: '.mermaid' }); }"
+        "catch (e) { document.body.insertAdjacentHTML('beforeend',"
+        "'<pre style=\"color:#f88\">'+e+'</pre>'); }"
+        "</script>"
+    )
+    components.html(html, height=height, scrolling=True)
 
 
 def get_image_base64(image_path_str):
@@ -98,15 +169,14 @@ def render_markdown_with_mermaid(content: str):
         if before_text.strip():
             st.markdown(before_text, unsafe_allow_html=True)
 
-        # Mermaid コードを表示
+        # Mermaid 図を描画する
         mermaid_code = match.group(1).strip()
 
-        # 開閉部品（expander）を使わず、常に表示されるコードブロックで表示する。
-        # ※ 以前は streamlit-mermaid で描画していたが、README の各 mermaid が
-        #   末尾に持つ `classDef default ...`（プロジェクト規約スタイル）と、
-        #   ここで先頭へ注入していた classDef が二重定義となり、パースエラーで
-        #   図が空表示になる不具合があった。注入をやめ、コード表示に固定する。
-        st.code(mermaid_code, language="mermaid")
+        # 開閉部品（expander）を使わず、常に表示される図として描画する。
+        # ※ 以前は mermaid コード先頭へ classDef を注入していたが、README の
+        #   各 mermaid ブロック末尾の `classDef default ...`（規約スタイル）と
+        #   二重定義になり、パースエラーで空表示になっていた。注入は行わない。
+        _render_mermaid(mermaid_code)
 
         last_end = match.end()
 

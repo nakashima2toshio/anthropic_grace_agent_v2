@@ -293,7 +293,7 @@ def main():
             }[x],
             label_visibility="collapsed",
         )
-        st.markdown("全ソースは： [GitHub: nakashima2toshio/gemini_agent_rag](https://github.com/nakashima2toshio/gemini_agent_rag)")
+        st.markdown("全ソースは： [GitHub: nakashima2toshio/anthropic_grace_agent_v2](https://github.com/nakashima2toshio/anthropic_grace_agent_v2)")
         st.divider()
 
     # 選択された画面を表示
