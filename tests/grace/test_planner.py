@@ -74,10 +74,13 @@ class TestPlanner:
         assert plan.plan_id is not None
         assert plan.complexity == 0.5
 
+    @patch("grace.planner.create_execution_memory")
     @patch("grace.planner.create_chat_client")
     @patch("grace.planner.QdrantClient")
     @patch("grace.planner.get_all_collections")
-    def test_create_plan_fallback(self, mock_get_collections, mock_qdrant_client, mock_client_class):
+    def test_create_plan_fallback(
+        self, mock_get_collections, mock_qdrant_client, mock_client_class, mock_memory
+    ):
         """計画生成失敗時のフォールバック"""
         # Mock collections
         mock_get_collections.return_value = []
@@ -86,6 +89,10 @@ class TestPlanner:
         # Ensure calls fail
         mock_client.models.generate_content.side_effect = Exception("API Error")
         mock_client_class.return_value = mock_client
+
+        # ローカルの実行メモリ（過去ベンチマークの永続ファイル）に依存して
+        # collection が固定されないよう、メモリの事前分布を無効化する。
+        mock_memory.return_value.best_collection.return_value = None
 
         planner = Planner()
         plan = planner.create_plan("テスト")

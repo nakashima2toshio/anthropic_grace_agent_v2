@@ -461,7 +461,12 @@ class BenchmarkLogger:
         # ステップ別指標
         # RAG 最高スコアは executor が集約した result.rag_max_score を最優先で使う
         # （StepResult.output は表示用の整形済み文字列のため、ここから score は読めない）。
-        rag_top_score: Optional[float] = getattr(result, "rag_max_score", None)
+        # 数値でない値（None / 不正な型）は None に丸めて後段の比較を保護する。
+        _rms = getattr(result, "rag_max_score", None)
+        try:
+            rag_top_score: Optional[float] = float(_rms) if _rms is not None else None
+        except (TypeError, ValueError):
+            rag_top_score = None
         # web 実行の有無は executor の web_search_used を最優先（replan とは別物）。
         web_fired = bool(getattr(result, "web_search_used", False))
         for step_result in getattr(result, "step_results", []):
@@ -489,8 +494,8 @@ class BenchmarkLogger:
 
         # RAG ステップ数は executor の集計値を採用（web ステップを混同しない）。
         rsc = getattr(result, "rag_search_count", None)
-        if rsc is not None:
-            session.rag_step_count = rsc
+        if isinstance(rsc, (int, float)) and not isinstance(rsc, bool):
+            session.rag_step_count = int(rsc)
         else:
             # フォールバック: ソースを持つステップ数（旧挙動）
             session.rag_step_count = sum(
