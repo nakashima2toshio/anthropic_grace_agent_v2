@@ -90,24 +90,42 @@ def _render_mermaid(code: str) -> None:
     height = _estimate_mermaid_height(code)
     escaped = html_lib.escape(code)
     html = (
-        '<div style="background:#000000;padding:8px 4px;border-radius:6px;">'
+        '<div id="mmwrap" style="background:#000000;padding:6px 4px;">'
         f'<pre class="mermaid" style="background:#000000;color:#ffffff;'
         f'margin:0;border:none;white-space:pre;text-align:center;">{escaped}</pre>'
         "</div>"
         f'<script src="{_MERMAID_CDN}"></script>'
         "<script>"
         f"mermaid.initialize({_MERMAID_INIT});"
+        # 描画後に SVG の実寸を測り、iframe 本体だけでなく Streamlit が
+        # 確保する専用ラッパー(stIFrame)も同じ高さに合わせる。これにより
+        # 「枠が大きすぎて黒い空白が残る」「枠からはみ出して次図に重なる」を解消。
+        # ページ全体の共有ブロックには触れない（高さを壊さない）。
         "function _fit(){"
         "  var s=document.querySelector('.mermaid svg');"
         "  if(!s){return;}"
-        "  var h=Math.ceil(s.getBoundingClientRect().height)+16;"
+        "  var h=Math.ceil(s.getBoundingClientRect().height)+8;"
+        "  if(h<40){return;}"
+        "  document.documentElement.style.height=h+'px';"
         "  document.body.style.margin='0';document.body.style.height=h+'px';"
-        "  try{if(window.frameElement){window.frameElement.style.height=h+'px';}}catch(e){}"
+        "  try{"
+        "    var f=window.frameElement;"
+        "    if(f){"
+        "      f.style.height=h+'px';f.setAttribute('height',h);"
+        "      var p=f.parentElement;"
+        "      if(p&&p.getAttribute&&p.getAttribute('data-testid')==='stIFrame'){"
+        "        p.style.height=h+'px';"
+        "      }"
+        "    }"
+        "  }catch(e){}"
         "}"
-        "mermaid.run({querySelector:'.mermaid'})"
-        ".then(function(){_fit();setTimeout(_fit,150);})"
-        ".catch(function(e){var p=document.createElement('pre');"
-        "p.style.color='#f88';p.textContent=String(e);document.body.appendChild(p);});"
+        "mermaid.run({querySelector:'.mermaid'}).then(function(){"
+        "  _fit();setTimeout(_fit,120);setTimeout(_fit,400);"
+        "  try{var o=new ResizeObserver(_fit);"
+        "      o.observe(document.querySelector('.mermaid svg'));}catch(e){}"
+        "}).catch(function(e){var pr=document.createElement('pre');"
+        "  pr.style.color='#f88';pr.textContent=String(e);"
+        "  document.body.appendChild(pr);});"
         "</script>"
     )
     components.html(html, height=height, scrolling=True)
