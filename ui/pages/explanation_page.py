@@ -39,10 +39,27 @@ _MERMAID_INIT = """{
     clusterBkg: '#1a1a1a',
     clusterBorder: '#ffffff',
     edgeLabelBackground: '#1a1a1a',
+    actorBkg: '#000000',
+    actorBorder: '#ffffff',
+    actorTextColor: '#ffffff',
+    actorLineColor: '#ffffff',
+    signalColor: '#ffffff',
+    signalTextColor: '#ffffff',
+    labelBoxBkgColor: '#1a1a1a',
+    labelBoxBorderColor: '#ffffff',
+    labelTextColor: '#ffffff',
+    loopTextColor: '#ffffff',
+    noteBkgColor: '#1a1a1a',
+    noteBorderColor: '#ffffff',
+    noteTextColor: '#ffffff',
+    activationBkgColor: '#1a1a1a',
+    activationBorderColor: '#ffffff',
+    sequenceNumberColor: '#000000',
     fontFamily: 'sans-serif',
     fontSize: '15px'
   },
-  flowchart: { htmlLabels: true, useMaxWidth: true }
+  flowchart: { htmlLabels: true, useMaxWidth: true },
+  sequence: { useMaxWidth: true }
 }"""
 
 
@@ -67,19 +84,30 @@ def _render_mermaid(code: str) -> None:
     開閉部品（expander）は使わず常に表示する。ブラウザが <br/> 等を
     実DOM化しないよう HTML エスケープし、textContent として mermaid に渡す。
     """
+    # init ディレクティブ（%%{...}%%）は色テーマ指定のみのため除去し、
+    # 全図に統一の黒テーマ(_MERMAID_INIT)を適用する（noteBkg 等の誤指定対策）。
+    code = re.sub(r"%%\{.*?\}%%\s*", "", code, flags=re.DOTALL).strip()
     height = _estimate_mermaid_height(code)
     escaped = html_lib.escape(code)
     html = (
         '<div style="background:#000000;padding:8px 4px;border-radius:6px;">'
         f'<pre class="mermaid" style="background:#000000;color:#ffffff;'
-        f'margin:0;border:none;white-space:pre;">{escaped}</pre>'
+        f'margin:0;border:none;white-space:pre;text-align:center;">{escaped}</pre>'
         "</div>"
         f'<script src="{_MERMAID_CDN}"></script>'
         "<script>"
         f"mermaid.initialize({_MERMAID_INIT});"
-        "try { mermaid.run({ querySelector: '.mermaid' }); }"
-        "catch (e) { document.body.insertAdjacentHTML('beforeend',"
-        "'<pre style=\"color:#f88\">'+e+'</pre>'); }"
+        "function _fit(){"
+        "  var s=document.querySelector('.mermaid svg');"
+        "  if(!s){return;}"
+        "  var h=Math.ceil(s.getBoundingClientRect().height)+16;"
+        "  document.body.style.margin='0';document.body.style.height=h+'px';"
+        "  try{if(window.frameElement){window.frameElement.style.height=h+'px';}}catch(e){}"
+        "}"
+        "mermaid.run({querySelector:'.mermaid'})"
+        ".then(function(){_fit();setTimeout(_fit,150);})"
+        ".catch(function(e){var p=document.createElement('pre');"
+        "p.style.color='#f88';p.textContent=String(e);document.body.appendChild(p);});"
         "</script>"
     )
     components.html(html, height=height, scrolling=True)
