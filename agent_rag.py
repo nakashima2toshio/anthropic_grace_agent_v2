@@ -274,7 +274,8 @@ def main():
         page = st.radio(
             "機能選択",
             options=[
-                "explanation",
+                "explanation_diagram",
+                "explanation_document",
                 "qdrant_search",
                 "agent_chat",
                 "grace_chat",
@@ -283,7 +284,8 @@ def main():
                 "qdrant_crud",
             ],
             format_func=lambda x: {
-                "explanation": "📖 説明",
+                "explanation_diagram": "📖 システム説明（図表）",
+                "explanation_document": "📖 システム説明（ドキュメント）",
                 "qdrant_search": "🔎 Qdrant検索",
                 "agent_chat": "自立型Agent(ReAct+Reflection)",
                 "grace_chat": "自律型Agent(最新：動的Agent)",
@@ -298,7 +300,8 @@ def main():
 
     # 選択された画面を表示
     page_mapping = {
-        "explanation": show_system_explanation_page,
+        "explanation_diagram": lambda: show_system_explanation_page(section="diagram"),
+        "explanation_document": lambda: show_system_explanation_page(section="document"),
         "agent_chat": show_agent_chat_page,
         "grace_chat": show_grace_chat_page,
         "log_viewer": show_log_viewer_page,
