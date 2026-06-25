@@ -1145,6 +1145,11 @@ class Executor:
             kwargs["language"] = self.config.web_search.language
 
         elif step.action == "reasoning":
+            # reasoning はユーザーの「元の質問」に答えるステップ。step.query が空のとき
+            # step.description（"取得した情報を元に回答を生成" 等の内部指示）を質問として
+            # 渡すと、LLM が質問を見失い検索結果を全件羅列する汎用サマリーになってしまう
+            # （coverage/groundedness 低下）。元の質問を明示的に渡して直接回答させる。
+            kwargs["query"] = step.query or state.plan.original_query
             # 全成功ステップの結果をコンテキストとして追加
             # （depends_on ではなく state.step_results 全体を参照）
             # → 動的挿入された web_search やリプラン後の結果も取得可能
@@ -1720,6 +1725,18 @@ class Executor:
                 if result.status == "success":
                     final_answer = result.output
                     break
+
+        # 明確化（ask_user）計画＝最終回答が無く ask_user ステップを含む場合は、
+        # 曖昧クエリ等で確認が必要な状態。高信頼にせず低信頼（CONFIRM/ESCALATE 帯）に
+        # 固定する。これにより曖昧クエリが NOTIFY 等で素通りするのを防ぐ。
+        if final_answer is None and any(
+            getattr(s, "action", None) == "ask_user" for s in state.plan.steps
+        ):
+            clarif = getattr(self.config.confidence, "clarification_confidence", 0.3)
+            logger.info(
+                f"Clarification/ask_user plan (no final answer) → confidence={clarif}"
+            )
+            return round(min(1.0, max(0.0, float(clarif))), 3)
 
         # S1: 最終回答の自己評価/網羅度を保持（groundedness ブレンドで使用）
         self_eval_score: Optional[float] = None
