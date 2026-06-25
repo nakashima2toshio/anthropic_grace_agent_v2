@@ -4,6 +4,7 @@
 #   (generate_with_tools / stop_reason=="tool_use") ベースへ全面移行。
 #   - LLM は Anthropic Claude（既定 claude-sonnet-4-6）。Embedding は Gemini 維持。
 #   - 会話履歴は self._messages で自前管理（Anthropic はステートレス設計）。
+import re
 import uuid
 from typing import Any, Dict, Generator, List, Optional
 
@@ -38,6 +39,19 @@ except ImportError:
     KeywordExtractor = None
 
 # キャッシュと並列検索をインポート
+
+# 孤立サロゲート（U+D800–U+DFFF）を除去する。KeywordExtractor が不正な
+# Unicode を返すと、そのまま Anthropic API へ送った際に JSON エンコードで
+# UnicodeEncodeError（surrogates not allowed）が発生するため、事前に除去する。
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def _strip_surrogates(text: str) -> str:
+    """文字列から孤立サロゲートを取り除く（UTF-8 にエンコード不能な文字対策）。"""
+    if not isinstance(text, str):
+        return text
+    return _SURROGATE_RE.sub("", text)
+
 
 # -----------------------------------------------------------------------------
 # Constants & Configuration
@@ -295,7 +309,8 @@ class ReActAgent:
             try:
                 keywords = self.keyword_extractor.extract(user_input, top_n=5)
                 if keywords:
-                    keywords_str = ", ".join(keywords)
+                    # 抽出キーワードに混入し得る孤立サロゲートを除去してから利用する。
+                    keywords_str = _strip_surrogates(", ".join(keywords))
                     augmented_input = (
                         f"{user_input}\n\n"
                         f"【重要: 検索クエリ作成の指示】\n"
