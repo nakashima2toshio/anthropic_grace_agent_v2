@@ -39,7 +39,8 @@ def main():
 
         # 画面オプション
         page_options = [
-            "explanation",
+            "explanation_diagram",
+            "explanation_document",
             "rag_download",
             "qa_generation",
             "qdrant_registration",
@@ -48,7 +49,8 @@ def main():
         ]
 
         page_labels = {
-            "explanation": "📖 説明",
+            "explanation_diagram": "📖 システム説明（図表）",
+            "explanation_document": "📖 システム説明（ドキュメント）",
             "rag_download": "📥 RAGデータダウンロード",
             "qa_generation": "🤖 Q/A生成",
             "qdrant_registration": "🗄️ Qdrant登録",
@@ -71,9 +73,13 @@ def main():
 
     # ページをインポートして表示
     try:
-        if page == "explanation":
+        if page == "explanation_diagram":
             from ui.pages.explanation_page import show_system_explanation_page
-            show_system_explanation_page()
+            show_system_explanation_page(section="diagram")
+
+        elif page == "explanation_document":
+            from ui.pages.explanation_page import show_system_explanation_page
+            show_system_explanation_page(section="document")
 
         elif page == "rag_download":
             from ui.pages.download_page import show_rag_download_page

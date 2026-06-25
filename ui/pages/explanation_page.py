@@ -129,16 +129,47 @@ def render_markdown_with_mermaid(content: str):
         st.markdown(remaining_text, unsafe_allow_html=True)
 
 
-def show_system_explanation_page():
-    """システム説明ページ - README.md または指定されたドキュメントを表示"""
-    
+def split_readme_section(content: str, section: str) -> str:
+    """README.md を「図表」と「ドキュメント」の2セクションに分割する。
+
+    分割点は「## 目次」見出し。
+    - "diagram":  先頭〜目次直前（…Version 表記・最終更新まで）
+    - "document": 目次〜末尾
+    - その他:     分割せず全体を返す
+    見出しが見つからない場合は全体を返す（後方互換）。
+    """
+    match = re.search(r'(?m)^##\s*目次\s*$', content)
+    if not match:
+        return content
+    if section == "diagram":
+        return content[: match.start()].rstrip() + "\n"
+    if section == "document":
+        return content[match.start():]
+    return content
+
+
+def show_system_explanation_page(section: str = "all"):
+    """システム説明ページ - README.md または指定されたドキュメントを表示
+
+    Args:
+        section: README.md の表示範囲を指定する。
+            "diagram"  … システム説明（図表）: 先頭〜目次直前
+            "document" … システム説明（ドキュメント）: 目次〜末尾
+            "all"      … 全体（既定・後方互換）
+    """
+
     # Check for query parameter 'doc'
     query_params = st.query_params
     target_doc = query_params.get("doc", "README.md")
-    
+
     # Title logic
     if target_doc == "README.md":
-        st.title("📖 システム説明")
+        section_titles = {
+            "diagram": "📖 システム説明（図表）",
+            "document": "📖 システム説明（ドキュメント）",
+            "all": "📖 システム説明",
+        }
+        st.title(section_titles.get(section, "📖 システム説明"))
         st.caption("プロジェクト README.md")
     else:
         st.title(f"📖 {target_doc}")
@@ -162,6 +193,9 @@ def show_system_explanation_page():
 
     if file_path.exists() and file_path.suffix == ".md":
         readme_content = file_path.read_text(encoding="utf-8")
+        # README.md のみ section 指定で分割表示（他ドキュメントは全体表示）
+        if target_doc == "README.md" and section in ("diagram", "document"):
+            readme_content = split_readme_section(readme_content, section)
         render_markdown_with_mermaid(readme_content)
     else:
         st.error(f"ドキュメントが見つかりません: {target_doc}")
