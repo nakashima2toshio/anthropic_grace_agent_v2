@@ -21,21 +21,44 @@ def render_mermaid(code: str) -> None:
     streamlit-mermaid パッケージは altair<5 / setuptools<76 に依存し、
     本プロジェクトの streamlit / altair（>=5）と両立しないため、CDN の
     mermaid.js を streamlit.components.v1.html で読み込んで描画する。
+
+    描画後、実際の SVG 高さへ iframe を合わせる（同一オリジンで許可される
+    場合）。許可されない環境でも、初期見積り高さを大きめに取りスクロール
+    可能にすることで、背の高い図が枠で切れて崩れないようにする。
     """
-    # 図の行数からおおよその表示高さを見積もる（最小/最大でクランプ）
+    # 初期表示高さを図の規模から多めに見積もる（描画後に JS で実寸へ補正）
     line_count = code.count("\n") + 1
-    height = min(2000, max(320, line_count * 34 + 120))
+    est_height = min(4000, max(360, line_count * 42 + 180))
     html = (
         '<div class="mermaid" style="background:#000;">\n'
         + code
         + "\n</div>\n"
         '<script type="module">\n'
         "  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
-        "  mermaid.initialize({ startOnLoad: true, securityLevel: 'loose', theme: 'base' });\n"
-        "  await mermaid.run();\n"
+        "  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });\n"
+        "  try {\n"
+        "    await mermaid.run({ querySelector: '.mermaid' });\n"
+        "  } catch (err) {\n"
+        "    const pre = document.createElement('pre');\n"
+        "    pre.style.cssText = 'color:#fff;background:#000;white-space:pre-wrap;';\n"
+        "    pre.textContent = String(err && err.message ? err.message : err);\n"
+        "    document.body.appendChild(pre);\n"
+        "  }\n"
+        "  function fitFrame() {\n"
+        "    try {\n"
+        "      const svg = document.querySelector('.mermaid svg');\n"
+        "      if (svg && window.frameElement) {\n"
+        "        svg.style.maxWidth = '100%';\n"
+        "        const h = Math.ceil(svg.getBoundingClientRect().height) + 32;\n"
+        "        window.frameElement.style.height = h + 'px';\n"
+        "      }\n"
+        "    } catch (e) { /* cross-origin: 初期見積り高さのまま */ }\n"
+        "  }\n"
+        "  setTimeout(fitFrame, 60);\n"
+        "  setTimeout(fitFrame, 400);\n"
         "</script>\n"
     )
-    components.html(html, height=height, scrolling=True)
+    components.html(html, height=est_height, scrolling=True)
 
 
 def get_image_base64(image_path_str):
