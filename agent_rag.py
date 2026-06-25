@@ -109,6 +109,66 @@ def show_rag_data_creation_page():
         """
     )
 
+    st.divider()
+
+    # --- 使い方（CLIクイックスタート） ---
+    st.markdown(
+        """
+        ### 🛠️ 使い方（CLIクイックスタート）
+
+        RAGデータ作成は、以下のCLIツールを順に実行します。
+        テキストデータ → チャンク → Q/Aペア → Qdrant登録 という一連のパイプラインが完成します。
+        詳細は上記の `readme_usage_tools.md` を参照してください。
+
+        #### 0. 事前準備（Docker / Celery 起動）
+
+        ```bash
+        # Qdrant + Redis を起動
+        docker compose -f docker-compose/docker-compose.yml up -d
+
+        # Q/A生成で Celery 並列処理を使う場合（推奨: concurrency=8 + Flower）
+        ./start_celery.sh restart -c 8 --flower
+        ```
+
+        `.env` に LLM 用 `ANTHROPIC_API_KEY` と Embedding 用 `GEMINI_API_KEY` / `GOOGLE_API_KEY` を設定しておきます。
+
+        #### ① チャンク作成（CSV / テキスト → チャンクCSV）
+
+        ```bash
+        uv run python -m chunking.csv_text_to_chunks_text_csv \\
+          --input-file OUTPUT/cc_news_1per.csv \\
+          --output output_chunked \\
+          --model claude-haiku-4-5-20251001 \\
+          --workers 2
+        ```
+
+        → 固定ファイル名 `{入力名}_chunks.csv`（メタデータ付き）が生成されます。
+
+        #### ② Q/Aペア作成 ＋ Qdrant登録（チャンクCSV → Qdrant）
+
+        ```bash
+        uv run python qa_qdrant/make_qa_register_qdrant.py \\
+          --input-file output_chunked/cc_news_1per_chunks.csv \\
+          --collection cc_news_1per \\
+          --model claude-sonnet-4-6 \\
+          --concurrency 8 \\
+          --use-celery \\
+          --recreate
+        ```
+
+        → チャンクごとに LLM が Q/A を自動生成し、Embedding（`gemini-embedding-001`, 3072次元）して Qdrant に登録します。
+
+        #### ③ Agent検索（Web UI で確認）
+
+        ```bash
+        streamlit run agent_rag.py --server.port 8501
+        ```
+
+        > 補足：`question` / `answer` 列を持つ CSV はQ/A生成をスキップして直接登録されます。
+        > Celery を使わない同期実行は `--use-celery` を外してください。
+        """
+    )
+
 
 def show_qdrant_crud_page():
     """QdrantのCRUDページ"""
@@ -126,6 +186,72 @@ def show_qdrant_crud_page():
         - **Update**: ポイントのペイロード更新
         - **Delete**: ポイント削除、コレクション削除
 
+        """
+    )
+
+    st.divider()
+
+    # --- 使い方（CLI / REST） ---
+    st.markdown(
+        """
+        ### 🛠️ 使い方
+
+        #### 0. 事前準備（Qdrant 起動・疎通確認）
+
+        ```bash
+        # Qdrant + Redis を起動
+        docker compose -f docker-compose/docker-compose.yml up -d
+
+        # Qdrant ヘルスチェック
+        curl http://localhost:6333/health
+        ```
+
+        #### ① Create / Update：CSVからコレクションへ登録
+
+        Q/Aペア CSV（`question` / `answer`）や汎用 CSV を Qdrant に登録します。
+        `--recreate` を付けると既存コレクションを削除して作り直します（付けなければ追記＝Upsert）。
+
+        ```bash
+        uv run python qa_qdrant/register_to_qdrant.py \\
+          --input-file qa_output/pipeline/qa_pairs_cc_news_1per.csv \\
+          --collection cc_news_1per \\
+          --recreate \\
+          --batch-size 100
+        ```
+
+        → Embedding は Gemini `gemini-embedding-001`（3072次元）に固定。
+        ベクトル化対象カラムは自動検出（`question`+`answer` → `Combined_Text` → `text`）され、`--text-col` で明示指定もできます。
+
+        #### ② Read：コレクション一覧・件数・検索（REST API）
+
+        ```bash
+        # コレクション一覧
+        curl http://localhost:6333/collections
+
+        # 特定コレクションの情報（件数・次元など）
+        curl http://localhost:6333/collections/cc_news_1per
+
+        # ポイントをスクロール取得（先頭10件）
+        curl -X POST http://localhost:6333/collections/cc_news_1per/points/scroll \\
+          -H 'Content-Type: application/json' \\
+          -d '{"limit": 10, "with_payload": true}'
+        ```
+
+        > ベクトル検索の体験は、左メニューの「🔎 Qdrant検索」ページからも実行できます。
+
+        #### ③ Delete：ポイント / コレクション削除
+
+        ```bash
+        # コレクションごと削除
+        curl -X DELETE http://localhost:6333/collections/cc_news_1per
+
+        # 条件に一致するポイントのみ削除（payload フィルタ例）
+        curl -X POST http://localhost:6333/collections/cc_news_1per/points/delete \\
+          -H 'Content-Type: application/json' \\
+          -d '{"filter": {"must": [{"key": "domain", "match": {"value": "cc_news_1per"}}]}}'
+        ```
+
+        > 詳細は `readme_usage_tools.md`（補助ツール: Qdrant登録のみ）も参照してください。
         """
     )
 
