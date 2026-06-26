@@ -12,29 +12,50 @@ import re
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
-try:
-    import streamlit_mermaid as stmd
-
-    MERMAID_AVAILABLE = True
-except ImportError:
-    MERMAID_AVAILABLE = False
+# Mermaid 図の表示枠の高さ(px)。図ごとに実寸が大きく異なる（数百〜数千px）ため、
+# 固定枠＋pan/zoom で枠内に全体を収める。
+_MERMAID_BOX_HEIGHT = 560
 
 
 def render_mermaid(code: str) -> None:
-    """Mermaid 図を streamlit-mermaid（宣言型コンポーネント）で描画する。
+    """Mermaid 図を CDN の mermaid.js v11 で描画する（st.components.v1.html）。
 
-    宣言型コンポーネントは Streamlit 公式の setFrameHeight により iframe 高さが
-    図の実寸へ自動調整されるため、はみ出し崩れが起きない。mermaid 本体は
-    パッケージに同梱され CDN 不要。streamlit-mermaid は altair<5 等を要求するが
-    実際には altair を import しないため、pyproject の [tool.uv] override で
-    その偽の制約を無視している。
+    外部 Python パッケージ streamlit-mermaid は mermaid v10.2.4 で更新が止まり、
+    新しい構文（例: `class ... default`）が構文エラーになる。そこで CDN から
+    最新の mermaid を読み込んで描画する。図ごとにレンダリング実寸が大きく異なり
+    （数百〜数千px）、固定高さでは必ず切れるため、svg-pan-zoom で固定枠内を
+    パン/ズーム可能にし、どの大きさの図も枠内で全体を閲覧できるようにする。
     """
-    if MERMAID_AVAILABLE:
-        stmd.st_mermaid(code)
-    else:
-        st.code(code, language="mermaid")
-        st.info("Mermaid 図を表示するには: pip install streamlit-mermaid")
+    html = (
+        '<div id="mbox" style="height:' + str(_MERMAID_BOX_HEIGHT) + 'px;'
+        'background:#000;border:1px solid #333;border-radius:6px;overflow:hidden;">\n'
+        '<div class="mermaid" style="height:100%;">\n'
+        + code
+        + "\n</div>\n</div>\n"
+        '<script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>\n'
+        '<script type="module">\n'
+        "  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
+        "  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });\n"
+        "  const box = document.getElementById('mbox');\n"
+        "  try {\n"
+        "    await mermaid.run({ querySelector: '#mbox .mermaid' });\n"
+        "    const svg = box.querySelector('svg');\n"
+        "    if (svg && window.svgPanZoom) {\n"
+        "      svg.setAttribute('width', '100%');\n"
+        "      svg.setAttribute('height', '100%');\n"
+        "      svg.style.maxWidth = 'none';\n"
+        "      window.svgPanZoom(svg, { controlIconsEnabled: true, fit: true, center: true,\n"
+        "        mouseWheelZoomEnabled: false, minZoom: 0.2, maxZoom: 12 });\n"
+        "    }\n"
+        "  } catch (err) {\n"
+        '    box.innerHTML = \'<pre style="color:#fff;white-space:pre-wrap;padding:8px;">\'\n'
+        "      + String(err && err.message ? err.message : err) + '</pre>';\n"
+        "  }\n"
+        "</script>\n"
+    )
+    components.html(html, height=_MERMAID_BOX_HEIGHT + 16)
 
 
 def get_image_base64(image_path_str):
