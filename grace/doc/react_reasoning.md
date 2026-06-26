@@ -126,8 +126,8 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
   "background": "#000000", "mainBkg": "#000000",
   "textColor": "#ffffff", "lineColor": "#ffffff",
   "actorBkg": "#000000", "actorTextColor": "#ffffff",
-  "actorLineColor": "#ffffff", "noteBkg": "#000000",
-  "noteTextColor": "#ffffff" } } }%%
+  "actorLineColor": "#ffffff", "noteBkgColor": "#000000",
+  "noteTextColor": "#ffffff", "noteBorderColor": "#ffffff" } } }%%
 sequenceDiagram
     participant C as "呼び出し元 (Executor/UI)"
     participant A as "ReActAgent"

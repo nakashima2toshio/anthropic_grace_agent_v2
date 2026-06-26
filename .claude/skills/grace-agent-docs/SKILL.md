@@ -75,7 +75,8 @@ description: >-
   - 全ノード `class <id,...> default`
   - 各サブグラフ `style <Subgraph> fill:#1a1a1a,stroke:#fff,color:#fff`
 - sequenceDiagram は先頭に `%%{ init: { "theme":"base", "themeVariables": { ...黒テーマ... } } }%%` を付け、`classDef`/`class` は使わない。
-  - **すべての要素を黒背景・白文字に統一する**: `background`/`mainBkg`/`actorBkg`/**`noteBkg` を `#000000`**、`textColor`/`actorTextColor`/`noteTextColor` を `#ffffff`。Note（`Note over` 等）の背景も `#000000` とし、`#1a1a1a` は使わない。
+  - **すべての要素を黒背景・白文字に統一する**: `background`/`mainBkg`/`actorBkg`/**`noteBkgColor` を `#000000`**、`textColor`/`actorTextColor`/`noteTextColor` を `#ffffff`、`noteBorderColor` を `#ffffff`。Note（`Note over` 等）の背景も `#000000` とし、`#1a1a1a` は使わない。
+  - ⚠️ **Note 背景の変数名は `noteBkgColor`（`noteBkg` ではない）**。`noteBkg` は Mermaid に認識されず既定の黄色（`#fff5ad`）になるため、Note ボックスが黄色背景で描画される不具合の原因になる。
 - ノードラベルの特殊文字はダブルクォートで囲む。バッククォート禁止。`<br>` は可。
 - 検証（grep）: 各ファイルで `flowchart|graph` の数 == `classDef default fill:#000` の数、`sequenceDiagram` の数 == `%%{ init` の数。
 
