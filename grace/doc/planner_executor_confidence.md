@@ -133,7 +133,7 @@ style EXTERNAL fill:#1a1a1a,stroke:#fff,color:#fff
   "background": "#000000", "mainBkg": "#000000",
   "textColor": "#ffffff", "lineColor": "#ffffff",
   "actorBkg": "#000000", "actorTextColor": "#ffffff",
-  "actorLineColor": "#ffffff", "noteBkg": "#1a1a1a",
+  "actorLineColor": "#ffffff", "noteBkg": "#000000",
   "noteTextColor": "#ffffff" } } }%%
 sequenceDiagram
     participant U as "ユーザー"
