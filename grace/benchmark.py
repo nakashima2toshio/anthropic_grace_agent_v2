@@ -657,7 +657,7 @@ class BenchmarkRunner:
     をラップし、1クエリまたはクエリセット全体のベンチマークを実行する。
 
     モデル名・プロバイダーは ``config.llm`` から自動取得するため、
-    各リポジトリ（openai / gemini / ollama）でコードを変更せずに使用できる。
+    各リポジトリ（anthropic / openai / gemini / ollama）でコードを変更せずに使用できる。
     """
 
     def __init__(
