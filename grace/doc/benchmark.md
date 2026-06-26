@@ -1,21 +1,77 @@
 # benchmark.py - GRACE ベンチマーク計測 ドキュメント
 
-**Version 1.0** | 最終更新: 2026-06-22
+**Version 1.1** | 最終更新: 2026-06-26
+
+---
+
+## 実行結果サンプル（FAST モード）
+
+> 下表は `python run_benchmark.py --fast` を実行したときの代表結果（`logs/benchmark_results.csv` から抜粋）です。
+> 検索ハンドリングの 5 ケース（A: 高スコア命中 / B: 中スコア境界 / C: 低スコア不一致 / D: 要リプラン / E: 曖昧）を 1 本ずつ通過させ、
+> **期待した分岐（経路）どおりに動いたか（`route_correct`）** を自動採点します。
+
+**実行環境**
+
+| 項目 | 値 |
+|---|---|
+| Model | `claude-sonnet-4-6` |
+| Provider | `anthropic` |
+| Qdrant コレクション | `cc_news_2per_anthropic` |
+| モード | `--fast`（代表5クエリ × 1回 / 単一コレクション固定 / リプラン上限1） |
+| 計測日 | 2026-06-23 |
+
+**① 検索ハンドリング結果（5ケース A〜E）**
+
+| ID | ケース | 経路（path） | 介入レベル | replan | status | RAG最高スコア | web切替 | route一致 |
+|---|:--:|---|---|:--:|---|:--:|:--:|:--:|
+| Q01 | **A** 高スコア命中 | `rule_plan+rag_hit` | NOTIFY | 0 | success | 0.855 | – | ✅ |
+| Q03 | **B** 中スコア境界 | `llm_plan+multi_rag` | NOTIFY | 0 | success | 0.776 | – | ✅ |
+| Q11 | **C** 低スコア不一致 | `llm_plan+web_fallback` | CONFIRM | 0 | success | – | ✅ | ✅ |
+| Q13 | **D** 要リプラン | `forced_replan+recovery` | ESCALATE | 1 | success | – | ✅ | ✅ |
+| Q10 | **E** 曖昧 | `ask_user+intervention` | ESCALATE | 1 | success | – | ✅ | ✅ |
+
+> **経路一致率（route_correct）: 5 / 5 = 100%**
+> ― 高スコア時は RAG のみで完結（A/B）、コレクション外や情報不足では web へ動的フォールバック（C/D）、
+> 曖昧クエリは人間へエスカレーション（E）と、**信頼度に応じた分岐が期待どおり**に働いていることを示します。
+
+**② 性能（時間・信頼度・トークン）**
+
+| ID | ケース | 全体信頼度 | 合計時間(秒) | tool呼出 | Input/Output tokens |
+|---|:--:|:--:|--:|:--:|---|
+| Q01 | A | 0.847 | 39.2 | 2 | 716 / 376 |
+| Q03 | B | 0.865 | 141.6 | 5 | 2,651 / 1,111 |
+| Q11 | C | 0.481 | 67.2 | 2 | 1,659 / 1,081 |
+| Q13 | D | 0.396 | 48.1 | 2 | 1,709 / 875 |
+| Q10 | E | 0.000 | 31.3 | 2 | 1,699 / 369 |
+
+> 📝 信頼度が低い C/D/E では介入レベルが `CONFIRM`/`ESCALATE` に上がり、**自信のなさを検知して人間へ橋渡し**しています
+> （③ Confidence → ④ Intervention の連動）。数値は1回分の実測値で、ネットワークや LLM 応答揺らぎにより run ごとに変動します。
+
+**再現方法**
+
+```bash
+# 代表5クエリ（A〜E 各1本）を高速実行 → logs/benchmark_results.csv に追記
+python run_benchmark.py --fast --collection cc_news_2per_anthropic
+
+# クエリ一覧（★=fast対象）を確認
+python run_benchmark.py --list
+```
 
 ---
 
 ## 目次
 
-1. [概要](#概要)
-2. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
-3. [モジュール構成図](#2-モジュール構成図)
-4. [クラス・関数一覧表](#3-クラス関数一覧表)
-5. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
-6. [設定・定数](#5-設定定数)
-7. [使用例](#6-使用例)
-8. [エクスポート](#7-エクスポート)
-9. [変更履歴](#8-変更履歴)
-10. [付録: 依存関係図](#付録-依存関係図)
+1. [実行結果サンプル](#実行結果サンプルfast-モード)
+2. [概要](#概要)
+3. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
+4. [モジュール構成図](#2-モジュール構成図)
+5. [クラス・関数一覧表](#3-クラス関数一覧表)
+6. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
+7. [設定・定数](#5-設定定数)
+8. [使用例](#6-使用例)
+9. [エクスポート](#7-エクスポート)
+10. [変更履歴](#8-変更履歴)
+11. [付録: 依存関係図](#付録-依存関係図)
 
 ---
 
@@ -588,6 +644,32 @@ Case D は 2 本構成です。
 
 ## 6. 使用例
 
+### 6.0 CLI からの実行（`run_benchmark.py`）
+
+```bash
+# フルベンチマーク（全クエリ × 3回）
+python run_benchmark.py
+
+# 高速完了モード（代表5クエリ A〜E × 1回）
+python run_benchmark.py --fast
+
+# コレクション・試行回数を指定
+python run_benchmark.py --collection cc_news_2per_anthropic --runs 2
+
+# 特定クエリだけ / 先頭N件 / 一覧表示
+python run_benchmark.py --query-id Q01 --query-id Q11
+python run_benchmark.py --limit 3
+python run_benchmark.py --list
+
+# GRACE と ReAct+Reflection を横並び比較
+python run_benchmark.py --fast --mode both
+```
+
+実行後、`run_benchmark.py` は経路一致率（route_correct）を集計して標準出力へ表示し、
+全セッションを `logs/benchmark_results.csv` に追記します（[実行結果サンプル](#実行結果サンプルfast-モード)参照）。
+
+> 前提: Qdrant 起動済み（`localhost:6333`）／対象コレクションが embedding 済み／`.env` に `ANTHROPIC_API_KEY` 設定済み。
+
 ### 6.1 基本的なワークフロー
 
 ```python
@@ -642,6 +724,7 @@ __all__ = [
 
 | バージョン | 変更内容 |
 |-----------|---------|
+| 1.1 | 冒頭に「実行結果サンプル（FAST モード）」を追加（実 CSV からの代表5ケース A〜E・経路一致率・性能表）。CLI 実行例（`run_benchmark.py --fast` / `--list`）を追記。目次・更新日を更新 |
 | 1.0 | 初版作成（検索ハンドリング評価への再設計・2エージェント別計測・新メトリクス5列に対応） |
 
 ---
