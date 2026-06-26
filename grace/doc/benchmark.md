@@ -1,6 +1,6 @@
 # benchmark.py - GRACE ベンチマーク計測 ドキュメント
 
-**Version 1.1** | 最終更新: 2026-06-26
+**Version 1.2** | 最終更新: 2026-06-26
 
 ---
 
@@ -644,7 +644,30 @@ Case D は 2 本構成です。
 
 ## 6. 使用例
 
-### 6.0 CLI からの実行（`run_benchmark.py`）
+### 6.0 CLI からの実行（`run_benchmark.py` / `run_benchmark.sh`）
+
+**(a) シェルラッパー `run_benchmark.sh`（Anthropic 専用・推奨）**
+
+Anthropic 設定（モデル・プロバイダー・コレクション）を固定済みのワンショット実行スクリプト。
+`uv run` で全クエリ × 3回を実行し、経路一致率を表示します。
+
+```bash
+chmod +x run_benchmark.sh
+./run_benchmark.sh
+```
+
+スクリプト内の既定値（Anthropic 専用）:
+
+| 変数 | 値 |
+|---|---|
+| `PROVIDER` | `anthropic` |
+| `MODEL` | `claude-sonnet-4-6` |
+| `COLLECTION` | `cc_news_2per_anthropic` |
+
+`BenchmarkRunner(model_name=MODEL, provider=PROVIDER, qdrant_collection=COLLECTION)` を
+明示指定して実行するため、`config.llm` の既定に依存せず確実に Anthropic で計測されます。
+
+**(b) Python CLI `run_benchmark.py`（細かい制御向け）**
 
 ```bash
 # フルベンチマーク（全クエリ × 3回）
@@ -665,10 +688,14 @@ python run_benchmark.py --list
 python run_benchmark.py --fast --mode both
 ```
 
-実行後、`run_benchmark.py` は経路一致率（route_correct）を集計して標準出力へ表示し、
+実行後、いずれも経路一致率（route_correct）を集計して標準出力へ表示し、
 全セッションを `logs/benchmark_results.csv` に追記します（[実行結果サンプル](#実行結果サンプルfast-モード)参照）。
 
-> 前提: Qdrant 起動済み（`localhost:6333`）／対象コレクションが embedding 済み／`.env` に `ANTHROPIC_API_KEY` 設定済み。
+> **前提条件**
+> - Qdrant 起動済み（`localhost:6333`）／対象コレクション（`cc_news_2per_anthropic`）が embedding 済み
+> - **`ANTHROPIC_API_KEY`**: LLM（Plan / Execute / Confidence / Replan / ReAct）に必須
+> - **`GOOGLE_API_KEY`**: 既定の Embedding は Gemini（`gemini-embedding-001` / 3072次元）のため、
+>   RAG 検索のクエリ埋め込みに必要（`grace/config.py` の `EmbeddingConfig` 参照）
 
 ### 6.1 基本的なワークフロー
 
@@ -724,6 +751,7 @@ __all__ = [
 
 | バージョン | 変更内容 |
 |-----------|---------|
+| 1.2 | `run_benchmark.sh` の Anthropic 専用化（`cc_news_2per_anthropic` / `claude-sonnet-4-6` / `anthropic`）を反映。シェルラッパー実行例（6.0節 a）を追加。前提条件に `ANTHROPIC_API_KEY`（LLM）＋ `GOOGLE_API_KEY`（Gemini Embedding）の二本立てを明記 |
 | 1.1 | 冒頭に「実行結果サンプル（FAST モード）」を追加（実 CSV からの代表5ケース A〜E・経路一致率・性能表）。CLI 実行例（`run_benchmark.py --fast` / `--list`）を追記。目次・更新日を更新 |
 | 1.0 | 初版作成（検索ハンドリング評価への再設計・2エージェント別計測・新メトリクス5列に対応） |
 
