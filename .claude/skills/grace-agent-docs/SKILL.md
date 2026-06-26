@@ -75,6 +75,7 @@ description: >-
   - 全ノード `class <id,...> default`
   - 各サブグラフ `style <Subgraph> fill:#1a1a1a,stroke:#fff,color:#fff`
 - sequenceDiagram は先頭に `%%{ init: { "theme":"base", "themeVariables": { ...黒テーマ... } } }%%` を付け、`classDef`/`class` は使わない。
+  - **すべての要素を黒背景・白文字に統一する**: `background`/`mainBkg`/`actorBkg`/**`noteBkg` を `#000000`**、`textColor`/`actorTextColor`/`noteTextColor` を `#ffffff`。Note（`Note over` 等）の背景も `#000000` とし、`#1a1a1a` は使わない。
 - ノードラベルの特殊文字はダブルクォートで囲む。バッククォート禁止。`<br>` は可。
 - 検証（grep）: 各ファイルで `flowchart|graph` の数 == `classDef default fill:#000` の数、`sequenceDiagram` の数 == `%%{ init` の数。
 
