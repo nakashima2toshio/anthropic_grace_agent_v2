@@ -12,30 +12,29 @@ import re
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
+
+try:
+    import streamlit_mermaid as stmd
+
+    MERMAID_AVAILABLE = True
+except ImportError:
+    MERMAID_AVAILABLE = False
 
 
 def render_mermaid(code: str) -> None:
-    """mermaid.js (CDN) を用いて Mermaid 図を描画する。
+    """Mermaid 図を streamlit-mermaid（宣言型コンポーネント）で描画する。
 
-    streamlit-mermaid パッケージは altair<5 / setuptools<76 に依存し、
-    本プロジェクトの streamlit / altair（>=5）と両立しないため、CDN の
-    mermaid.js を streamlit.components.v1.html で読み込んで描画する。
+    宣言型コンポーネントは Streamlit 公式の setFrameHeight により iframe 高さが
+    図の実寸へ自動調整されるため、はみ出し崩れが起きない。mermaid 本体は
+    パッケージに同梱され CDN 不要。streamlit-mermaid は altair<5 等を要求するが
+    実際には altair を import しないため、pyproject の [tool.uv] override で
+    その偽の制約を無視している。
     """
-    # 図の行数からおおよその表示高さを見積もる（最小/最大でクランプ）
-    line_count = code.count("\n") + 1
-    height = min(2000, max(320, line_count * 34 + 120))
-    html = (
-        '<div class="mermaid" style="background:#000;">\n'
-        + code
-        + "\n</div>\n"
-        '<script type="module">\n'
-        "  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';\n"
-        "  mermaid.initialize({ startOnLoad: true, securityLevel: 'loose', theme: 'base' });\n"
-        "  await mermaid.run();\n"
-        "</script>\n"
-    )
-    components.html(html, height=height, scrolling=True)
+    if MERMAID_AVAILABLE:
+        stmd.st_mermaid(code)
+    else:
+        st.code(code, language="mermaid")
+        st.info("Mermaid 図を表示するには: pip install streamlit-mermaid")
 
 
 def get_image_base64(image_path_str):

@@ -8,6 +8,12 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[manifest]
+overrides = [
+    { name = "altair", specifier = "==5.5.0" },
+    { name = "setuptools", specifier = "==75.8.0" },
+]
+
 [[package]]
 name = "aiofiles"
 version = "24.1.0"
@@ -2577,6 +2583,7 @@ dependencies = [
     { name = "srsly" },
     { name = "starlette" },
     { name = "streamlit" },
+    { name = "streamlit-mermaid" },
     { name = "tenacity" },
     { name = "thinc" },
     { name = "threadpoolctl" },
@@ -2720,6 +2727,7 @@ requires-dist = [
     { name = "srsly", specifier = "==2.5.1" },
     { name = "starlette", specifier = "==0.48.0" },
     { name = "streamlit", specifier = "==1.48.1" },
+    { name = "streamlit-mermaid", specifier = "==0.3.0" },
     { name = "tenacity", specifier = "==9.1.2" },
     { name = "thinc", specifier = "==8.3.6" },
     { name = "threadpoolctl", specifier = "==3.6.0" },
@@ -4205,6 +4213,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e2/1b/eb83cf2a11961338d23deed0530e3ccc1db7b4ab497b0b4d94886205d0c0/streamlit-1.48.1.tar.gz", hash = "sha256:c6e2a9f24471746bbeaa54a288f5fdfc6e2bcf3ba9a9753fde5d49ed424391f1", size = 9524808, upload-time = "2025-08-13T12:03:55.727Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/21/ebf8942e939b96e4040d2285c9b71d42f317618a3b656aa67f95f505b241/streamlit-1.48.1-py3-none-any.whl", hash = "sha256:1da4081c8cc23d574c4ab66f0bb59d6a6000ecf2f06b35242d56cfe16f2bd612", size = 9928586, upload-time = "2025-08-13T12:03:52.816Z" },
+]
+
+[[package]]
+name = "streamlit-mermaid"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "altair" },
+    { name = "setuptools" },
+    { name = "streamlit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ef/98/2b581789b61139632965153f637df16d86225a2ebb690f6a7c7bf3f693e8/streamlit_mermaid-0.3.0.tar.gz", hash = "sha256:f4247fc4c063b7c406f3546c843572b0d7a89ddabfd04dface4a8abb70ba9b19", size = 4132413, upload-time = "2024-12-17T15:07:35.767Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/99/4f/c535abd47d34ab08cf789d7cb29640cfe6ec370d1662e66c65fa7e9b6a4f/streamlit_mermaid-0.3.0-py3-none-any.whl", hash = "sha256:1b7bb7d60e672430edb501f120ab157069b0cf9176fa6c44821710c3aa02cc89", size = 4190656, upload-time = "2024-12-17T15:07:28.903Z" },
 ]
 
 [[package]]

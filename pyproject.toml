@@ -112,6 +112,7 @@ dependencies = [
   "srsly==2.5.1",
   "starlette==0.48.0",
   "streamlit==1.48.1",
+  "streamlit-mermaid==0.3.0",
   "tenacity==9.1.2",
   "thinc==8.3.6",
   "threadpoolctl==3.6.0",
@@ -170,6 +171,15 @@ known-first-party = [
   "celery_config", "celery_tasks", "chunking", "config", "eval", "grace", "helper",
   "models", "qa_generation", "qa_qdrant", "qdrant_client_wrapper", "regex_mecab",
   "run_benchmark", "services", "tools", "ui",
+]
+
+[tool.uv]
+# streamlit-mermaid==0.3.0 は altair<5 / setuptools<76 を要求するが、実際には
+# altair を import しない（誤った依存宣言）。本プロジェクトの altair==5.5.0 /
+# setuptools==75.8.0 と両立させるため、override で偽の制約を無視する。
+override-dependencies = [
+  "altair==5.5.0",
+  "setuptools==75.8.0",
 ]
 
 [build-system]
