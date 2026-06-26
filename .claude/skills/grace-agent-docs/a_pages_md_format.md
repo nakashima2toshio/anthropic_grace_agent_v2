@@ -885,8 +885,8 @@ style Layer fill:#1a1a1a,stroke:#fff,color:#fff
   "background": "#000000", "mainBkg": "#000000",
   "textColor": "#ffffff", "lineColor": "#ffffff",
   "actorBkg": "#000000", "actorTextColor": "#ffffff",
-  "actorLineColor": "#ffffff", "noteBkg": "#000000",
-  "noteTextColor": "#ffffff" } } }%%
+  "actorLineColor": "#ffffff", "noteBkgColor": "#000000",
+  "noteTextColor": "#ffffff", "noteBorderColor": "#ffffff" } } }%%
 sequenceDiagram
     participant A as "参加者A"
     A->>B: メッセージ
@@ -899,4 +899,5 @@ sequenceDiagram
 - `sequenceDiagram` の前に必ず `%%{ init: ... }%%` ヘッダーを挿入する
 - `classDef` / `class` 行は `sequenceDiagram` では使用しない（非対応）
 - **Note（`Note over` 等）も黒背景・白文字にする**。`init` ヘッダーで
-  `"noteBkg": "#000000"`, `"noteTextColor": "#ffffff"` を指定すること（`#1a1a1a` は使わない）。
+  `"noteBkgColor": "#000000"`, `"noteTextColor": "#ffffff"`, `"noteBorderColor": "#ffffff"` を指定すること。
+  ⚠️ **変数名は `noteBkgColor`（`noteBkg` ではない）**。`noteBkg` は認識されず既定の黄色になる。`#1a1a1a` も使わない。
