@@ -22,6 +22,34 @@
 | API/クラス リファレンス | この関数の引数・戻り値は？ | `confidence.md` / `executor.md` ほか |
 | 操作手順書（How-to / Usage） | どう動かすか | `readme_usage_tools.md` |
 
+### 概要 — (A) → (B) → (C) の改善サマリ
+
+自律型エージェントを **(A) → (B) → (C)** の順で改善・開発してきた。
+3 世代は別物ではなく、前を内包して発展する **積み上げ** の関係にある。
+
+> **その場しのぎ(A) → 経験から学ぶ(B) → 組織的に運用する(C)**
+
+| 世代 | 名称 | 中核ループ／工程 |
+|---|---|---|
+| **(A)** | ReAct | `Thought → Action → Observation`（考える → 動く → 見る）の **ReAct-Loop** |
+| **(B)** | ReAct + Reflection | ReAct-Loop ＋ **Reflection（考察／反省）**：① Evaluator（評価）→ ② Self-Reflection（反省）→ ③ Next Trial（再挑戦） |
+| **(C)** | GRACE（5段階） | ① Plan（計画策定）→ ② Execute（逐次実行）→ ③ Confidence（信頼度を自己評価）→ ④ Intervention（自信がなければ人間が介入＝HITL）→ ⑤ Replan（失敗したら計画を立て直す） |
+
+**(C) の5段階は一方通行ではなく循環する**（⑤ Replan から ① Plan へ戻る）。
+
+```
+① Plan → ② Execute → ③ Confidence → ④ Intervention → ⑤ Replan
+  ↑________________________________________________________|
+```
+
+**(B) と (C) の対応**（B のどれが C のどこになったか）：
+
+> (B) Evaluator / Self-Reflection ＝ (C) **③ Confidence**、
+> (B) Next Trial ＝ (C) **⑤ Replan**。
+> そこに (C) は **① Plan**（計画の独立工程化）と **④ Intervention**（HITL）を新設した。
+
+---
+
 ### 本書の読みどころ
 
 - **第1部** … (A) ReAct → (B) ReAct+Reflection → (C) GRACE 5段階設計 という改善の **経緯と動機**
