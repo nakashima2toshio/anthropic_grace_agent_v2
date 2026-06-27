@@ -1,6 +1,6 @@
 # benchmark.py - GRACE ベンチマーク計測 ドキュメント
 
-**Version 1.3** | 最終更新: 2026-06-26
+**Version 1.4** | 最終更新: 2026-06-27
 
 ---
 
@@ -18,15 +18,15 @@
 | Provider | `anthropic` |
 | Qdrant コレクション | `cc_news_2per_anthropic` |
 | モード | `--fast`（代表5クエリ × 1回 / 単一コレクション固定 / リプラン上限1） |
-| 計測日 | 2026-06-26 |
+| 計測日 | 2026-06-27 |
 
 **① 検索ハンドリング結果（5ケース A〜E）**
 
 | ID | ケース | 経路（path） | 介入レベル | replan | status | RAG最高スコア | web切替 | route一致 |
 |---|:--:|---|---|:--:|---|:--:|:--:|:--:|
 | Q01 | **A** 高スコア命中 | `rule_plan+rag_hit` | NOTIFY | 0 | success | 0.855 | – | ✅ |
-| Q03 | **B** 中スコア境界 | `llm_plan+multi_rag` | SILENT | 0 | success | 0.773 | ✅ | ✅ |
-| Q11 | **C** 低スコア不一致 | `llm_plan+web_fallback` | NOTIFY | 0 | success | – | ✅ | ✅ |
+| Q03 | **B** 中スコア境界 | `llm_plan+multi_rag` | CONFIRM | 0 | success | 0.776 | ✅ | ✅ |
+| Q11 | **C** 低スコア不一致 | `llm_plan+web_fallback` | CONFIRM | 0 | success | – | ✅ | ✅ |
 | Q13 | **D** 要リプラン | `forced_replan+recovery` | NOTIFY | 1 | success | – | ✅ | ✅ |
 | Q10 | **E** 曖昧 | `ask_user+intervention` | ESCALATE | 0 | success | – | – | ✅ |
 
@@ -34,21 +34,25 @@
 > ― 高スコア時は RAG で完結（A）、中スコアは複数ソースを統合し必要に応じ web も併用（B）、
 > コレクション外・情報不足では web へ動的フォールバック（C/D）、曖昧クエリは人間へエスカレーション（E）と、
 > **信頼度に応じた分岐が全ケースで期待どおり**に働いていることを示します。
+> 介入レベルは `route_correct`（経路採点）とは独立で、各 case の `expected.intervention` 許容集合内に収まれば正解扱いです。
+> このため本 run では中スコアの B・C が `CONFIRM`（信頼度 0.616 / 0.617 ≒ confirm 帯 0.4〜0.7）に着地しても経路は全件一致しています。
 
 **② 性能（時間・信頼度・トークン）**
 
 | ID | ケース | 全体信頼度 | 合計時間(秒) | tool呼出 | Input/Output tokens |
 |---|:--:|:--:|--:|:--:|---|
-| Q01 | A | 0.898 | 32.7 | 2 | 730 / 360 |
-| Q03 | B | 0.915 | 131.3 | 5 | 3,606 / 1,193 |
-| Q11 | C | 0.780 | 64.0 | 2 | 1,692 / 987 |
-| Q13 | D | 0.768 | 39.9 | 2 | 1,660 / 611 |
-| Q10 | E | 0.300 | 7.1 | 1 | 0 / 0 |
+| Q01 | A | 0.805 | 34.3 | 2 | 730 / 379 |
+| Q03 | B | 0.616 | 122.9 | 5 | 2,662 / 960 |
+| Q11 | C | 0.617 | 62.7 | 2 | 1,642 / 724 |
+| Q13 | D | 0.898 | 58.1 | 2 | 1,692 / 694 |
+| Q10 | E | 0.300 | 5.6 | 1 | 0 / 0 |
 
-> 📝 高信頼の A/B は `SILENT`/`NOTIFY` で自動進行、最も曖昧な E は信頼度 0.300 → `ESCALATE` で人間へ橋渡し、
-> D は欠損コレクションで初回検索が空振り → **replan 1 回で web 経由に回復し収束**しています
-> （③ Confidence → ④ Intervention → ⑤ Replan の連動）。数値は1回分の実測値で、ネットワークや LLM 応答揺らぎにより
-> run ごとに変動します（特に閾値近傍では介入レベルが NOTIFY↔CONFIRM 等で揺れます）。
+> 📝 介入レベルは全体信頼度を `ConfidenceThresholds`（silent 0.9 / notify 0.7 / confirm 0.4）に当てて決まります。
+> 本 run では A=0.805→`NOTIFY`、B/C=0.616/0.617→`CONFIRM`、D=0.898→`NOTIFY`（0.9 直下）、E=0.300→`ESCALATE` と、
+> **しきい値どおりに段階的な介入**が選択されています。D は欠損コレクションで初回検索が空振り →
+> **replan 1 回で web 経由に回復し収束**（最終回答の信頼度は 0.898 まで上昇）。
+> 数値は1回分の実測値で、ネットワークや LLM 応答揺らぎにより run ごとに変動します
+> （特に閾値近傍では介入レベルが `NOTIFY`↔`CONFIRM` 等で揺れ、前 run の B=SILENT / C=NOTIFY から本 run では CONFIRM へ動いています）。
 
 **再現方法**
 
@@ -754,6 +758,7 @@ __all__ = [
 
 | バージョン | 変更内容 |
 |-----------|---------|
+| 1.4 | 「実行結果サンプル」①②表を `--fast --collection cc_news_2per_anthropic` の最新実行（2026-06-27）の実測値へ差し替え。介入は A=NOTIFY / B=CONFIRM(0.616) / C=CONFIRM(0.617) / D=NOTIFY(0.898・replan1で収束) / E=ESCALATE(0.300)。介入レベルが信頼度しきい値（silent 0.9 / notify 0.7 / confirm 0.4）に従う点と、route_correct が介入レベルと独立に経路で採点される点を注記。経路一致率は 5/5=100% を維持 |
 | 1.3 | 「実行結果サンプル」の①②表を最新 FAST 実行（2026-06-26）の実測値へ差し替え（B=SILENT/conf0.915、C/D=NOTIFY、D=replan1で収束、E=ESCALATE）。計測日を更新 |
 | 1.2 | `run_benchmark.sh` の Anthropic 専用化（`cc_news_2per_anthropic` / `claude-sonnet-4-6` / `anthropic`）を反映。シェルラッパー実行例（6.0節 a）を追加。前提条件に `ANTHROPIC_API_KEY`（LLM）＋ `GOOGLE_API_KEY`（Gemini Embedding）の二本立てを明記 |
 | 1.1 | 冒頭に「実行結果サンプル（FAST モード）」を追加（実 CSV からの代表5ケース A〜E・経路一致率・性能表）。CLI 実行例（`run_benchmark.py --fast` / `--list`）を追記。目次・更新日を更新 |
