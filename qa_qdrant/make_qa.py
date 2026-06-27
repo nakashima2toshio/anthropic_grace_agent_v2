@@ -105,8 +105,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="gemini-2.5-flash",
-        help="使用するGeminiモデル（デフォルト: gemini-2.5-flash）"
+        default="claude-sonnet-4-6",
+        help="使用するLLMモデル（Anthropic Claude / デフォルト: claude-sonnet-4-6）"
     )
     parser.add_argument(
         "--output",
