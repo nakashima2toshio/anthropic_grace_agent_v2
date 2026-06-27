@@ -272,6 +272,7 @@ class Planner:
         Returns:
             ExecutionPlan: 標準2ステップ計画
         """
+        step_timeout = self.config.planner.step_timeout_seconds
         return ExecutionPlan(
             original_query=query,
             complexity=complexity,
@@ -286,7 +287,7 @@ class Planner:
                     collection=collection,
                     expected_output="関連するドキュメントや情報",
                     fallback="web_search",
-                    timeout_seconds=30
+                    timeout_seconds=step_timeout
                 ),
                 PlanStep(
                     step_id=2,
@@ -297,7 +298,7 @@ class Planner:
                     depends_on=[1],
                     expected_output="ユーザーへの回答",
                     fallback=None,
-                    timeout_seconds=30
+                    timeout_seconds=step_timeout
                 )
             ],
             success_criteria="ユーザーの質問に適切に回答できている",
@@ -316,104 +317,138 @@ class Planner:
             query, complexity=complexity, collection=prioritized
         )
 
+    def _build_plan_prompt(self, query: str) -> str:
+        """LLM計画生成用のプロンプトを構築する（利用可能コレクションを埋め込む）。"""
+        available_collections = self._get_available_collections()
+        collections_str = ", ".join(available_collections) if available_collections else "(コレクションなし)"
+        return PLAN_GENERATION_PROMPT.format(
+            available_collections=collections_str,
+            query=query
+        ) + "\n\nIMPORTANT: Ensure the output is a valid, complete JSON object. Do not truncate the response."
+
+    def _generate_plan_with_retry(
+            self,
+            prompt: str,
+            *,
+            label: str,
+            max_output_tokens: Optional[int] = None,
+            log_output: bool = False,
+    ) -> ExecutionPlan:
+        """
+        structured-output（JSON）で ExecutionPlan を生成する共通ヘルパー。
+
+        空レスポンス・不完全JSONを検知してリトライし、全試行失敗時は最後の
+        例外を送出する。計画生成（_create_llm_plan）と計画修正（refine_plan）の
+        双方がこのヘルパーを共有し、リトライ・ガードの挙動を揃える。
+
+        Args:
+            prompt: LLMへ渡すプロンプト
+            label: ログ用ラベル（例 "create_plan LLM"）
+            max_output_tokens: 最大出力トークン数（None の場合は指定しない）
+            log_output: True の場合、各試行のレスポンス本文をIPOログ出力する
+        Returns:
+            ExecutionPlan: パース済みの実行計画
+        Raises:
+            Exception: 全リトライが失敗した場合、最後に発生した例外
+        """
+        config = {
+            "response_mime_type": "application/json",
+            # response_schema には Pydantic クラスを直接渡す
+            "response_schema": ExecutionPlan,
+            "temperature": self.config.llm.temperature,
+        }
+        if max_output_tokens is not None:
+            config["max_output_tokens"] = max_output_tokens
+
+        max_attempts = self.config.planner.llm_plan_max_attempts
+        last_error = None
+
+        for attempt in range(max_attempts):
+            try:
+                t0 = time.time()
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config,
+                )
+                elapsed = time.time() - t0
+                logger.info(f"[API時間] {label} (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
+
+                if log_output:
+                    # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
+                    logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n{response.text}\n{'=' * 60}")
+
+                # 空レスポンスガード
+                if not response or not response.text:
+                    logger.warning(f"{label}: empty response (attempt {attempt + 1}/{max_attempts})")
+                    continue
+
+                # JSON完全性チェック（EOF検知）
+                try:
+                    json.loads(response.text)
+                except json.JSONDecodeError as je:
+                    logger.warning(f"{label}: incomplete/invalid JSON (attempt {attempt + 1}/{max_attempts}): {je}")
+                    continue  # リトライ
+
+                # JSONをパースしてExecutionPlanに変換
+                return ExecutionPlan.model_validate_json(response.text)
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"{label} attempt {attempt + 1}/{max_attempts} failed: {e}")
+                continue
+
+        raise last_error or ValueError(f"{label}: failed after {max_attempts} retries")
+
+    def _finalize_plan(self, plan: ExecutionPlan, complexity: float) -> ExecutionPlan:
+        """LLM生成計画に複雑度・plan_id を適用し、依存関係を検証してログ出力する。"""
+        # 事前に計算した正確な複雑度を適用
+        plan.complexity = complexity
+        # 計画IDを設定
+        plan.plan_id = create_plan_id()
+
+        # 依存関係を検証（エラーがあってもフォールバックせず、警告のみ）
+        errors = validate_plan_dependencies(plan)
+        if errors:
+            logger.warning(f"Plan validation errors: {errors}")
+
+        logger.info(
+            f"Plan created: {len(plan.steps)} steps, "
+            f"complexity={plan.complexity:.2f}, "
+            f"requires_confirmation={plan.requires_confirmation}"
+        )
+        logger.info(f"Final Execution Plan:\n{plan.model_dump_json(indent=2)}")
+        return plan
+
     def _create_llm_plan(self, query: str) -> ExecutionPlan:
         """
         質問から実行計画を生成（LLM使用版 - 本来のロジック）
         Args:
             query: ユーザーの質問
         Returns:
-            ExecutionPlan: LLMが生成した実行計画
+            ExecutionPlan: LLMが生成した実行計画（失敗時はフォールバック計画）
         """
         logger.info(f"Creating LLM execution plan for: {query[:50]}...")
 
         try:
-            # 利用可能なコレクションを取得
-            available_collections = self._get_available_collections()
-            collections_str = ", ".join(available_collections) if available_collections else "(コレクションなし)"
-
             # 複雑度を推定 (LLMを使用)
             estimated_complexity = self.estimate_complexity_with_llm(query)
 
             # プロンプトを構築
-            prompt = PLAN_GENERATION_PROMPT.format(
-                available_collections=collections_str,
-                query=query
-            ) + "\n\nIMPORTANT: Ensure the output is a valid, complete JSON object. Do not truncate the response."
+            prompt = self._build_plan_prompt(query)
 
             # --- [IPO LOG] PROCESS INPUT (GRACE PLANNER) ---
             logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
-            # リトライ付きでLLM呼び出し（最大2回）。空レスポンス・不完全JSONはリトライする。
-            plan = None
-            last_error = None
-            max_attempts = 2
-
-            for attempt in range(max_attempts):
-                try:
-                    t0 = time.time()
-                    response = self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=prompt,
-                        config={
-                            "response_mime_type": "application/json",
-                            # response_schema には Pydantic クラスを直接渡す
-                            "response_schema": ExecutionPlan,
-                            "temperature": self.config.llm.temperature,
-                            "max_output_tokens": 8192,
-                        }
-                    )
-                    elapsed = time.time() - t0
-                    logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
-
-                    # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
-                    logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n{response.text}\n{'=' * 60}")
-
-                    # 空レスポンスガード
-                    if not response or not response.text:
-                        logger.warning(f"create_plan: empty response (attempt {attempt + 1}/{max_attempts})")
-                        continue
-
-                    # JSON完全性チェック（EOF検知）
-                    try:
-                        json.loads(response.text)
-                    except json.JSONDecodeError as je:
-                        logger.warning(f"Incomplete/invalid JSON (attempt {attempt + 1}/{max_attempts}): {je}")
-                        continue  # リトライ
-
-                    # JSONをパースしてExecutionPlanに変換
-                    plan = ExecutionPlan.model_validate_json(response.text)
-                    break  # 成功したらループ終了
-
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"Plan creation attempt {attempt + 1}/{max_attempts} failed: {e}")
-                    continue
-
-            if plan is None:
-                raise last_error or ValueError("Plan creation failed after all retries")
-
-            # 事前に計算した正確な複雑度を適用
-            plan.complexity = estimated_complexity
-
-            # 計画IDを設定
-            plan.plan_id = create_plan_id()
-
-            # 依存関係を検証
-            errors = validate_plan_dependencies(plan)
-            if errors:
-                logger.warning(f"Plan validation errors: {errors}")
-                # エラーがあってもフォールバックせず、警告のみ
-
-            logger.info(
-                f"Plan created: {len(plan.steps)} steps, "
-                f"complexity={plan.complexity:.2f}, "
-                f"requires_confirmation={plan.requires_confirmation}"
+            # リトライ付きでLLM呼び出し。空レスポンス・不完全JSONはリトライする。
+            plan = self._generate_plan_with_retry(
+                prompt,
+                label="create_plan LLM",
+                max_output_tokens=self.config.planner.plan_max_output_tokens,
+                log_output=True,
             )
 
-            # 最終的なプラン内容をログ出力
-            logger.info(f"Final Execution Plan:\n{plan.model_dump_json(indent=2)}")
-
-            return plan
+            return self._finalize_plan(plan, estimated_complexity)
 
         except Exception as e:
             logger.error(f"Failed to create plan with LLM: {e}")
@@ -454,7 +489,7 @@ class Planner:
                     collection=None,
                     expected_output="ユーザーによる質問の明確化",
                     fallback=None,
-                    timeout_seconds=30,
+                    timeout_seconds=self.config.planner.step_timeout_seconds,
                 )
             ],
             success_criteria="曖昧な質問に対し、確認（明確化）を求められていること",
@@ -530,8 +565,8 @@ class Planner:
                 model=self.model_name,
                 contents=prompt,
                 config={
-                    "temperature": 0.1,
-                    "max_output_tokens": 10,
+                    "temperature": self.config.planner.complexity_temperature,
+                    "max_output_tokens": self.config.planner.complexity_max_output_tokens,
                 }
             )
             elapsed = time.time() - t0
@@ -579,21 +614,11 @@ class Planner:
 """
 
         try:
-            t0 = time.time()
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=refine_prompt,
-                config={
-                    "response_mime_type": "application/json",
-                    # response_schema には Pydantic クラスを直接渡す
-                    "response_schema": ExecutionPlan,
-                    "temperature": self.config.llm.temperature,
-                }
+            # 計画生成と同じリトライ・空/JSONガードを共有する
+            refined_plan = self._generate_plan_with_retry(
+                refine_prompt,
+                label="refine_plan LLM",
             )
-            elapsed = time.time() - t0
-            logger.info(f"[API時間] refine_plan LLM: {elapsed:.1f}秒")
-
-            refined_plan = ExecutionPlan.model_validate_json(response.text)
             refined_plan.plan_id = create_plan_id()
 
             logger.info(f"Plan refined: {refined_plan.plan_id}")
