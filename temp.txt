@@ -1,0 +1,683 @@
+🔍 Searching collection: cc_news_2per_anthropic
+
+==================== [RAG SEARCH IPO: OUTPUT] ====================
+Collection: cc_news_2per_anthropic
+[
+  {
+    "score": 0.85485125,
+    "id": 83446600419618545,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "Amazonが今後1年間で募集する在宅勤務職の数は何職ですか？",
+      "answer": "Amazonは5,000の新規職を募集しています。これらのポジションは主にVirtual Customer Serviceプログラムの在宅カスタマーサービスエージェント職です。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:36:06.294918+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.7083706,
+    "id": 4895439850850463156,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "Amazonの在宅勤務従業員が受けられる保険・福利厚生にはどのようなものがありますか？",
+      "answer": "週20時間以上の勤務で、生命保険・障害保険、歯科・視力保険（保険料はAmazon負担）、医療保険への資金援助が提供されます。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:36:06.294918+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  }
+]
+============================================================
+
+[BENCHMARK] ============================================================
+[BENCHMARK] Query    : Q01 | Easy | 事実検索
+[BENCHMARK] Model    : claude-sonnet-4-6 (anthropic) | Run: 1
+[BENCHMARK] ----------------------------------------------------------
+[BENCHMARK] [Plan]
+[BENCHMARK]   生成時間       : 0.00 秒
+[BENCHMARK]   複雑度スコア   : 0.50
+[BENCHMARK]   計画ステップ数 : 2
+[BENCHMARK]   要確認フラグ   : False
+[BENCHMARK] [Execute]
+[BENCHMARK]   実行時間       : 34.30 秒
+[BENCHMARK]   合計時間       : 34.30 秒
+[BENCHMARK]   ツール呼出回数 : 2
+[BENCHMARK]   RAGステップ数  : 1
+[BENCHMARK]   ソース数合計   : 1
+[BENCHMARK] [Confidence]
+[BENCHMARK]   全体信頼度     : 0.805
+[BENCHMARK]   ステップ最小   : 0.855
+[BENCHMARK]   ステップ最大   : 0.880
+[BENCHMARK] [Intervention]
+[BENCHMARK]   Level          : NOTIFY
+[BENCHMARK] [Replan]
+[BENCHMARK]   リプラン回数   : 0
+[BENCHMARK]   ステータス     : success
+[BENCHMARK] [Routing / 検索ハンドリング]
+[BENCHMARK]   Case           : A | mode: grace_dynamic
+[BENCHMARK]   RAG最高スコア  : 0.8549
+[BENCHMARK]   命中(target)   : True
+[BENCHMARK]   web切替        : False
+[BENCHMARK]   リプラン収束   : True
+[BENCHMARK]   経路一致(正解) : True
+[BENCHMARK] [Cost / Tokens]
+[BENCHMARK]   Input tokens   : 730
+[BENCHMARK]   Output tokens  : 379
+[BENCHMARK]   推定コスト     : $0.000000 USD
+[BENCHMARK] ============================================================
+
+🔍 Searching collection: cc_news_2per_anthropic
+
+==================== [RAG SEARCH IPO: OUTPUT] ====================
+Collection: cc_news_2per_anthropic
+[
+  {
+    "score": 0.77548325,
+    "id": 62547926494958843,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが新しいGMを雇用する際の課題は何ですか？",
+      "answer": "次期GMは4シーズンで4人目となる49ersのコーチを雇用する任務を負う可能性があります。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.77255774,
+    "id": 211259716645577042,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが4年間で4人目のコーチを探す背景にある人事構造の変化は何ですか？",
+      "answer": "2005年にScot McCloughanを外部から採用して以来、49ersは外部からの人事責任者採用を行っていません。McCloughanが2010年に退職後、Baalkeが人事統制を担当し、その後の頻繁なコーチ交代につながりました。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.77020955,
+    "id": 8764107868749114,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "Jed York CEOが新しいGMとコーチを探す背景には、どのような経緯がありますか？",
+      "answer": "York CEOは過去2年間（前年1月）にJim HarbaghとJim Tomsulaを解任しており、同じステージで新しいGMとコーチ採用計画を発表しました。フランチャイズの再構築と優勝文化の構築が急務となっています。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  }
+]
+============================================================
+🔍 Searching collection: cc_news_2per_anthropic
+
+==================== [RAG SEARCH IPO: OUTPUT] ====================
+Collection: cc_news_2per_anthropic
+[
+  {
+    "score": 0.7515805,
+    "id": 8764107868749114,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "Jed York CEOが新しいGMとコーチを探す背景には、どのような経緯がありますか？",
+      "answer": "York CEOは過去2年間（前年1月）にJim HarbaghとJim Tomsulaを解任しており、同じステージで新しいGMとコーチ採用計画を発表しました。フランチャイズの再構築と優勝文化の構築が急務となっています。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.74437803,
+    "id": 62547926494958843,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが新しいGMを雇用する際の課題は何ですか？",
+      "answer": "次期GMは4シーズンで4人目となる49ersのコーチを雇用する任務を負う可能性があります。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.74422264,
+    "id": 211259716645577042,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが4年間で4人目のコーチを探す背景にある人事構造の変化は何ですか？",
+      "answer": "2005年にScot McCloughanを外部から採用して以来、49ersは外部からの人事責任者採用を行っていません。McCloughanが2010年に退職後、Baalkeが人事統制を担当し、その後の頻繁なコーチ交代につながりました。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  }
+]
+============================================================
+🔍 Searching collection: cc_news_2per_anthropic
+
+==================== [RAG SEARCH IPO: OUTPUT] ====================
+Collection: cc_news_2per_anthropic
+[
+  {
+    "score": 0.7341948,
+    "id": 62547926494958843,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが新しいGMを雇用する際の課題は何ですか？",
+      "answer": "次期GMは4シーズンで4人目となる49ersのコーチを雇用する任務を負う可能性があります。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.72631437,
+    "id": 211259716645577042,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "49ersが4年間で4人目のコーチを探す背景にある人事構造の変化は何ですか？",
+      "answer": "2005年にScot McCloughanを外部から採用して以来、49ersは外部からの人事責任者採用を行っていません。McCloughanが2010年に退職後、Baalkeが人事統制を担当し、その後の頻繁なコーチ交代につながりました。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  },
+  {
+    "score": 0.724423,
+    "id": 2265910003472335481,
+    "payload": {
+      "domain": "cc_news_2per_anthropic",
+      "question": "Jed Yorkが次期GMに求める資質は何ですか？",
+      "answer": "Yorkが求めるGMの資質は、①ヘッドコーチとの良好な関係構築、②タレント評価能力、③チームカルチャーの創造、④コミュニケーション能力です。コーチとGMが相互尊重と共通のビジョンを持つことが重要だと述べています。",
+      "source": "qa_pairs_cc_news_2per_chunks.csv",
+      "created_at": "2026-06-03T00:35:26.063188+00:00",
+      "schema": "qa:v1",
+      "embedding_provider": "gemini",
+      "embedding_model": "gemini-embedding-001"
+    }
+  }
+]
+============================================================
+
+==================== [WEB SEARCH IPO: OUTPUT] ====================
+Backend: serpapi
+Query: San Francisco 49ers GM John Lynch Kyle Shanahan fired dismissed 2024 2025 personnel changes
+[
+  {
+    "score": 1.0,
+    "payload": {
+      "question": "",
+      "answer": "John Lynch and head coach Kyle Shanahan held their customary end-of-the-season press conference on Wednesday morning to offer closing remarks on the 2024 ...",
+      "content": "",
+      "source": "https://www.49ers.com/news/john-lynch-kyle-shanahan-talk-offseason-coaching-changes",
+      "title": "John Lynch, Kyle Shanahan Talk Offseason Coaching ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.9,
+    "payload": {
+      "question": "",
+      "answer": "Kyle Shanahan and John Lynch will be back with the San Francisco 49ers next year after a disappointing 2024 season, according to team owner Jed ...",
+      "content": "",
+      "source": "https://www.facebook.com/HeavyOn49ers/posts/the-san-francisco-49ers-revealed-major-updates-on-the-future-of-head-coach-kyle-/1598730125390325/",
+      "title": "The San Francisco 49ers revealed major updates on ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.8,
+    "payload": {
+      "question": "",
+      "answer": "Head coach Kyle Shanahan and President of football operations and general manager John Lynch highlighted the process behind the initial ...",
+      "content": "",
+      "source": "https://www.49ers.com/video/kyle-shanahan-john-lynch-break-down-initial-53-man-roster",
+      "title": "Kyle Shanahan, John Lynch Break Down Initial 53-Man Roster"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.7,
+    "payload": {
+      "question": "",
+      "answer": "The San Francisco 49ers today announced that the team has signed general manager John Lynch and head coach Kyle Shanahan to multi-year contract extensions.",
+      "content": "",
+      "source": "https://49ers.1rmg.com/news-releases/49ers-extend-general-manager-john-lynch-head-coach-kyle-shanahan/",
+      "title": "49ers Extend General Manager John Lynch & Head Coach ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.6,
+    "payload": {
+      "question": "",
+      "answer": "Kyle Shanahan and John Lynch will be back with the San Francisco 49ers next year after a disappointing 2024 season, according to team owner Jed York.",
+      "content": "",
+      "source": "https://www.espn.com/nfl/story/_/id/43236245/49ers-owner-says-kyle-shanahan-john-lynch-not-going-anywhere",
+      "title": "49ers owner: Kyle Shanahan, John Lynch 'are not going ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.5,
+    "payload": {
+      "question": "",
+      "answer": "The San Francisco 49ers have to make THIS CHANGE moving forward under the Kyle Shanahan - John Lynch regime… The Niners have to change their ...",
+      "content": "",
+      "source": "https://www.instagram.com/reel/DTpEHbMjoAM/",
+      "title": "Do the 49ers need to make a change at general manager and ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.4,
+    "payload": {
+      "question": "",
+      "answer": "San Francisco 49ers general manager John Lynch dismissed the idea of head coach Kyle Shanahan being fired this season. \"I've found the whole discussion on Kyle ...",
+      "content": "",
+      "source": "https://www.thescore.com/nfl/news/3151888/49-ers-gm-discourse-around-firing-shanahan-rather-comical",
+      "title": "49ers GM: Discourse around firing Shanahan 'rather ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.3,
+    "payload": {
+      "question": "",
+      "answer": "Analyzing why the San Francisco 49ers should fire general manager John Lynch.",
+      "content": "",
+      "source": "https://sports.yahoo.com/videos/why-49ers-fire-general-manager-205948402.html",
+      "title": "Why the 49ers Should Fire General Manager John Lynch"
+    },
+    "collection": "web_search"
+  }
+]
+============================================================
+
+[BENCHMARK] ============================================================
+[BENCHMARK] Query    : Q03 | Medium | 推論・比較
+[BENCHMARK] Model    : claude-sonnet-4-6 (anthropic) | Run: 1
+[BENCHMARK] ----------------------------------------------------------
+[BENCHMARK] [Plan]
+[BENCHMARK]   生成時間       : 11.37 秒
+[BENCHMARK]   複雑度スコア   : 0.70
+[BENCHMARK]   計画ステップ数 : 2
+[BENCHMARK]   要確認フラグ   : False
+[BENCHMARK] [Execute]
+[BENCHMARK]   実行時間       : 111.50 秒
+[BENCHMARK]   合計時間       : 122.88 秒
+[BENCHMARK]   ツール呼出回数 : 5
+[BENCHMARK]   RAGステップ数  : 3
+[BENCHMARK]   ソース数合計   : 11
+[BENCHMARK] [Confidence]
+[BENCHMARK]   全体信頼度     : 0.616
+[BENCHMARK]   ステップ最小   : 0.650
+[BENCHMARK]   ステップ最大   : 0.775
+[BENCHMARK] [Intervention]
+[BENCHMARK]   Level          : CONFIRM
+[BENCHMARK] [Replan]
+[BENCHMARK]   リプラン回数   : 0
+[BENCHMARK]   ステータス     : success
+[BENCHMARK] [Routing / 検索ハンドリング]
+[BENCHMARK]   Case           : B | mode: grace_dynamic
+[BENCHMARK]   RAG最高スコア  : 0.7755
+[BENCHMARK]   命中(target)   : True
+[BENCHMARK]   web切替        : True
+[BENCHMARK]   リプラン収束   : True
+[BENCHMARK]   経路一致(正解) : True
+[BENCHMARK] [Cost / Tokens]
+[BENCHMARK]   Input tokens   : 2,662
+[BENCHMARK]   Output tokens  : 960
+[BENCHMARK]   推定コスト     : $0.000000 USD
+[BENCHMARK] ============================================================
+
+
+[BENCHMARK] ============================================================
+[BENCHMARK] Query    : Q10 | Easy | 曖昧
+[BENCHMARK] Model    : claude-sonnet-4-6 (anthropic) | Run: 1
+[BENCHMARK] ----------------------------------------------------------
+[BENCHMARK] [Plan]
+[BENCHMARK]   生成時間       : 0.00 秒
+[BENCHMARK]   複雑度スコア   : 0.20
+[BENCHMARK]   計画ステップ数 : 1
+[BENCHMARK]   要確認フラグ   : True
+[BENCHMARK] [Execute]
+[BENCHMARK]   実行時間       : 5.59 秒
+[BENCHMARK]   合計時間       : 5.59 秒
+[BENCHMARK]   ツール呼出回数 : 1
+[BENCHMARK]   RAGステップ数  : 0
+[BENCHMARK]   ソース数合計   : 0
+[BENCHMARK] [Confidence]
+[BENCHMARK]   全体信頼度     : 0.300
+[BENCHMARK]   ステップ最小   : 0.850
+[BENCHMARK]   ステップ最大   : 0.850
+[BENCHMARK] [Intervention]
+[BENCHMARK]   Level          : ESCALATE
+[BENCHMARK] [Replan]
+[BENCHMARK]   リプラン回数   : 0
+[BENCHMARK]   ステータス     : success
+[BENCHMARK] [Routing / 検索ハンドリング]
+[BENCHMARK]   Case           : E | mode: grace_dynamic
+[BENCHMARK]   RAG最高スコア  : 0.0000
+[BENCHMARK]   命中(target)   : False
+[BENCHMARK]   web切替        : False
+[BENCHMARK]   リプラン収束   : True
+[BENCHMARK]   経路一致(正解) : True
+[BENCHMARK] [Cost / Tokens]
+[BENCHMARK]   Input tokens   : 0
+[BENCHMARK]   Output tokens  : 0
+[BENCHMARK]   推定コスト     : $0.000000 USD
+[BENCHMARK] ============================================================
+
+
+==================== [WEB SEARCH IPO: OUTPUT] ====================
+Backend: serpapi
+Query: 2025年 ビットコイン 暗号資産 市場 最新ニュース 価格動向
+[
+  {
+    "score": 1.0,
+    "payload": {
+      "question": "",
+      "answer": "また、2025年10月には米ドル建てで12万ドル、円建てでは最高値の1,890万円の高値を更新した注目の通貨だ。 この記事ではそんなビットコインの特徴やこれまでの歴史、今後の ...",
+      "content": "",
+      "source": "https://diamond.jp/crypto/market/btc-future/",
+      "title": "ビットコイン(仮想通貨BTC)の今後は？2026年価格予想や将来 ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.9,
+    "payload": {
+      "question": "",
+      "answer": "ビットコイン（BTC）は2026年2月6日に一時940万円台まで値を下げ、2025年10月に付けた史上最高値（円建てで約1,900万円）からおよそ5割安の水準まで落ち込み ...",
+      "content": "",
+      "source": "https://www.sbivc.co.jp/columns/content/cg0-npdw9xn",
+      "title": "【2026年最新】ビットコイン（BTC）の今後～直近の価格動向や ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.8,
+    "payload": {
+      "question": "",
+      "answer": "昨年6月に年初の予想を上方修正、年末1550万円、2025年4月（～10月）に3500万円と予想した。この年末予想はずばり的中となったが、2025年ピーク3500万円 ...",
+      "content": "",
+      "source": "https://www.rakuten-wallet.co.jp/market/market-list/2025/021002/",
+      "title": "2025年ビットコイン相場見通し"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.7,
+    "payload": {
+      "question": "",
+      "answer": "ビットコイン（BTC） · 2025年12月26日満期：120,000ドル（約1,780万円）を超える確率：約70% · 2025年12月26日満期：150,000ドル（約2,230万円）を超える確率：約38% ...",
+      "content": "",
+      "source": "https://coinpost.jp/?p=637701",
+      "title": "ビットコイン・イーサリアムの最高値は？2025年末までの価格 ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.6,
+    "payload": {
+      "question": "",
+      "answer": "ビットコイン（BTC）の最新価格をリアルタイムチャートで確認。豊富なテクニカル分析ツール（移動平均線、ボリンジャーバンド等）で詳細な相場分析が可能です。",
+      "content": "",
+      "source": "https://coin.z.com/jp/corp/information/btc-market/",
+      "title": "ビットコイン（BTC）のリアルタイムチャート・レート情報"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.5,
+    "payload": {
+      "question": "",
+      "answer": "MSTRの8週間連続追加購入の発表後、事実売りと利確売りがビットコイン価格を91,000ドル付近まで後退させた。また同日、米国株の上昇とともに94,000ドル ...",
+      "content": "",
+      "source": "https://www.neweconomy.jp/features/sbivct/443006",
+      "title": "2025年 ビットコイン市場どうなる？ 年初は堅調な推移。一言 ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.4,
+    "payload": {
+      "question": "",
+      "answer": "ビットコイン価格予測：BTCは約8万7000ドルで取引される一方、金は2025年にアウトパフォームを発揮。ETFの流れ、マクロリスク、テクニカルシグナルが次 ...",
+      "content": "",
+      "source": "https://kabushiki.jp/news/729557",
+      "title": "ビットコイン価格予測：2025年に金が70％上昇し"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.3,
+    "payload": {
+      "question": "",
+      "answer": "直近で1BTCあたり約87,000〜97,000ドル前後で推移し、値動きがやや激しい状態です。 2025年10月にピークをつけて以降、伸び悩みを見せていますが、ビット ...",
+      "content": "",
+      "source": "https://coincheck.com/ja/article/257",
+      "title": "ビットコイン（BTC）今後の将来性は？2026年最新ニュースも解説"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.2,
+    "payload": {
+      "question": "",
+      "answer": "ビットコイン （BTC）が13,825,777円で+1.60%の上昇、売買代金は約 55,436億円。 ; イーサリアム （ETH）は464,408円で+1.28%の上昇、売買代金は約 29,394億円 ...",
+      "content": "",
+      "source": "https://cc.minkabu.jp/column/4987",
+      "title": "2025年12月31日暗号資産(仮想通貨)の相場概況"
+    },
+    "collection": "web_search"
+  }
+]
+============================================================
+
+[BENCHMARK] ============================================================
+[BENCHMARK] Query    : Q11 | Hard | Web・回復
+[BENCHMARK] Model    : claude-sonnet-4-6 (anthropic) | Run: 1
+[BENCHMARK] ----------------------------------------------------------
+[BENCHMARK] [Plan]
+[BENCHMARK]   生成時間       : 9.91 秒
+[BENCHMARK]   複雑度スコア   : 0.60
+[BENCHMARK]   計画ステップ数 : 2
+[BENCHMARK]   要確認フラグ   : False
+[BENCHMARK] [Execute]
+[BENCHMARK]   実行時間       : 52.74 秒
+[BENCHMARK]   合計時間       : 62.65 秒
+[BENCHMARK]   ツール呼出回数 : 2
+[BENCHMARK]   RAGステップ数  : 0
+[BENCHMARK]   ソース数合計   : 9
+[BENCHMARK] [Confidence]
+[BENCHMARK]   全体信頼度     : 0.617
+[BENCHMARK]   ステップ最小   : 0.750
+[BENCHMARK]   ステップ最大   : 0.850
+[BENCHMARK] [Intervention]
+[BENCHMARK]   Level          : CONFIRM
+[BENCHMARK] [Replan]
+[BENCHMARK]   リプラン回数   : 0
+[BENCHMARK]   ステータス     : success
+[BENCHMARK] [Routing / 検索ハンドリング]
+[BENCHMARK]   Case           : C | mode: grace_dynamic
+[BENCHMARK]   RAG最高スコア  : 0.0000
+[BENCHMARK]   命中(target)   : False
+[BENCHMARK]   web切替        : True
+[BENCHMARK]   リプラン収束   : True
+[BENCHMARK]   経路一致(正解) : True
+[BENCHMARK] [Cost / Tokens]
+[BENCHMARK]   Input tokens   : 1,642
+[BENCHMARK]   Output tokens  : 724
+[BENCHMARK]   推定コスト     : $0.000000 USD
+[BENCHMARK] ============================================================
+
+🔍 Searching collection: __grace_bench_missing_collection__
+
+==================== [WEB SEARCH IPO: OUTPUT] ====================
+Backend: serpapi
+Query: ナレッジベースを検索して、2027年のG7サミット開催地に関する公式発表をまとめてください。該当情報が見つからない場合は代替手段で補完してください
+[
+  {
+    "score": 1.0,
+    "payload": {
+      "question": "",
+      "answer": "フランスのエビアンで6月15～17日、主要7カ国首脳会議（G7サミット）が開催された。G7参加国に加え、世界銀行、アフリカ開発銀行、ブラジル、韓国、 ...",
+      "content": "",
+      "source": "https://www.jetro.go.jp/biznews/2026/06/175bc88c4ce4992d.html",
+      "title": "G7サミット、国際危機対応で共同声明、高市首相とトランプ ..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.9,
+    "payload": {
+      "question": "",
+      "answer": "令和7（2025）年6月15日から17日にかけて、カナダ・カナナスキスにおいてG7サミットが開催され、成果文書がとりまとめられました。 会合や関連行事等の模様は、首相官邸 ...",
+      "content": "",
+      "source": "https://www.gender.go.jp/international/int_kaigi/int_g7g8/g7_summit_2025.html",
+      "title": "G7カナナスキス・サミット（2025年6月）"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.8,
+    "payload": {
+      "question": "",
+      "answer": "G7会合では主に世界経済について議論され、(1)わが国の総合経済政策につき紹介し、主要国首脳より強い歓迎を受け、(2)世界の金融構造強化に関する蔵相報告（a.透明性向上、b ...",
+      "content": "",
+      "source": "https://www.mofa.go.jp/mofaj/gaiko/summit/table/index.html",
+      "title": "過去のサミット一覧表"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.7,
+    "payload": {
+      "question": "",
+      "answer": "G7サミット（主要国会議）とは、フランス、米国、英国、ドイツ、日本、イタリア、カナダ（議長国順）の7か国及び欧州連合（EU）の首脳が参加して毎年開催される国際会議です ...",
+      "content": "",
+      "source": "https://www.meti.go.jp/policy/trade_policy/G7G8/index.html",
+      "title": "G7/G8"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.6,
+    "payload": {
+      "question": "",
+      "answer": "G7サミットを開催する国が、開催する年の1月～12月の1年間、G7議長国となります ... そして今年三重県伊勢志摩にて、6回目の議長国としてG7サミットを開催します。",
+      "content": "",
+      "source": "https://www.pref.mie.lg.jp/miesummit/contents/3-2_post.html",
+      "title": "G7サミットとは - 伊勢志摩サミット 三重県民会議"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.5,
+    "payload": {
+      "question": "",
+      "answer": "G7サミット（主要国首脳会議）が6月15日から17日に、カナダのカナナスキスで開催された。1975年11月、フランスのパリ郊外、ランブイエ城で6か国（議長国順：仏 ...",
+      "content": "",
+      "source": "https://instituteofgeoeconomics.org/research/2025070101/",
+      "title": "G7は拡大するべきか？ 対米自立へ舵を切る欧州"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.4,
+    "payload": {
+      "question": "",
+      "answer": "英フィナンシャル・タイムズ（FT）などによると、G7サミット開幕日の15日、サミットに参加する複数国の担当者が米国の先端AIを「信頼できるパートナー」に ...",
+      "content": "",
+      "source": "https://www.nikkei.com/article/DGXZQOGN16BGC0W6A610C2000000/",
+      "title": "先端AIの提供「信頼できる国・企業に」 G7とテックCEOら議論"
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.3,
+    "payload": {
+      "question": "",
+      "answer": "このページの情報はありません。",
+      "content": "",
+      "source": "https://www.spsj.or.jp/indexwrite.php?a=news_link&news_info_id=504a",
+      "title": "https://www.spsj.or.jp/indexwrite.php?a=news_link&..."
+    },
+    "collection": "web_search"
+  },
+  {
+    "score": 0.2,
+    "payload": {
+      "question": "",
+      "answer": "主要7カ国首脳会議（G7サミット）が16日、カナダ・カナナスキスで開幕した。G7は同日遅く、イランとイスラエルに軍事衝突の緩和を促す共同声明を出した ...",
+      "content": "",
+      "source": "https://www.bbc.com/japanese/articles/c20n7n29y9lo",
+      "title": "G7サミット、中東での「緊張緩和」求める共同声明発表 トランプ ..."
+    },
+    "collection": "web_search"
+  }
+]
+============================================================
+
+[BENCHMARK] ============================================================
+[BENCHMARK] Query    : Q13 | Hard | Web・回復
+[BENCHMARK] Model    : claude-sonnet-4-6 (anthropic) | Run: 1
+[BENCHMARK] ----------------------------------------------------------
+[BENCHMARK] [Plan]
+[BENCHMARK]   生成時間       : 0.00 秒
+[BENCHMARK]   複雑度スコア   : 0.50
+[BENCHMARK]   計画ステップ数 : 2
+[BENCHMARK]   要確認フラグ   : False
+[BENCHMARK] [Execute]
+[BENCHMARK]   実行時間       : 58.11 秒
+[BENCHMARK]   合計時間       : 58.12 秒
+[BENCHMARK]   ツール呼出回数 : 2
+[BENCHMARK]   RAGステップ数  : 0
+[BENCHMARK]   ソース数合計   : 9
+[BENCHMARK] [Confidence]
+[BENCHMARK]   全体信頼度     : 0.898
+[BENCHMARK]   ステップ最小   : 0.500
+[BENCHMARK]   ステップ最大   : 0.750
+[BENCHMARK] [Intervention]
+[BENCHMARK]   Level          : NOTIFY
+[BENCHMARK] [Replan]
+[BENCHMARK]   リプラン回数   : 1
+[BENCHMARK]   ステータス     : success
+[BENCHMARK] [Routing / 検索ハンドリング]
+[BENCHMARK]   Case           : D | mode: grace_dynamic
+[BENCHMARK]   RAG最高スコア  : 0.0000
+[BENCHMARK]   命中(target)   : False
+[BENCHMARK]   web切替        : True
+[BENCHMARK]   リプラン収束   : True
+[BENCHMARK]   経路一致(正解) : True
+[BENCHMARK] [Cost / Tokens]
+[BENCHMARK]   Input tokens   : 1,692
+[BENCHMARK]   Output tokens  : 694
+[BENCHMARK]   推定コスト     : $0.000000 USD
+[BENCHMARK] ============================================================
+
+
+経路一致率(route_correct): 5/5 = 100.0%
+完了[FAST|mode=grace]: 5 セッション -> logs/benchmark_results.csv
