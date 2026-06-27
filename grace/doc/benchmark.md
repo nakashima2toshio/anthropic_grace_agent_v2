@@ -1,6 +1,81 @@
 # benchmark.py - GRACE ベンチマーク計測 ドキュメント
 
-**Version 1.4** | 最終更新: 2026-06-27
+**Version 1.5** | 最終更新: 2026-06-27
+
+---
+
+## ベンチマーク実行の様子（FAST モード / 5クエリ）
+
+`uv run python run_benchmark.py --fast --collection cc_news_2per_anthropic` の実行ログから、
+実際に画面に出た**表示行（検索イベント + `[BENCHMARK]` 集計）**を時系列で抜き出すと、次の流れになっています。
+
+### ⏱ 実行タイムライン（表示行の抜粋）
+
+```text
+─── Q01 [Case A | Easy 事実検索] ───────────────────────────
+🔍 Searching collection: cc_news_2per_anthropic
+   [RAG SEARCH IPO: OUTPUT]  score 0.8549 (Amazon 在宅勤務職) ← 命中
+[BENCHMARK] Plan: 0.00s / 複雑度0.50 / 2step      ← ルールベース計画（LLM呼出なし）
+[BENCHMARK] Execute: 34.30s / tool2 / RAG1 / source1
+[BENCHMARK] Confidence 0.805 → Intervention NOTIFY
+[BENCHMARK] Routing: Case A | RAG最高0.8549 命中True web False 経路一致True
+
+─── Q03 [Case B | Medium 推論・比較] ────────────────────────
+🔍 Searching collection: cc_news_2per_anthropic   (49ers GM) score 0.7755
+🔍 Searching collection: cc_news_2per_anthropic   (49ers)    score 0.7516  ← 再検索
+🔍 Searching collection: cc_news_2per_anthropic   (49ers)    score 0.7342  ← 再検索
+   [WEB SEARCH IPO: OUTPUT] serpapi "…49ers GM John Lynch…fired 2024 2025" ← web併用
+[BENCHMARK] Plan: 11.37s / 複雑度0.70 / 2step     ← LLM計画
+[BENCHMARK] Execute: 122.88s / tool5 / RAG3 / source11
+[BENCHMARK] Confidence 0.616 → Intervention CONFIRM
+[BENCHMARK] Routing: Case B | RAG最高0.7755 命中True web True 経路一致True
+
+─── Q10 [Case E | Easy 曖昧] ───────────────────────────────
+（検索なし — ask_user 単一ステップ）
+[BENCHMARK] Plan: 0.00s / 複雑度0.20 / 1step / 要確認True  ← 曖昧クエリ→確認計画
+[BENCHMARK] Execute: 5.59s / tool1 / RAG0 / source0
+[BENCHMARK] Confidence 0.300 → Intervention ESCALATE      ← 人間へ橋渡し
+[BENCHMARK] Routing: Case E | RAG最高0.0000 命中False web False 経路一致True
+
+─── Q11 [Case C | Hard Web・回復] ──────────────────────────
+   [WEB SEARCH IPO: OUTPUT] serpapi "2025年 ビットコイン 暗号資産 市場…" ← RAG不一致→web
+[BENCHMARK] Plan: 9.91s / 複雑度0.60 / 2step
+[BENCHMARK] Execute: 62.65s / tool2 / RAG0 / source9
+[BENCHMARK] Confidence 0.617 → Intervention CONFIRM
+[BENCHMARK] Routing: Case C | RAG最高0.0000 命中False web True 経路一致True
+
+─── Q13 [Case D | Hard Web・回復（強制リプラン）] ──────────────
+🔍 Searching collection: __grace_bench_missing_collection__  ← 欠損コレクション=結果ゼロ
+   [WEB SEARCH IPO: OUTPUT] serpapi "…2027年のG7サミット開催地…" ← replan後 web で回復
+[BENCHMARK] Plan: 0.00s / 複雑度0.50 / 2step
+[BENCHMARK] Execute: 58.12s / tool2 / RAG0 / source9
+[BENCHMARK] Confidence 0.898 → Intervention NOTIFY
+[BENCHMARK] Replan: 1 / status success                     ← リプラン1回で収束
+[BENCHMARK] Routing: Case D | RAG最高0.0000 命中False web True 経路一致True
+
+════════════════════════════════════════════════════════════
+経路一致率(route_correct): 5/5 = 100.0%
+完了[FAST|mode=grace]: 5 セッション -> logs/benchmark_results.csv
+```
+
+### 📖 各クエリで何が起きたか
+
+| 区分 | クエリ | 実行の様子 |
+|---|---|---|
+| **A 高スコア命中** | Q01 | `🔍 Searching` 1回で **score 0.855** がヒット。RAG だけで完結（web 不要）。計画は LLM を使わない**ルールベース2ステップ**（生成 0.00 秒）。信頼度 0.805 → `NOTIFY` で自動進行。 |
+| **B 中スコア境界** | Q03 | RAG を **3回**叩き（0.776→0.752→0.734 と関連チャンクを収集）、さらに **web 検索も併用**して計 **11 ソース**を統合（tool 5回）。比較・推論タスクで最も重く 122.9 秒。信頼度 0.616 → `CONFIRM`。 |
+| **E 曖昧** | Q10 | **検索を一切行わず**、曖昧クエリ検知で `ask_user` 単一ステップ（要確認 True）。信頼度 0.300 → `ESCALATE` で人間へ。最速 5.6 秒・トークン 0。 |
+| **C 低スコア不一致** | Q11 | コレクション内に該当なし（RAG最高 0.0）→ **web へ動的フォールバック**（ビットコイン最新情報を 9 ソース取得）。信頼度 0.617 → `CONFIRM`。 |
+| **D 要リプラン** | Q13 | 初回 RAG を**存在しないコレクション** `__grace_bench_missing_collection__` へ向けて**結果ゼロ → ステップ失敗 → リプラン発火**。回復プランで **web から G7 情報を 9 ソース**取得し収束。**replan 1 回**で最終信頼度 0.898 → `NOTIFY`。 |
+
+### 🔎 読み取れること
+
+1. **信頼度しきい値どおりの段階的介入**: 全体信頼度を `silent 0.9 / notify 0.7 / confirm 0.4` に当てた結果が表示どおり（0.805→NOTIFY、0.616/0.617→CONFIRM、0.898→NOTIFY、0.300→ESCALATE）。今回は B・C が confirm 帯に着地しています。
+2. **検索経路の出し分けが全ケース期待どおり**: RAG完結（A）／複数RAG＋web（B）／web動的フォールバック（C）／強制リプラン→web回復（D）／検索せず確認（E）。`🔍 Searching` と `[WEB SEARCH IPO]` の表示行がそのまま経路の証跡になっています。
+3. **強制リプラン設計が機能（D）**: `__grace_bench_missing_collection__` という欠損コレクション指定で初回検索を確実に空振りさせ、リプラン→回復の経路を毎回再現できています。
+4. **結果**: 経路一致率 5/5 = 100%。介入レベルは前 run（B=SILENT / C=NOTIFY）から本 run（CONFIRM）へ揺れていますが、`route_correct` は介入レベルと独立に**経路**で採点されるため全件一致を維持しています。
+
+> 📎 上記タイムラインの元になった生ログ全文はリポジトリ直下の `temp.txt` に保存しています。
 
 ---
 
@@ -68,17 +143,18 @@ python run_benchmark.py --list
 
 ## 目次
 
-1. [実行結果サンプル](#実行結果サンプルfast-モード)
-2. [概要](#概要)
-3. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
-4. [モジュール構成図](#2-モジュール構成図)
-5. [クラス・関数一覧表](#3-クラス関数一覧表)
-6. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
-7. [設定・定数](#5-設定定数)
-8. [使用例](#6-使用例)
-9. [エクスポート](#7-エクスポート)
-10. [変更履歴](#8-変更履歴)
-11. [付録: 依存関係図](#付録-依存関係図)
+1. [ベンチマーク実行の様子](#ベンチマーク実行の様子fast-モード--5クエリ)
+2. [実行結果サンプル](#実行結果サンプルfast-モード)
+3. [概要](#概要)
+4. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
+5. [モジュール構成図](#2-モジュール構成図)
+6. [クラス・関数一覧表](#3-クラス関数一覧表)
+7. [クラス・関数 IPO詳細](#4-クラス関数-ipo詳細)
+8. [設定・定数](#5-設定定数)
+9. [使用例](#6-使用例)
+10. [エクスポート](#7-エクスポート)
+11. [変更履歴](#8-変更履歴)
+12. [付録: 依存関係図](#付録-依存関係図)
 
 ---
 
@@ -758,6 +834,7 @@ __all__ = [
 
 | バージョン | 変更内容 |
 |-----------|---------|
+| 1.5 | 冒頭に「ベンチマーク実行の様子（FAST モード / 5クエリ）」セクションを追加。実行ログの表示行（`🔍 Searching` / `[WEB SEARCH IPO]` / `[BENCHMARK]`）を時系列タイムラインとして抜粋し、ケース別解説（A〜E）・読み取り（しきい値介入・経路出し分け・強制リプラン・route_correct 独立採点）を記述。生ログ全文は `temp.txt` に保存。目次を更新 |
 | 1.4 | 「実行結果サンプル」①②表を `--fast --collection cc_news_2per_anthropic` の最新実行（2026-06-27）の実測値へ差し替え。介入は A=NOTIFY / B=CONFIRM(0.616) / C=CONFIRM(0.617) / D=NOTIFY(0.898・replan1で収束) / E=ESCALATE(0.300)。介入レベルが信頼度しきい値（silent 0.9 / notify 0.7 / confirm 0.4）に従う点と、route_correct が介入レベルと独立に経路で採点される点を注記。経路一致率は 5/5=100% を維持 |
 | 1.3 | 「実行結果サンプル」の①②表を最新 FAST 実行（2026-06-26）の実測値へ差し替え（B=SILENT/conf0.915、C/D=NOTIFY、D=replan1で収束、E=ESCALATE）。計測日を更新 |
 | 1.2 | `run_benchmark.sh` の Anthropic 専用化（`cc_news_2per_anthropic` / `claude-sonnet-4-6` / `anthropic`）を反映。シェルラッパー実行例（6.0節 a）を追加。前提条件に `ANTHROPIC_API_KEY`（LLM）＋ `GOOGLE_API_KEY`（Gemini Embedding）の二本立てを明記 |
