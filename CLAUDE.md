@@ -13,9 +13,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - タスクと無関係なファイルへの書き込みは事前に確認すること。
 - ファイルの削除など不可逆的な操作は事前に確認すること。
 
+## ⚠️ プロジェクトの基本方針（最優先・必読）
+
+### このリポジトリの性格
+- **本プロジェクトは「Gemini 利用プロジェクト → Anthropic への移行・移植」プロジェクトである。これが基本。**
+- したがって、コードに残る Gemini 系の LLM 実装・既定値（`GeminiConfig` / `gemini-2.5-flash` / `gemini-2.0-flash` 等）は、**「設計上の意図」ではなく「移植漏れ（負債）」とみなす。** 発見次第 Anthropic へ是正する。「現存コード＝意図」と推論しないこと。
+
+### プロバイダ方針（恒久ルール）
+| 用途 | プロバイダ | 既定 | APIキー |
+|---|---|---|---|
+| **Embedding（検索）のみ** | **Gemini** | `gemini-embedding-001`（3072次元） | `GOOGLE_API_KEY` |
+| **それ以外の全 LLM 用途**（Q&A生成・データDL・Plan/Execute/Reasoning/Confidence/Replan/ReAct 等） | **Anthropic** | `claude-sonnet-4-6`（軽量 `claude-haiku-4-5-20251001`） | `ANTHROPIC_API_KEY` |
+
+- LLM クライアントは `helper.helper_llm.create_llm_client("anthropic")` / `grace.llm_compat.create_chat_client`、LLM モデル既定は `config.ModelConfig.DEFAULT_MODEL` を使う。`GeminiConfig` は Embedding 用途（`EMBEDDING_MODEL` / `EMBEDDING_DIMS`）に限って参照可。
+- Embedding 文脈の `provider="gemini"` / `GOOGLE_API_KEY` は **正しい**ので変更しない。
+
+### 作業原則（最重要）
+- **必ずコードをよく読んでから判断する。** 「現状コード＋慎重さ」を優先して**読まずに**進めると、バグにバグを重ねることになる（実際にそれで1日溶かした事例あり）。
+- 修正・調査の前に、関連する実コード（クライアント生成・既定モデル・呼び出し経路・プロバイダ解決）を実際に追って確認すること。「たぶん意図的」で確認を打ち切らない。
+
+---
+
 ## Project Overview
 
-This is a Japanese RAG (Retrieval-Augmented Generation) Question-Answering system that implements semantic coverage analysis for evaluating Q&A datasets against documents. The system uses OpenAI embeddings and Qdrant vector database for similarity search and coverage metrics calculation.
+This is a Japanese RAG (Retrieval-Augmented Generation) Question-Answering system that implements semantic coverage analysis for evaluating Q&A datasets against documents. The system uses **Gemini embeddings (`gemini-embedding-001`, 3072 dims) for retrieval and Anthropic Claude (`claude-sonnet-4-6`) for all LLM tasks**, with a Qdrant vector database for similarity search and coverage metrics calculation. （本リポジトリは Gemini 由来コードから Anthropic へ移植中。詳細は冒頭「プロジェクトの基本方針」を参照。）
 
 ## Development Commands
 

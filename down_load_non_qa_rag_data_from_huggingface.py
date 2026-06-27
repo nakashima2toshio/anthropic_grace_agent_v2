@@ -36,7 +36,7 @@ from typing import Any, Dict, List
 import pandas as pd
 import streamlit as st
 
-from config import GeminiConfig
+from config import ModelConfig
 
 # ローカルモジュール
 from helper.helper_rag import (
@@ -59,17 +59,17 @@ def select_model() -> str:
     """サイドバーにモデル選択ウィジェットを表示し、選択されたモデル名を返す"""
     selected = st.selectbox(
         "🤖 使用モデル",
-        options=GeminiConfig.AVAILABLE_MODELS,
+        options=ModelConfig.AVAILABLE_MODELS,
         index=0,
-        help="処理に使用するGeminiモデルを選択してください"
+        help="処理に使用するLLMモデル（Anthropic Claude）を選択してください"
     )
     return selected
 
 
 def show_model_info(model: str) -> None:
     """選択されたモデルの料金・制限情報を表示する"""
-    pricing = GeminiConfig.get_model_pricing(model)
-    limits = GeminiConfig.get_model_limits(model)
+    pricing = ModelConfig.get_model_pricing(model)
+    limits = ModelConfig.get_model_limits(model)
     st.caption(
         f"💡 {model}　|　"
         f"入力: ${pricing['input']}/1K tokens　"
@@ -88,7 +88,7 @@ def estimate_token_usage(df: pd.DataFrame, model: str) -> None:
     # 日本語: 約1.5文字/token、英語: 約4文字/token（概算）
     estimated_tokens = int(total_chars / 2.0)
 
-    pricing = GeminiConfig.get_model_pricing(model)
+    pricing = ModelConfig.get_model_pricing(model)
     estimated_cost = (estimated_tokens / 1000) * pricing['input']
 
     col1, col2, col3 = st.columns(3)
