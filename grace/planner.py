@@ -4,13 +4,14 @@ GRACE Planner - 計画生成エージェント
 ユーザーの質問を分析し、実行計画を生成
 """
 
+import json
 import logging
 import re
+import time
 from typing import Optional
 
 from qdrant_client import QdrantClient
 
-from regex_mecab import KeywordExtractor
 from services.prompts import SEARCH_QUERY_INSTRUCTION
 from services.qdrant_service import get_all_collections
 
@@ -34,6 +35,22 @@ _AMBIGUOUS_REFERENT_PATTERNS = (
 )
 # 対象が曖昧になりやすい指示語（単独では曖昧と断定しない。具体的手がかりが無い場合のみ）。
 _DEMONSTRATIVES = ("あの", "その", "あれ", "それ", "例の", "先日の", "この間の")
+
+# ヒューリスティック複雑度推定（estimate_complexity）のキーワード別加点表。
+# ベーススコア 0.5 に対し、出現したキーワードの重みを加算する。
+_COMPLEXITY_FACTORS = (
+    ("比較", 0.15),
+    ("違い", 0.15),
+    ("複数", 0.2),
+    ("最新", 0.1),
+    ("理由", 0.1),
+    ("方法", 0.1),
+    ("詳しく", 0.15),
+    ("ステップ", 0.1),
+    ("手順", 0.1),
+    ("なぜ", 0.1),
+    ("どのように", 0.15),
+)
 
 
 def is_ambiguous_query(query: str) -> bool:
@@ -162,14 +179,6 @@ class Planner:
         if getattr(self.config, "memory", None) and self.config.memory.enabled:
             self._memory = create_execution_memory(self.config.memory.path)
 
-        # KeywordExtractorの初期化（Legacy Agentと同一）
-        try:
-            self.keyword_extractor = KeywordExtractor(prefer_mecab=True)
-            logger.info("Planner: KeywordExtractor initialized")
-        except Exception as e:
-            logger.warning(f"Planner: Failed to initialize KeywordExtractor: {e}")
-            self.keyword_extractor = None
-
         logger.info(f"Planner initialized with model: {self.model_name}")
 
     # LLM計画生成を強制するクエリマーカー（明示的なWeb検索指示など）
@@ -239,18 +248,30 @@ class Planner:
             logger.warning(f"_prioritized_collection failed: {e}")
             return None
 
-    def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan:
+    def _build_rag_reasoning_plan(
+            self,
+            query: str,
+            *,
+            complexity: float,
+            collection: Optional[str],
+            rag_description: str = "関連情報を検索",
+    ) -> ExecutionPlan:
         """
-        ルールベースの標準2ステップ計画を生成（LLM呼び出しなし）
+        rag_search → reasoning の標準2ステップ計画を組み立てる共通ビルダー。
 
-        rag_search（全コレクション網羅・fallback=web_search）→ reasoning の
-        標準構成。LLM計画生成と同じ計画構造のため、Executor 側の
-        動的フォールバック連鎖（web_search / ask_user）もそのまま機能する。
+        ルールベース計画・フォールバック計画はいずれもこの構造を共有する。
+        rag_search は collection（実行メモリの優先コレクション or None=全コレクション
+        検索）と fallback=web_search を持ち、Executor 側の動的フォールバック連鎖
+        （web_search / ask_user）がそのまま機能する。
 
-        P4: 実行メモリに十分な実績があれば rag_search の collection を
-        事前分布の最良コレクションに固定する（無ければ None=全コレクション検索）。
+        Args:
+            query: ユーザーの質問
+            complexity: 計画に記録する複雑度
+            collection: rag_search の対象コレクション（None=全コレクション検索）
+            rag_description: rag_search ステップの description
+        Returns:
+            ExecutionPlan: 標準2ステップ計画
         """
-        prioritized = self._prioritized_collection(query)
         return ExecutionPlan(
             original_query=query,
             complexity=complexity,
@@ -260,9 +281,9 @@ class Planner:
                 PlanStep(
                     step_id=1,
                     action="rag_search",
-                    description="関連情報を検索",
+                    description=rag_description,
                     query=query,
-                    collection=prioritized,
+                    collection=collection,
                     expected_output="関連するドキュメントや情報",
                     fallback="web_search",
                     timeout_seconds=30
@@ -283,6 +304,18 @@ class Planner:
             plan_id=create_plan_id()
         )
 
+    def _create_rule_based_plan(self, query: str, complexity: float) -> ExecutionPlan:
+        """
+        ルールベースの標準2ステップ計画を生成（LLM呼び出しなし）
+
+        P4: 実行メモリに十分な実績があれば rag_search の collection を
+        事前分布の最良コレクションに固定する（無ければ None=全コレクション検索）。
+        """
+        prioritized = self._prioritized_collection(query)
+        return self._build_rag_reasoning_plan(
+            query, complexity=complexity, collection=prioritized
+        )
+
     def _create_llm_plan(self, query: str) -> ExecutionPlan:
         """
         質問から実行計画を生成（LLM使用版 - 本来のロジック）
@@ -292,19 +325,6 @@ class Planner:
             ExecutionPlan: LLMが生成した実行計画
         """
         logger.info(f"Creating LLM execution plan for: {query[:50]}...")
-
-        # --- Legacy Agentと同一の入力加工 ---
-        # augmented_query = query
-        # if self.keyword_extractor:
-        #     try:
-        #         keywords = self.keyword_extractor.extract(query, top_n=5)
-        #         if keywords:
-        #             keywords_str = ", ".join(keywords)
-        #             augmented_query = f"{query}\n\n【重要: 検索クエリ作成の指示】\n以下の抽出された重要キーワードを、必ず検索クエリに含めてください。\n重要キーワード: {keywords_str}"
-        #             logger.info(f"Augmented query with keywords: {keywords_str}")
-        #     except Exception as e:
-        #         logger.warning(f"Keyword extraction failed: {e}")
-        # ------------------------------------
 
         try:
             # 利用可能なコレクションを取得
@@ -317,24 +337,20 @@ class Planner:
             # プロンプトを構築
             prompt = PLAN_GENERATION_PROMPT.format(
                 available_collections=collections_str,
-                # query=augmented_query  # 加工済みクエリを使用
                 query=query
             ) + "\n\nIMPORTANT: Ensure the output is a valid, complete JSON object. Do not truncate the response."
 
             # --- [IPO LOG] PROCESS INPUT (GRACE PLANNER) ---
             logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: INPUT] {'=' * 20}\n{prompt}\n{'=' * 60}")
 
-            # --- TODO #2: リトライ付きでLLM呼び出し（最大2回） ---
-            import json as _json
-            import time as _time
-
+            # リトライ付きでLLM呼び出し（最大2回）。空レスポンス・不完全JSONはリトライする。
             plan = None
             last_error = None
             max_attempts = 2
 
             for attempt in range(max_attempts):
                 try:
-                    t0 = _time.time()
+                    t0 = time.time()
                     response = self.client.models.generate_content(
                         model=self.model_name,
                         contents=prompt,
@@ -346,21 +362,21 @@ class Planner:
                             "max_output_tokens": 8192,
                         }
                     )
-                    elapsed = _time.time() - t0
+                    elapsed = time.time() - t0
                     logger.info(f"[API時間] create_plan LLM (attempt {attempt + 1}/{max_attempts}): {elapsed:.1f}秒")
 
                     # --- [IPO LOG] PROCESS OUTPUT (GRACE PLANNER) ---
                     logger.info(f"\n{'=' * 20} [GRACE PLANNER IPO: OUTPUT] {'=' * 20}\n{response.text}\n{'=' * 60}")
 
-                    # TODO #2: 空レスポンスガード
+                    # 空レスポンスガード
                     if not response or not response.text:
                         logger.warning(f"create_plan: empty response (attempt {attempt + 1}/{max_attempts})")
                         continue
 
-                    # TODO #2: JSON完全性チェック（EOF検知）
+                    # JSON完全性チェック（EOF検知）
                     try:
-                        _json.loads(response.text)
-                    except _json.JSONDecodeError as je:
+                        json.loads(response.text)
+                    except json.JSONDecodeError as je:
                         logger.warning(f"Incomplete/invalid JSON (attempt {attempt + 1}/{max_attempts}): {je}")
                         continue  # リトライ
 
@@ -404,7 +420,7 @@ class Planner:
             logger.info("Falling back to simple plan")
             return self._create_fallback_plan(query)
 
-    def _get_available_collections(self) -> list:
+    def _get_available_collections(self) -> list[str]:
         """利用可能なQdrantコレクションを取得"""
         try:
             client = QdrantClient(url=self.config.qdrant.url)
@@ -457,7 +473,7 @@ class Planner:
         """
         logger.info("Creating fallback plan")
 
-        # --- P4: 実行メモリの事前分布を優先。無ければ動的取得（失敗時はNone＝自動選択） ---
+        # P4: 実行メモリの事前分布を優先。無ければ動的取得（失敗時はNone＝自動選択）。
         fallback_collection = self._prioritized_collection(query)
         if fallback_collection is None:
             try:
@@ -468,36 +484,11 @@ class Planner:
             except Exception:
                 fallback_collection = None
 
-        return ExecutionPlan(
-            original_query=query,
+        return self._build_rag_reasoning_plan(
+            query,
             complexity=0.5,
-            estimated_steps=2,
-            requires_confirmation=False,
-            steps=[
-                PlanStep(
-                    step_id=1,
-                    action="rag_search",
-                    description="全コレクションから関連情報を検索",  # TODO #4: 汎用的な表記に
-                    query=query,
-                    collection=fallback_collection,  # TODO #4: 動的取得 or None
-                    expected_output="関連するドキュメントや情報",
-                    fallback="web_search",  # TODO #1: reasoning → web_search
-                    timeout_seconds=30
-                ),
-                PlanStep(
-                    step_id=2,
-                    action="reasoning",
-                    description="取得した情報を元に回答を生成",
-                    query=None,
-                    collection=None,
-                    depends_on=[1],
-                    expected_output="ユーザーへの回答",
-                    fallback=None,
-                    timeout_seconds=30
-                )
-            ],
-            success_criteria="ユーザーの質問に適切に回答できている",
-            plan_id=create_plan_id()
+            collection=fallback_collection,
+            rag_description="全コレクションから関連情報を検索",
         )
 
     def estimate_complexity(self, query: str) -> float:
@@ -508,24 +499,10 @@ class Planner:
         Returns:
             float: 複雑度スコア
         """
-        # キーワードベースの簡易推定
-        complexity_factors = [
-            ("比較", 0.15),
-            ("違い", 0.15),
-            ("複数", 0.2),
-            ("最新", 0.1),
-            ("理由", 0.1),
-            ("方法", 0.1),
-            ("詳しく", 0.15),
-            ("ステップ", 0.1),
-            ("手順", 0.1),
-            ("なぜ", 0.1),
-            ("どのように", 0.15),
-        ]
-
+        # キーワードベースの簡易推定（加点表は _COMPLEXITY_FACTORS）
         score = 0.5  # ベーススコア
 
-        for keyword, weight in complexity_factors:
+        for keyword, weight in _COMPLEXITY_FACTORS:
             if keyword in query:
                 score += weight
 
@@ -545,11 +522,10 @@ class Planner:
         Returns:
             float: 複雑度スコア
         """
-        import time as _time
         try:
             prompt = COMPLEXITY_ESTIMATION_PROMPT.format(query=query)
 
-            t0 = _time.time()
+            t0 = time.time()
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
@@ -558,7 +534,7 @@ class Planner:
                     "max_output_tokens": 10,
                 }
             )
-            elapsed = _time.time() - t0
+            elapsed = time.time() - t0
             logger.info(f"[API時間] estimate_complexity_with_llm: {elapsed:.1f}秒")
 
             # Noneガード: AFC永続化により response.text が None になることがある
@@ -603,8 +579,7 @@ class Planner:
 """
 
         try:
-            import time as _time
-            t0 = _time.time()
+            t0 = time.time()
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=refine_prompt,
@@ -615,7 +590,7 @@ class Planner:
                     "temperature": self.config.llm.temperature,
                 }
             )
-            elapsed = _time.time() - t0
+            elapsed = time.time() - t0
             logger.info(f"[API時間] refine_plan LLM: {elapsed:.1f}秒")
 
             refined_plan = ExecutionPlan.model_validate_json(response.text)
