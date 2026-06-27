@@ -264,7 +264,7 @@ def main():
 
     # サイドバー：画面選択
     with st.sidebar:
-        st.title("Agent RAG (Gemini3)")
+        st.title("Agent RAG (Anthropic)")
         st.divider()
 
         # メニュー見出し
