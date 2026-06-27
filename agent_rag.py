@@ -260,7 +260,7 @@ def main():
     """メインアプリケーション - 画面選択"""
 
     # ページ設定
-    st.set_page_config(page_title="Agent RAG(Gemini)", page_icon="🤖", layout="wide")
+    st.set_page_config(page_title="Agent RAG (Anthropic)", page_icon="🤖", layout="wide")
 
     # サイドバー：画面選択
     with st.sidebar:
