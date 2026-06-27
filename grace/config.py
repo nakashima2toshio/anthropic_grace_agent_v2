@@ -216,6 +216,15 @@ class PlannerConfig(BaseModel):
     llm_plan_complexity_threshold: float = 0.7
     # True の場合、複雑度に関わらず常に LLM 計画生成を使用する
     force_llm_plan: bool = False
+    # 生成する PlanStep のステップ実行タイムアウト（秒）
+    step_timeout_seconds: int = 30
+    # LLM 計画生成のリトライ回数（空レスポンス・不完全JSON時に再試行）
+    llm_plan_max_attempts: int = 2
+    # LLM 計画生成の最大出力トークン数（計画JSONが途中で切れないよう大きめ）
+    plan_max_output_tokens: int = 8192
+    # LLM 複雑度推定の温度・最大出力トークン数（数値のみを返すため小さく）
+    complexity_temperature: float = 0.1
+    complexity_max_output_tokens: int = 10
 
 
 class ExecutorConfig(BaseModel):
