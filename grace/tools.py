@@ -716,6 +716,9 @@ class WebSearchTool(BaseTool):
     def _search_ddg(self, query: str, num_results: int, language: str) -> list:
         """DuckDuckGo検索バックエンド"""
         from duckduckgo_search import DDGS
+        # （Todo: 要最新化）-> 「DDGSメタ検索」
+        # from ddgs import DDGS
+        # results = ddgs.text(query, region=region, max_results=num_results, backend="duckduckgo")
 
         region = "jp-jp" if language == "ja" else "wt-wt"
         logger.info(f"DDG search: query='{query}', region={region}, max_results={num_results}")
