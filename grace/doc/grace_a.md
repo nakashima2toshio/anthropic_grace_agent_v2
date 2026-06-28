@@ -1,32 +1,42 @@
 # grace_a.md - GRACE コアモジュール群（Planner 系）アーキテクチャ ドキュメント
 
-**Version 1.0** | 最終更新: 2026-06-28
+**Version 1.1** | 最終更新: 2026-06-28
 
 ---
 
 ## 目次
 
-1. [概要](#概要)
-2. [アーキテクチャ構成図](#1-アーキテクチャ構成図)
-   - [1.0 モジュール・ブロック図（全体処理フロー）](#10-モジュールブロック図全体処理フロー)
-   - [1.1 システム全体構成（3層）](#11-システム全体構成3層)
-   - [1.2 データフロー](#12-データフロー)
-3. [モジュール構成図](#2-モジュール構成図)
-4. [モジュール別サマリー（クラス・関数一覧）](#3-モジュール別サマリークラス関数一覧)
-   - [3.1 planner.py](#31-plannerpy--計画生成)
-   - [3.2 executor.py](#32-executorpy--実行オーケストレータ)
-   - [3.3 confidence.py](#33-confidencepy--信頼度計算)
-   - [3.4 calibration.py](#34-calibrationpy--信頼度較正)
-   - [3.5 memory.py](#35-memorypy--実行メモリ)
-   - [3.6 intervention.py](#36-interventionpy--介入hitl)
-   - [3.7 replan.py](#37-replanpy--動的リプラン)
-   - [3.8 tools.py](#38-toolspy--ツール群)
-5. [処理シーケンス（GRACE ループ）](#4-処理シーケンスgrace-ループ)
-6. [設定・定数（横断）](#5-設定定数横断)
-7. [使用例（ワークフロー）](#6-使用例ワークフロー)
-8. [エクスポート](#7-エクスポート)
-9. [変更履歴](#8-変更履歴)
-10. [付録: 依存関係図](#付録-依存関係図)
+- [概要](#概要)
+- [1. アーキテクチャ構成図](#1-アーキテクチャ構成図)
+  - [1.0 モジュール・ブロック図（全体処理フロー）](#10-モジュールブロック図全体処理フロー)
+  - [1.1 システム全体構成（3層）](#11-システム全体構成3層)
+  - [1.2 データフロー](#12-データフロー)
+- [2. モジュール構成図](#2-モジュール構成図)
+- [3. モジュール別サマリー（クラス・関数一覧）](#3-モジュール別サマリークラス関数一覧)
+  - [3.1 planner.py](#31-plannerpy--計画生成)
+  - [3.2 executor.py](#32-executorpy--実行オーケストレータ)
+  - [3.3 confidence.py](#33-confidencepy--信頼度計算)
+  - [3.4 calibration.py](#34-calibrationpy--信頼度較正)
+  - [3.5 memory.py](#35-memorypy--実行メモリ)
+  - [3.6 intervention.py](#36-interventionpy--介入hitl)
+  - [3.7 replan.py](#37-replanpy--動的リプラン)
+  - [3.8 tools.py](#38-toolspy--ツール群)
+- [4. 実行メモリが貯まるまで（planner → executor → memory）](#4-実行メモリが貯まるまでplanner--executor--memory)
+  - [4.1 登場人物（全体像とシーケンス図）](#41-登場人物全体像とシーケンス図)
+  - [4.2 例データの設定](#42-例データの設定)
+  - [4.3 planner.py：計画前にメモリへ相談](#43-plannerpy計画前にメモリへ相談)
+  - [4.4 executor.py：使用コレクションの収集](#44-executorpy使用コレクションの収集)
+  - [4.5 executor.py：_record_memory による格納](#45-executorpy_record_memory-による格納)
+  - [4.6 memory.py：JSONL への格納とキーワード抽出](#46-memorypyjsonl-への格納とキーワード抽出)
+  - [4.7 蓄積で planner が賢くなる例](#47-蓄積で-planner-が賢くなる例)
+  - [4.8 読み戻しの場合分け](#48-読み戻しの場合分け)
+  - [4.9 まとめ：場合分け早見表](#49-まとめ場合分け早見表)
+- [5. 処理シーケンス（GRACE ループ）](#5-処理シーケンスgrace-ループ)
+- [6. 設定・定数（横断）](#6-設定定数横断)
+- [7. 使用例（ワークフロー）](#7-使用例ワークフロー)
+- [8. エクスポート](#8-エクスポート)
+- [9. 変更履歴](#9-変更履歴)
+- [付録: 依存関係図](#付録-依存関係図)
 
 ---
 
@@ -445,7 +455,252 @@ GRACE エージェントの統一ツールシステム。RAG 検索（Gemini Emb
 
 ---
 
-## 4. 処理シーケンス（GRACE ループ）
+## 4. 実行メモリが貯まるまで（planner → executor → memory）
+
+本章では、`planner.py` から始まって `executor.py` の実行結果が `memory.py` の `ExecutionMemory` に格納される様子を、**例データ**と**場合分け**つきでやさしく解説する。要点は **「メモリは executor が書き、planner が読む」** という一方通行の学習ループで、今回の実行結果が次回以降の計画づくりに効いてくる点にある。
+
+### 4.1 登場人物（全体像とシーケンス図）
+
+```mermaid
+%%{ init: { "theme": "base", "themeVariables": {
+  "background": "#000000", "mainBkg": "#000000",
+  "textColor": "#ffffff", "lineColor": "#ffffff",
+  "actorBkg": "#000000", "actorTextColor": "#ffffff",
+  "actorLineColor": "#ffffff", "noteBkgColor": "#000000",
+  "noteTextColor": "#ffffff", "noteBorderColor": "#ffffff" } } }%%
+sequenceDiagram
+    participant U as "ユーザー"
+    participant PL as "planner.py"
+    participant ME as "memory.py (ExecutionMemory)"
+    participant EX as "executor.py"
+    participant TO as "tools.py (rag_search)"
+
+    U->>PL: create_plan(query)
+    PL->>ME: best_collection(query)
+    alt 実績が十分（件数 >= 3 かつ score >= 0.6）
+        ME-->>PL: "wikipedia_ja"（コレクション限定）
+    else 実績不足 / メモリ無効
+        ME-->>PL: None（全コレクション検索）
+    end
+    PL-->>EX: ExecutionPlan（rag_search → reasoning）
+
+    loop 各ステップ
+        EX->>TO: rag_search(query, collection)
+        TO-->>EX: ToolResult(used_collection, scores)
+        Note over EX: used_collections に追記（重複除外）
+    end
+
+    EX->>EX: success = 全ステップ success か判定
+    alt used_collections が空 / メモリ無効
+        Note over EX: 記録しない（学習対象外）
+    else RAG を使った
+        EX->>ME: record_many(query, collections, success, confidence)
+        Note over ME: JSONL に「1コレクション = 1行」で追記
+    end
+```
+
+処理の骨格は次の通り。
+
+```
+ユーザーの質問
+   │
+   ▼
+[planner.py] 計画を作る
+   │  ・memory.py に「この質問で当たりやすいコレクションある？」と相談
+   │    └ _prioritized_collection() → memory.best_collection()
+   ▼
+ExecutionPlan（rag_search → reasoning など）
+   │
+   ▼
+[executor.py] 計画を1ステップずつ実行
+   │  ・rag_search が当たったコレクション名を used_collections に貯める
+   │  ・最後に _record_memory() を呼ぶ
+   ▼
+[memory.py] ExecutionMemory.record_many()
+   │  ・1行 = 1レコードで JSONL に追記
+   ▼
+logs/grace_memory.jsonl  ← ★ここに格納される
+```
+
+### 4.2 例データの設定
+
+- Qdrant のコレクション候補: `wikipedia_ja`, `livedoor`, `cc_news`, `japanese_text`
+- ユーザーは「Python の◯◯」という質問を何度か繰り返す、とする。
+- メモリファイル `logs/grace_memory.jsonl` は **最初は空** とする。
+
+### 4.3 planner.py：計画前にメモリへ相談
+
+`planner.py:232` の `_prioritized_collection()` が memory に問い合わせる。
+
+```python
+# grace/planner.py:232
+def _prioritized_collection(self, query: str) -> Optional[str]:
+    if self._memory is None:
+        return None                      # ← 場合分け①
+    best = self._memory.best_collection( # ← memory.py に委譲
+        query=query,
+        min_count=mc.min_count,          # 既定 3
+        min_score=mc.min_score,          # 既定 0.6
+    )
+    return best                          # コレクション名 or None
+```
+
+🔀 **場合分け①：planner がコレクションを絞れるか**
+
+| 状況 | `_prioritized_collection()` の戻り値 | 計画の rag_search |
+|---|---|---|
+| **メモリ無効**（`config.memory.enabled=false`） | `None` | 全コレクション検索 |
+| **実績はあるが不十分**（件数 < 3 か スコア < 0.6） | `None` | 全コレクション検索 |
+| **実績が十分**（件数 ≥ 3 かつ スコア ≥ 0.6） | 例：`"wikipedia_ja"` | そのコレクションに限定して検索 |
+
+> 📝 最初はメモリが空なので必ず `None`（＝全コレクション検索）になる。「最初の数回は手探り、貯まってきたら賢くなる」という設計。
+
+### 4.4 executor.py：使用コレクションの収集
+
+計画を実行する途中、`rag_search` が成功するたびに当たったコレクション名を `state.used_collections` に貯める。
+
+```python
+# grace/executor.py:991
+# P4: 使用した RAG コレクションを実行メモリ用に記録
+if step.action == "rag_search" and isinstance(tool_result.confidence_factors, dict):
+    uc = tool_result.confidence_factors.get("used_collection")
+    if uc and uc not in state.used_collections:   # 重複は足さない
+        state.used_collections.append(uc)
+```
+
+例：1回目の質問「Python の歴史を教えて」で `wikipedia_ja` が当たれば、
+
+```python
+state.used_collections == ["wikipedia_ja"]
+state.overall_confidence == 0.85   # ← calibration.py で較正済みの最終信頼度
+```
+
+### 4.5 executor.py：_record_memory による格納
+
+全ステップ終了後（`executor.py:432` / `:698`）に呼ばれる。
+
+```python
+# grace/executor.py:1891
+def _record_memory(self, state: ExecutionState) -> None:
+    if self._memory is None:
+        return                                            # ← 場合分け②
+    statuses = [r.status for r in state.step_results.values()]
+    success = bool(statuses) and all(s == "success" for s in statuses)  # ← 場合分け③
+    collections = list(state.used_collections)
+    if not collections:
+        return                                            # ← 場合分け④（web のみ等は記録しない）
+    self._memory.record_many(
+        query=state.plan.original_query,
+        collections=collections,
+        success=success,
+        confidence=state.overall_confidence,
+    )
+```
+
+🔀 **executor 側の場合分け（格納するか・どう格納するか）**
+
+| # | 条件 | 挙動 |
+|---|---|---|
+| ② | メモリ無効（`self._memory is None`） | **記録しない**（何もせず return） |
+| ③ | 全ステップ success か？ | `success=True/False` を決める。**失敗でも記録する** |
+| ④ | `used_collections` が空（Web 検索のみ・ask_user のみ等） | **記録しない**（RAG 未使用は学習対象外） |
+
+> ③が重要：**失敗した実行も `success=false` として記録される。**「このコレクションはこの質問では外しやすい」という情報も貯めて、スコアを下げるのに使う。
+
+### 4.6 memory.py：JSONL への格納とキーワード抽出
+
+`record_many()` は、使ったコレクションごとに `record()` を呼んで JSONL に追記する（`memory.py:119`）。
+
+```python
+# grace/memory.py:119
+def record_many(self, query, collections, success, confidence, keywords=None):
+    kw = keywords if keywords is not None else extract_keywords(query or "")
+    seen = set()
+    for c in collections:
+        if c in seen:        # 同じコレクションは1回だけ
+            continue
+        seen.add(c)
+        self.record(query, c, success, confidence, keywords=kw)
+```
+
+**キーワード抽出（`extract_keywords`, `memory.py:33`）** は正規表現 `[A-Za-z0-9]{2,}` または `[漢字/かな/カナ]{2,}` の連続を拾う。**形態素解析はしない**ため、日本語は「区切り文字（スペース・記号・英数）が来るまでの連続」が丸ごと 1 キーワードになる。
+
+```python
+extract_keywords("Python の歴史を教えて")
+# → ["python", "の歴史を教えて"]
+#    └ "Python" は英字なので独立 / 残りの日本語連続は丸ごと1語
+```
+
+> 📝 つまり日本語部分は細かく分かれない。**英語・カタカナ語・型番など「独立した語」が共通している質問どうし**でだけ、後述のキーワード一致が効く（例：「Python」が共通）。
+
+**格納される JSONL（1回目の実行後）** — `logs/grace_memory.jsonl` に1行追記される。
+
+```json
+{"query": "Python の歴史を教えて", "keywords": ["python", "の歴史を教えて"], "collection": "wikipedia_ja", "success": true, "confidence": 0.85, "timestamp": 1750000000.0}
+```
+
+> 書き込みは **best-effort**（`memory.py:112`）。失敗しても `logger.warning` を出すだけで**実行は止めない**。
+
+### 4.7 蓄積で planner が賢くなる例
+
+「Python の◯◯」を 4 回質問し、毎回 `wikipedia_ja` が当たって成功したとする。
+
+| 実行 | query | 格納された行（要点） |
+|---|---|---|
+| 1回目 | Python の歴史を教えて | collection=`wikipedia_ja`, success=true, conf=0.85 |
+| 2回目 | Python の標準ライブラリについて | collection=`wikipedia_ja`, success=true, conf=0.88 |
+| 3回目 | Python の例外処理とは | collection=`wikipedia_ja`, success=true, conf=0.80 |
+| 4回目 | Python の内包表記とは | ← この計画づくりで初めて「絞り込み」が効く |
+
+4回目の計画づくりで `best_collection("Python の内包表記とは")` が呼ばれると、memory はこう計算する（`memory.py:147` `collection_priors` → `score`）。
+
+- キーワード `"python"` を含む過去レコードだけを対象 → 3件（すべて `wikipedia_ja`）
+- `count=3`, `success_count=3`, `mean_confidence=(0.85+0.88+0.80)/3 ≈ 0.843`
+- スコア（Laplace 平滑化付き）:
+
+```
+score = (success_count + 1) / (count + 2) × mean_confidence
+      = (3 + 1) / (3 + 2) × 0.843
+      = 0.8 × 0.843 ≈ 0.674
+```
+
+判定（`best_collection`, `memory.py:192`）:
+
+```
+count(3) >= min_count(3)  ✓   かつ   score(0.674) >= min_score(0.6)  ✓
+→ "wikipedia_ja" を返す
+```
+
+これで 4 回目の rag_search は **最初から `wikipedia_ja` に限定**され、無駄な全コレクション検索をしなくなる。3 回目までは件数不足（< 3）で `None`＝全検索だったのが、4 回目で切り替わる、という場合分けである。
+
+### 4.8 読み戻しの場合分け
+
+planner が読むとき、memory 側（`collection_priors`, `memory.py:147`）でもう一段の場合分けがある。
+
+| 状況 | 挙動 |
+|---|---|
+| **クエリのキーワードに一致する過去レコードがある** | そのレコードだけで集計（＝「この種の質問の」分布） |
+| **一致レコードが 0 件**（`memory.py:168`） | 全レコードで集計に**フォールバック**（全体傾向で代用） |
+| **`collection` が空のレコード** | 集計対象から除外 |
+
+> 例：初めて「半導体の動向」を聞いた場合、「python」を含む過去レコードとはキーワードが一致しないので、全体集計にフォールバックする。
+
+### 4.9 まとめ：場合分け早見表
+
+| 段階 | 場所 | 場合分け | 結果 |
+|---|---|---|---|
+| 計画前の相談 | `planner._prioritized_collection` | メモリ無効 / 実績不足 / 実績十分 | `None`（全検索）/ `None` / コレクション限定 |
+| 実行中 | `executor` rag_search 後 | 当たったコレクションを収集 | `used_collections` に追記（重複除外） |
+| 格納判定 | `executor._record_memory` | ②メモリ無効 / ③全ステップ成否 / ④RAG未使用 | 記録しない / success フラグ決定 / 記録しない |
+| 格納 | `memory.record_many` | コレクション重複除外 | 使ったコレクション数だけ JSONL 追記 |
+| 読み戻し | `memory.collection_priors` | キーワード一致あり / 0件 | 該当のみ集計 / 全体へフォールバック |
+| 推奨判定 | `memory.best_collection` | 件数≥3 かつ スコア≥0.6 | コレクション名 / `None` |
+
+一言でいうと——**「executor が “どのコレクションで・成功したか・どれくらい自信があったか” を JSONL に1行ずつ貯め、planner が次回 “この質問なら毎回当たってる `wikipedia_ja` に絞ろう” と賢くなる」** 学習ループである。最初は手探り（全検索）、3件以上の好成績が貯まった時点で絞り込みに切り替わる。
+
+---
+
+## 5. 処理シーケンス（GRACE ループ）
 
 `executor.py` を中心とした 1 クエリの実行シーケンス。
 
@@ -499,7 +754,7 @@ sequenceDiagram
 
 ---
 
-## 5. 設定・定数（横断）
+## 6. 設定・定数（横断）
 
 主要な設定は `grace.config.GraceConfig`（`config.py`）に集約される。A グループで参照する代表値を抜粋する。
 
@@ -519,7 +774,7 @@ sequenceDiagram
 
 ---
 
-## 6. 使用例（ワークフロー）
+## 7. 使用例（ワークフロー）
 
 ```python
 from grace import (
@@ -560,7 +815,7 @@ for state in executor.execute_plan_generator(plan):
 
 ---
 
-## 7. エクスポート
+## 8. エクスポート
 
 A グループの主要要素は `grace/__init__.py` でパッケージレベルにエクスポートされる（抜粋）。
 
@@ -595,11 +850,12 @@ __all__ = [
 
 ---
 
-## 8. 変更履歴
+## 9. 変更履歴
 
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版作成（A グループ 8 モジュールの横断まとめ。先頭にモジュール・ブロック図、3 層構成図、モジュール構成図、処理シーケンス、横断設定表を整備） |
+| 1.1 | 目次・本文の採番を整理（モジュール別サマリーのサブ番号 3.1–3.8 を本文番号と一致させ、目次を明示番号付き箇条書きに変更）。新章「4. 実行メモリが貯まるまで（planner → executor → memory）」を例データ・場合分け・黒背景シーケンス図つきで追加し、以降の章を 5〜9 に繰り下げ |
 
 ---
 
