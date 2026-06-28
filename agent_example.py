@@ -10,8 +10,8 @@ planner（計画生成）→ executor（confidence/calibration/intervention/repl
 
 使い方::
 
-    python agent_example.py
-    python agent_example.py "東京タワーの高さは？"
+    uv run python agent_example.py
+    uv run python agent_example.py "東京タワーの高さは？"
 """
 from __future__ import annotations
 
