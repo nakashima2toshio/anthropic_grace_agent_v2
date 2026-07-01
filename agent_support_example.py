@@ -1,10 +1,11 @@
 # agent_support_example.py
-"""GRACE-Support v2: 日本語ナレッジ駆動サポート・コパイロット。
+"""GRACE-Support v3: 日本語ナレッジ駆動サポート・コパイロット。
 
-内部 RAG で回答し、**出典を必ず提示**する。根拠が不足する場合は内部知識だけで
-断定せず、**Web フォールバック**（v2）で裏取りを試みる。内部回答と Web 回答は
-**相互検証**（意味的一致・矛盾検出）し、なお根拠不足なら「わかりません」と誠実に
-答えて有人対応へエスカレーションする（アクション=v3 は未実装）。
+内部 RAG で回答し、**出典を必ず提示**する。根拠が不足すれば **Web フォールバック**
+（v2）で裏取りし、内部×Web を**相互検証**する。さらに、問い合わせが「対応（アクション）」
+を要する場合は、**擬似 ActionTool** を **HITL（CONFIRM 承認）** を通してから実行する
+（v3。既定はドライラン＝実行せずログのみ）。なお根拠不足なら「わかりません」と誠実に
+答えて有人対応へエスカレーションする。
 
 設計書: grace/doc/agent_support_example.md
 上位計画: docs/migration_and_update.md
@@ -12,12 +13,11 @@
 処理の流れ:
   ① Plan      planner.create_plan(query)
   ② Execute   executor.execute(plan)（内部 RAG → reasoning）
-  ③ 根拠評価  GroundednessVerifier.verify() で支持率(support_rate)を算出
+  ③ 根拠評価  GroundednessVerifier.verify()（支持率）
   ④ 回答ゲート _answer_gate()（answer / escalate）
-  ⑤ Webフォールバック（内部が escalate のときのみ・v2）
-       tools.web_search → tools.reasoning → 再度 根拠評価
-       内部回答 × Web 回答を SourceAgreementCalculator で相互検証（矛盾提示）
-  ⑥ 応答      内部/Web 出典を統合して提示、または エスカレーション
+  ⑤ Webフォールバック（内部が escalate のときのみ・v2）＋相互検証
+  ⑥ アクション（v3）: _decide_action() → intervention CONFIRM → 擬似実行（既定ドライラン）
+  ⑦ 応答
 
 前提:
 - `.env` に ANTHROPIC_API_KEY（LLM 用）と GOOGLE_API_KEY（Embedding 用）を設定
@@ -26,8 +26,9 @@
 使い方::
 
     python agent_support_example.py "パスワードを忘れました"
-    python agent_support_example.py -v "最新の料金改定は？"
-    python agent_support_example.py --no-web "解約したい"   # Webフォールバック無効
+    python agent_support_example.py "解約したい"                # アクション（要CONFIRM・ドライラン）
+    python agent_support_example.py --no-dry-run "解約したい"    # 擬似実行（実API連携は将来）
+    python agent_support_example.py --no-web --no-action -v "…"  # 内部RAGのみ
 """
 from __future__ import annotations
 
@@ -38,13 +39,21 @@ from dataclasses import dataclass, field
 from typing import List, Literal, Optional
 
 from grace import (
+    ActionDecision,
+    InterventionAction,
+    InterventionLevel,
+    InterventionResponse,
     create_executor,
+    create_intervention_handler,
     create_planner,
     create_source_agreement_calculator,
     create_tool_registry,
     get_config,
 )
 from grace.confidence import create_groundedness_verifier
+
+# 非対話 CLI 用: CONFIRM/ESCALATE を自動承認するレスポンス（実行はドライランで安全）
+_AUTO_PROCEED = InterventionResponse(action=InterventionAction.PROCEED)
 
 # .env から ANTHROPIC_API_KEY / GOOGLE_API_KEY 等を読み込む（未導入でも続行）
 try:
@@ -57,20 +66,32 @@ except ImportError:
 DEFAULT_QUERY = "パスワードを忘れました"
 
 Decision = Literal["answer", "escalate"]
+ActionType = Literal["create_ticket", "send_reply", "escalate_to_human"]
+
+
+@dataclass
+class ActionRequest:
+    """副作用のある操作の要求（v3・擬似）。"""
+
+    action_type: ActionType
+    args: dict = field(default_factory=dict)
+    requires_confirmation: bool = True
 
 
 @dataclass
 class SupportResult:
-    """サポート回答の結果（v2）。"""
+    """サポート回答の結果（v3）。"""
 
     answer: Optional[str]
     citations: List[str] = field(default_factory=list)
     groundedness: float = 0.0
     decision: Decision = "escalate"
-    warning: bool = False             # 中信頼（未確認）の注意書きを付けるか
-    used_web: bool = False            # Web フォールバックを使ったか
+    warning: bool = False              # 中信頼（未確認）の注意書きを付けるか
+    used_web: bool = False             # Web フォールバックを使ったか
     source_agreement: Optional[float] = None  # 内部×Web の意味的一致度（相互検証）
-    contradiction: bool = False       # 矛盾の可能性
+    contradiction: bool = False        # 矛盾の可能性
+    action: Optional[ActionRequest] = None    # 実施（予定）のアクション
+    action_result: Optional[str] = None       # アクションの結果メッセージ
     overall_confidence: float = 0.0
 
 
@@ -89,9 +110,9 @@ def _answer_gate(
 
     Returns:
         (decision, warning):
-          - ("answer", False): 高信頼（支持率>=notify かつ 出典>=1）→ 出典つき回答
-          - ("answer", True) : 中信頼（confirm<=支持率<notify）→ 回答＋未確認の注意
-          - ("escalate", False): 低信頼（支持率<confirm）／未検証／出典0 → 有人へ
+          - ("answer", False): 高信頼（支持率>=notify かつ 出典>=1）
+          - ("answer", True) : 中信頼（confirm<=支持率<notify）→ 未確認の注意
+          - ("escalate", False): 低信頼／未検証／出典0 → 有人へ
     """
     if not verified or citation_count == 0:
         return "escalate", False
@@ -100,6 +121,39 @@ def _answer_gate(
     if support_rate >= confirm_th:
         return "answer", True
     return "escalate", False
+
+
+def _decide_action(query: str, decision: Decision) -> Optional[ActionRequest]:
+    """問い合わせ内容と回答判定から、必要なアクションを決める（デモ用のキーワード判定）。"""
+    if decision == "escalate":
+        return ActionRequest("escalate_to_human", {"query": query})
+    if any(k in query for k in ("解約", "キャンセル", "退会")):
+        return ActionRequest("create_ticket", {"subject": "解約希望", "query": query})
+    if any(k in query for k in ("パスワード", "ログイン", "サインイン")):
+        return ActionRequest("send_reply", {"template": "password_reset", "query": query})
+    return None
+
+
+def _perform_action(action: ActionRequest, handler, dry_run: bool) -> str:
+    """HITL（CONFIRM 承認）を通してから擬似アクションを実行する。
+
+    副作用のある操作は必ず intervention の CONFIRM を経由する。承認後、
+    dry_run=True ならログのみ（実行しない）。実 API 連携（Zendesk 等）は将来拡張。
+    """
+    # intervention.py: 実行前に人間の承認（CONFIRM）を求める
+    decision = ActionDecision(
+        level=InterventionLevel.CONFIRM,
+        confidence_score=0.5,
+        reason=f"アクション実行前の確認: {action.action_type}",
+    )
+    response = handler.handle(decision)
+    if not response.should_continue:
+        return f"アクション '{action.action_type}' はキャンセルされました"
+
+    if dry_run:
+        return f"[DRY-RUN] '{action.action_type}' を実行（ログのみ・args={action.args}）"
+    # 擬似実行（実 API 連携は将来）
+    return f"'{action.action_type}' を実行しました（擬似・args={action.args}）"
 
 
 def _collect_internal_citations(step_results) -> List[str]:
@@ -148,7 +202,10 @@ def _render(result: SupportResult) -> None:
                 print(f"  [{i}] {c}")
     else:  # escalate
         print("社内ナレッジにも Web 検索にも十分な根拠が見つかりませんでした。")
-        print("→ 有人対応へエスカレーションします（v2 では通知のみ。アクション=v3）。")
+        print("→ 有人対応へエスカレーションします。")
+
+    if result.action is not None:
+        print(f"\n【アクション】種別={result.action.action_type} / 結果={result.action_result}")
 
     extra = ""
     if result.source_agreement is not None:
@@ -162,6 +219,8 @@ def run_support_agent(
     query: str = DEFAULT_QUERY,
     verbose: bool = False,
     use_web: bool = True,
+    do_action: bool = True,
+    dry_run: bool = True,
 ) -> Optional[SupportResult]:
     # 0. APIキーの存在チェック（未設定だと LLM 呼び出しで失敗する）
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -174,6 +233,12 @@ def run_support_agent(
     executor = create_executor(config, tool_registry)
     verifier = create_groundedness_verifier(config)
     agreement_calc = create_source_agreement_calculator(config)
+    handler = create_intervention_handler(
+        config,
+        on_notify=lambda msg: print(f"   [intervention/notify] {msg}"),
+        on_confirm=lambda _req: _AUTO_PROCEED,
+        on_escalate=lambda _req: _AUTO_PROCEED,
+    )
     th = config.confidence.thresholds
 
     # ① Plan
@@ -203,84 +268,74 @@ def run_support_agent(
         gres.support_rate, gres.verified, len(internal_citations), th.notify, th.confirm
     )
 
-    # 内部で十分 → そのまま回答
-    if decision == "answer":
-        support = SupportResult(
-            answer=internal_answer,
-            citations=internal_citations,
-            groundedness=gres.support_rate,
-            decision=decision,
-            warning=warning,
-            overall_confidence=result.overall_confidence,
-        )
-        _render(support)
-        return support
-
-    # ⑤ Web フォールバック（内部が escalate のときのみ・v2）
-    if not use_web:
-        support = SupportResult(
-            answer=internal_answer, citations=internal_citations,
-            groundedness=gres.support_rate, decision="escalate",
-            overall_confidence=result.overall_confidence,
-        )
-        _render(support)
-        return support
-
-    _banner("⑤ Web フォールバック（tools.web_search → reasoning → 相互検証）")
-    print("  内部ナレッジの根拠が不足 → Web で裏取りを試みます")
-    web_res = tool_registry.execute("web_search", query=query)
-    web_output = web_res.output if (web_res and web_res.success) else None
-
-    if not web_output:
-        print("  [web] 有効な検索結果が得られませんでした")
-        support = SupportResult(
-            answer=internal_answer, citations=internal_citations,
-            groundedness=gres.support_rate, decision="escalate", used_web=True,
-            overall_confidence=result.overall_confidence,
-        )
-        _render(support)
-        return support
-
-    # Web ソースで再推論
-    web_reason = tool_registry.execute("reasoning", query=query, sources=web_output)
-    web_answer = (web_reason.output or "") if (web_reason and web_reason.success) else ""
-    web_citations = _web_citations(web_output)
-    web_source_texts = _web_source_texts(web_output)
-    print(f"  [web] {len(web_citations)} 件の出典を取得")
-
-    # 相互検証: 内部回答 × Web 回答の意味的一致度・矛盾
-    gres_web = verifier.verify(query, web_answer, web_source_texts)
-    agreement: Optional[float] = None
-    contradiction = gres_web.has_contradiction
-    if internal_answer and web_answer:
-        agreement = agreement_calc.calculate([internal_answer, web_answer])
-        if agreement < th.confirm:  # 一致度が低い＝食い違いの可能性
-            contradiction = True
-        print(f"  [相互検証] 内部×Web 一致度={agreement:.2f} / 矛盾={contradiction}")
-
-    # ⑥ Web 結果で再ゲート
-    w_decision, w_warning = _answer_gate(
-        gres_web.support_rate, gres_web.verified, len(web_citations), th.notify, th.confirm
-    )
-    merged_citations = internal_citations + web_citations
     support = SupportResult(
-        answer=web_answer if w_decision == "answer" else internal_answer,
-        citations=merged_citations,
-        groundedness=max(gres.support_rate, gres_web.support_rate),
-        decision=w_decision,
-        warning=w_warning,
-        used_web=True,
-        source_agreement=agreement,
-        contradiction=contradiction,
+        answer=internal_answer,
+        citations=internal_citations,
+        groundedness=gres.support_rate,
+        decision=decision,
+        warning=warning,
         overall_confidence=result.overall_confidence,
     )
+
+    # ⑤ Web フォールバック（内部が escalate のときのみ・v2）
+    if decision == "escalate" and use_web:
+        _banner("⑤ Web フォールバック（tools.web_search → reasoning → 相互検証）")
+        print("  内部ナレッジの根拠が不足 → Web で裏取りを試みます")
+        web_res = tool_registry.execute("web_search", query=query)
+        web_output = web_res.output if (web_res and web_res.success) else None
+
+        if web_output:
+            web_reason = tool_registry.execute("reasoning", query=query, sources=web_output)
+            web_answer = (web_reason.output or "") if (web_reason and web_reason.success) else ""
+            web_citations = _web_citations(web_output)
+            print(f"  [web] {len(web_citations)} 件の出典を取得")
+
+            gres_web = verifier.verify(query, web_answer, _web_source_texts(web_output))
+            agreement: Optional[float] = None
+            contradiction = gres_web.has_contradiction
+            if internal_answer and web_answer:
+                agreement = agreement_calc.calculate([internal_answer, web_answer])
+                if agreement < th.confirm:
+                    contradiction = True
+                print(f"  [相互検証] 内部×Web 一致度={agreement:.2f} / 矛盾={contradiction}")
+
+            w_decision, w_warning = _answer_gate(
+                gres_web.support_rate, gres_web.verified, len(web_citations),
+                th.notify, th.confirm,
+            )
+            support = SupportResult(
+                answer=web_answer if w_decision == "answer" else internal_answer,
+                citations=internal_citations + web_citations,
+                groundedness=max(gres.support_rate, gres_web.support_rate),
+                decision=w_decision,
+                warning=w_warning,
+                used_web=True,
+                source_agreement=agreement,
+                contradiction=contradiction,
+                overall_confidence=result.overall_confidence,
+            )
+        else:
+            print("  [web] 有効な検索結果が得られませんでした")
+            support.used_web = True
+
+    # ⑥ アクション（v3）: HITL（CONFIRM）を通して擬似実行
+    if do_action:
+        action = _decide_action(query, support.decision)
+        if action is not None:
+            _banner("⑥ Action（intervention CONFIRM → 擬似ActionTool）")
+            print(f"  [action] 種別={action.action_type}（要承認={action.requires_confirmation}）")
+            support.action = action
+            support.action_result = _perform_action(action, handler, dry_run)
+            print(f"  [action] {support.action_result}")
+
+    # ⑦ 応答
     _render(support)
     return support
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GRACE-Support v2: 内部RAG＋出典／不足時はWebで裏取り・相互検証／なお不足なら『わかりません』"
+        description="GRACE-Support v3: 内部RAG＋出典／Web裏取り・相互検証／アクション＋HITL（既定ドライラン）"
     )
     parser.add_argument(
         "query", nargs="?", default=DEFAULT_QUERY,
@@ -294,10 +349,21 @@ def main():
         "--no-web", dest="use_web", action="store_false",
         help="Web フォールバックを無効化する（内部RAGのみ）",
     )
+    parser.add_argument(
+        "--no-action", dest="do_action", action="store_false",
+        help="アクション（v3）を無効化する",
+    )
+    parser.add_argument(
+        "--dry-run", dest="dry_run", action=argparse.BooleanOptionalAction, default=True,
+        help="アクションを実行せずログのみ（既定 ON。--no-dry-run で擬似実行）",
+    )
     args = parser.parse_args()
 
     try:
-        run_support_agent(args.query, verbose=args.verbose, use_web=args.use_web)
+        run_support_agent(
+            args.query, verbose=args.verbose, use_web=args.use_web,
+            do_action=args.do_action, dry_run=args.dry_run,
+        )
     except Exception as e:  # サービス未起動・鍵未設定などを分かりやすく表示
         print(f"❌ 実行に失敗しました: {type(e).__name__}: {e}", file=sys.stderr)
         print(
