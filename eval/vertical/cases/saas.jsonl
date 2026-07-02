@@ -1,0 +1,9 @@
+# SaaS テストケース — docs/vertical_test_data.md §4 ＋ keyword-trap（誤爆検査）
+{"vertical": "saas", "category": "in-scope", "query": "API のレート制限は？", "expected_decision": "answer", "expected_action": null}
+{"vertical": "saas", "category": "in-scope", "query": "Webhook の設定方法は？", "expected_decision": "answer", "expected_action": null}
+{"vertical": "saas", "category": "out-of-scope", "query": "御社の来期の売上見込みは？", "expected_decision": "escalate", "expected_action": "escalate_to_human"}
+{"vertical": "saas", "category": "action", "query": "500 エラーが出る不具合を報告したい", "expected_decision": "answer", "expected_action": "create_ticket", "note": "『エラー』『不具合』＋報告（request/incident）→ 起票"}
+{"vertical": "saas", "category": "escalate-keyword", "query": "サービスが落ちています", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『落ち』＋障害報告（incident）→ 強制エスカレ"}
+{"vertical": "saas", "category": "escalate-keyword", "query": "課金が二重になっています", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『課金』＋incident → 強制エスカレ"}
+{"vertical": "saas", "category": "keyword-trap", "query": "課金プランの違いを教えて", "expected_decision": "answer", "expected_action": null, "note": "『課金』trap: FAQ質問なので強制エスカレしない"}
+{"vertical": "saas", "category": "keyword-trap", "query": "障害発生時の SLA について教えて", "expected_decision": "answer", "expected_action": null, "note": "『障害』trap"}

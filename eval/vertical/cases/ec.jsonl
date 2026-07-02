@@ -1,0 +1,10 @@
+# EC テストケース — docs/vertical_test_data.md §4 ＋ keyword-trap（誤爆検査）
+{"vertical": "ec", "category": "in-scope", "query": "返品規定を教えて", "expected_decision": "answer", "expected_action": null, "note": "『返品』は action_map にあるが FAQ質問なので起票しない"}
+{"vertical": "ec", "category": "in-scope", "query": "送料はいくらかかりますか？", "expected_decision": "answer", "expected_action": null}
+{"vertical": "ec", "category": "out-of-scope", "query": "この商品の入荷予定日はいつですか？", "expected_decision": "escalate", "expected_action": "escalate_to_human"}
+{"vertical": "ec", "category": "action", "query": "返品したい", "expected_decision": "answer", "expected_action": "create_ticket", "expect_identity_check": true}
+{"vertical": "ec", "category": "action", "query": "注文をキャンセルしたい", "expected_decision": "answer", "expected_action": "create_ticket", "expect_identity_check": true}
+{"vertical": "ec", "category": "escalate-keyword", "query": "決済が失敗しました", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『決済』＋incident → 強制エスカレ"}
+{"vertical": "ec", "category": "escalate-keyword", "query": "届いた商品が破損していました", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『破損』＋incident → 強制エスカレ"}
+{"vertical": "ec", "category": "keyword-trap", "query": "返金ポリシーを教えて", "expected_decision": "answer", "expected_action": null, "note": "『返金』trap: FAQ質問なので強制エスカレしない"}
+{"vertical": "ec", "category": "keyword-trap", "query": "解約手続きの流れを教えて", "expected_decision": "answer", "expected_action": null, "note": "『解約』action trap: 質問なので起票しない"}
