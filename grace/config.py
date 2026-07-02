@@ -60,6 +60,10 @@ class LLMConfig(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 4096
     timeout: int = 30
+    # reasoning プロンプトのシステム指示へ追記する業務方針（空=追記なし）。
+    # 業界プロファイル（VerticalProfile.prompt_addendum）の注入口として使い、
+    # executor 経由・Web フォールバック経由の両方の reasoning に効く。
+    prompt_addendum: str = ""
 
 
 class EmbeddingConfig(BaseModel):
@@ -158,6 +162,11 @@ class QdrantConfig(BaseModel):
     # ベンチマーク等でアクセス回数を最小化したい場合に使用する。
     restrict_to_collection: bool = False
     search_priority: list = Field(default_factory=lambda: ["wikipedia_ja", "livedoor", "cc_news", "japanese_text"])
+    # 検索を許可するコレクションの許可リスト（空=制限なし）。業界プロファイル等で
+    # 検索範囲（フォールバック連鎖を含む）をスコープするために使う。有効コレクション
+    # （次元一致・実体あり）との一致が 1 つも無い場合は制限を適用せず従来どおり検索
+    # する（コレクション未登録の段階でもデモが動くようにするため。警告ログを出す）。
+    allowed_collections: list = Field(default_factory=list)
 
 
 class WebSearchConfig(BaseModel):

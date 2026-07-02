@@ -1,12 +1,12 @@
 # GRACE-Support 業界特化 設計書（自治体 / SaaS / EC）
 
-**Version 0.6（二段判定＝誤爆抑止と KPI 評価ランナーを実装）** | 最終更新: 2026-07-02
+**Version 0.7（collections 実検索限定と prompt_addendum 注入を実装＝フル配線完了）** | 最終更新: 2026-07-02
 
 > 🔍 **仕様レビュー**: 本設計・実装の横断レビューと改善提案は
 > [`docs/vertical_spec_review.md`](../../docs/vertical_spec_review.md) を参照
 > （残タスク 1・2 は既存コアフックでほぼ実現可能という再見積もりを含む）。
 
-> ✅ **実装状況**: `VerticalProfile` と `--vertical {gov|saas|ec}` は **`agent_support_example.py` に実装済み**（PR #106）。しきい値上書き・エスカレ語・アクション対応・本人確認を配線。`collections`（検索範囲の実限定）と `prompt_addendum`（reasoning への注入）はコアフックが必要なため**現状は表示メタデータ**（将来対応）。
+> ✅ **実装状況**: `VerticalProfile` と `--vertical {gov|saas|ec}` は **`agent_support_example.py` に実装済み**（PR #106）。しきい値上書き・エスカレ語（二段判定）・アクション対応（二段判定）・本人確認に加え、`collections`（`allowed_collections` による検索範囲の実限定）と `prompt_addendum`（reasoning プロンプトへの注入）も**フル配線済み**。KPI 評価は `eval/vertical/` を参照。
 
 > **参考ドキュメント**
 > - [`grace/doc/agent_support_example.md`](./agent_support_example.md) — GRACE-Support 本体の設計書（v1〜v3）
@@ -159,8 +159,8 @@ VerticalProfile（dataclass 案）
 | `notify_th`/`confirm_th` | `_answer_gate()` のしきい値を上書き | ✅ 実装済み |
 | `action_map` | `_decide_action()`（二段判定: キーワード候補 → 意図分類。question は起票せず回答のみ） | ✅ 実装済み |
 | `require_identity` | `_perform_action()`（本人確認ステップを前置。起動有無は `SupportResult.identity_checked` に記録） | ✅ 実装済み |
-| `collections` | 計画の `rag_search` を対象コレクションに限定（planner/tools） | ⏳ 表示のみ（実限定は `allowed_collections` 案 = `docs/vertical_spec_review.md` §3.2） |
-| `prompt_addendum` | reasoning ステップのプロンプトへ追記 | ⏳ 表示のみ（注入案 = `docs/vertical_spec_review.md` §3.1） |
+| `collections` | `config.qdrant.allowed_collections` 経由で `RAGSearchTool` の検索候補（明示指定・フォールバック連鎖を含む）を許可リストで限定。実コレクション名（`gov_faq_anthropic` 等）を割り当て済み。未登録なら制限を適用せず従来動作（警告ログ） | ✅ 実装済み（`RAGSearchTool._apply_allowed_collections`） |
+| `prompt_addendum` | `config.llm.prompt_addendum` 経由で `ReasoningTool._build_prompt()` のシステム指示直後に「業務方針（遵守）」として注入。executor 経由・Web フォールバック経由の両 reasoning に効く | ✅ 実装済み |
 | `sample_queries` / `kpi` | 期待ラベル付きテストケースは `eval/vertical/cases/<vertical>.jsonl` に外部化（dataclass には持たせない）。KPI は `eval/vertical/run.py` で自動計測 | ✅ 実装済み（評価ランナー） |
 
 **CLI**: `python agent_support_example.py --vertical gov "住民票の取り方は？"`（プロファイルを選択）。**実装済み**。
@@ -231,8 +231,8 @@ python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 
 
 | # | 残タスク | 内容 | 状態 |
 |---|---------|------|------|
-| 1 | `collections` の実検索限定 | プロファイルの対象コレクションで RAG 検索範囲を実際にスコープ制限する（現状は表示メタのみ） | ⏳ 未着手（`allowed_collections` 小改修案 = `docs/vertical_spec_review.md` §3.2。実コレクション名の割り当てが前提） |
-| 2 | `prompt_addendum` のプロンプト注入 | reasoning ステップのプロンプトへ業界方針（断定回避・出典必須・本人確認等）を実際に追記する | ⏳ 未着手（`ReasoningTool` の `context` 引数／`config.llm.prompt_addendum` 案 = 同 §3.1） |
+| 1 | `collections` の実検索限定 | プロファイルの対象コレクション（実名 `gov_faq_anthropic` 等）で RAG 検索範囲をスコープ制限。フォールバック連鎖にも適用。未登録コレクションのみなら制限なしで従来動作（警告） | ✅ **実装済み**（`config.qdrant.allowed_collections`＋`RAGSearchTool._apply_allowed_collections`・テスト `tests/grace/test_vertical_scope.py`） |
+| 2 | `prompt_addendum` のプロンプト注入 | reasoning プロンプトのシステム指示直後へ業界方針（断定回避・出典必須・本人確認等）を「業務方針（遵守）」として追記 | ✅ **実装済み**（`config.llm.prompt_addendum`＋`ReasoningTool._build_prompt`） |
 | 3 | KPI 評価スクリプト | 分岐一致率・誤エスカレ率・**強制エスカレ誤発火率（0 目標）**・出典付与率・**根拠なし回答率（0 目標）**・アクション適合率・本人確認遵守率を自動計測 | ✅ **実装済み**（`eval/vertical/run.py`・`eval/vertical/metrics.py`・`cases/{gov,saas,ec}.jsonl` 5 カテゴリ） |
 | 4 | 二段判定（キーワード誤爆抑止） | エスカレ語・アクション語の部分一致を候補検出に格下げし、一致時のみ軽量 LLM（`claude-haiku-4-5-20251001`）で意図分類（question/request/incident）。question は強制エスカレ・起票を抑止 | ✅ **実装済み**（`_should_force_escalate` / `_decide_action`・単体テスト `tests/test_agent_support_vertical.py`） |
 
@@ -251,3 +251,4 @@ python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 
 | 0.4 | §8「残タスク（次工程候補）」を追加（collections の実検索限定・prompt_addendum のプロンプト注入・KPI 評価スクリプト）。変更履歴を §9 に繰り下げ |
 | 0.5 | §7 冒頭・§7.1 に残っていた「`--vertical` 未実装」の旧文言を実装済み前提に修正。ヘッダに仕様レビュー（`docs/vertical_spec_review.md`）への参照を追加 |
 | 0.6 | **二段判定（誤爆抑止）**と **KPI 評価ランナー**の実装を反映。§6 適用ポイント表を更新（escalate_keywords/action_map は「キーワード候補検出 → 意図分類」へ、sample_queries/kpi は `eval/vertical/` に外部化）。§8 を進捗表に改め、#3 KPI 評価・#4 二段判定を実装済みに |
+| 0.7 | **フル配線完了**: #1 `collections` 実検索限定（`allowed_collections` 許可リスト・実コレクション名 `gov_faq_anthropic` 等を割り当て）と #2 `prompt_addendum` 注入（`config.llm.prompt_addendum` → reasoning システム指示）を実装済みに更新 |
