@@ -23,6 +23,9 @@ def make_reasoning_tool(config: GraceConfig) -> ReasoningTool:
 
 class TestApplyAllowedCollections:
     CANDIDATES = ["wikipedia_ja", "livedoor", "cc_news", "gov_faq_anthropic"]
+    # 実環境はサフィックス付きコレクション名が多い（ライブ実行ログで確認された実名）
+    REAL_CANDIDATES = ["cc_news_2per_anthropic", "wikipedia_ja_5per", "cc_news_2per",
+                       "fineweb_edu_ja_5per"]
 
     def test_empty_allowlist_means_no_restriction(self):
         assert RAGSearchTool._apply_allowed_collections(self.CANDIDATES, []) == self.CANDIDATES
@@ -38,10 +41,18 @@ class TestApplyAllowedCollections:
         scoped = RAGSearchTool._apply_allowed_collections(self.CANDIDATES, ["wikipedia_ja"])
         assert scoped == ["wikipedia_ja"]
 
+    def test_partial_match_scopes_suffixed_collection_names(self):
+        # 完全一致だと wikipedia_ja_5per に一致せずスコープが素通りするバグの回帰テスト。
+        # search_priority と同じ部分一致（含有）で判定する
+        allowed = ["gov_faq_anthropic", "gov_laws_anthropic", "wikipedia_ja"]
+        scoped = RAGSearchTool._apply_allowed_collections(self.REAL_CANDIDATES, allowed)
+        assert scoped == ["wikipedia_ja_5per"]
+
     def test_no_match_falls_back_to_unrestricted(self):
         # 専用コレクション未登録の段階ではデモが動くよう制限を適用しない（警告のみ）
         allowed = ["saas_docs_anthropic", "saas_api_anthropic"]
         assert RAGSearchTool._apply_allowed_collections(self.CANDIDATES, allowed) == self.CANDIDATES
+        assert RAGSearchTool._apply_allowed_collections(self.REAL_CANDIDATES, allowed) == self.REAL_CANDIDATES
 
     def test_empty_candidates_stay_empty(self):
         assert RAGSearchTool._apply_allowed_collections([], ["gov_faq_anthropic"]) == []

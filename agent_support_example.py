@@ -150,7 +150,7 @@ class SupportResult:
     groundedness: float = 0.0
     decision: Decision = "escalate"
     warning: bool = False              # 中信頼（未確認）の注意書きを付けるか
-    used_web: bool = False             # Web フォールバックを使ったか
+    used_web: bool = False             # Web を使ったか（executor の動的 Web 検索 or ⑤ フォールバック）
     source_agreement: Optional[float] = None  # 内部×Web の意味的一致度（相互検証）
     contradiction: bool = False        # 矛盾の可能性
     action: Optional[ActionRequest] = None    # 実施（予定）のアクション
@@ -333,15 +333,28 @@ def _perform_action(
     return f"'{action.action_type}' を実行しました（擬似・args={action.args}）"
 
 
-def _collect_internal_citations(step_results) -> List[str]:
-    """各ステップの sources を重複排除して内部出典リストにする。"""
+def _collect_citations(step_results) -> List[str]:
+    """各ステップの sources を重複排除して出典リストにする。
+
+    executor は RAG スコア不足時に web_search を**動的挿入**するため、
+    step_results には Web 由来の出典（URL）が混ざる。URL は [Web]、
+    それ以外（社内ナレッジのファイル名等）は [社内] とラベル付けする。
+    """
     seen: List[str] = []
     for sr in step_results:
         for src in sr.sources:
-            label = f"[社内] {src}"
-            if src and label not in seen:
+            if not src:
+                continue
+            prefix = "[Web]" if str(src).startswith(("http://", "https://")) else "[社内]"
+            label = f"{prefix} {src}"
+            if label not in seen:
                 seen.append(label)
     return seen
+
+
+def _citation_text(citation: str) -> str:
+    """出典表示文字列（"[社内] xxx" / "[Web] xxx"）からラベルを外して中身を返す。"""
+    return citation.split("] ", 1)[1] if "] " in citation else citation
 
 
 def _web_citations(web_output: list) -> List[str]:
@@ -461,13 +474,17 @@ def run_support_agent(
     _banner("② Execute（executor + tools: 内部RAG）")
     result = executor.execute(plan)
     internal_answer = result.final_answer or ""
-    internal_citations = _collect_internal_citations(result.step_results)
+    internal_citations = _collect_citations(result.step_results)
+    # executor が動的挿入した web_search（RAG スコア不足時）の使用を検知
+    used_dynamic_web = any(c.startswith("[Web]") for c in internal_citations)
     for sr in result.step_results:
         print(f"  step{sr.step_id}: {sr.status} (sources={len(sr.sources)})")
+    if used_dynamic_web:
+        print("  [web] executor が動的 Web 検索を使用（RAG スコア不足のため）")
 
     # ③ 根拠評価（内部）
     _banner("③ Confidence（GroundednessVerifier: 内部回答の裏付け）")
-    gres = verifier.verify(query, internal_answer, [c[5:] for c in internal_citations])
+    gres = verifier.verify(query, internal_answer, [_citation_text(c) for c in internal_citations])
     if verbose:
         print(f"  [groundedness] supported={gres.supported} / total={gres.total} / "
               f"contradiction={gres.has_contradiction} / verified={gres.verified}")
@@ -492,6 +509,7 @@ def run_support_agent(
         groundedness=gres.support_rate,
         decision=decision,
         warning=warning,
+        used_web=used_dynamic_web,
         vertical=vertical,
         overall_confidence=result.overall_confidence,
     )
