@@ -1,6 +1,6 @@
 # GRACE-Support 業界特化 設計書（自治体 / SaaS / EC）
 
-**Version 0.5（§7 の旧文言を実装済み前提に修正）** | 最終更新: 2026-07-02
+**Version 0.6（二段判定＝誤爆抑止と KPI 評価ランナーを実装）** | 最終更新: 2026-07-02
 
 > 🔍 **仕様レビュー**: 本設計・実装の横断レビューと改善提案は
 > [`docs/vertical_spec_review.md`](../../docs/vertical_spec_review.md) を参照
@@ -153,15 +153,15 @@ VerticalProfile（dataclass 案）
 
 **適用ポイント（GRACE-Support への差し込み）**:
 
-| プロファイル項目 | 差し込み先（既存関数） | 状態 |
+| プロファイル項目 | 差し込み先（既存関数) | 状態 |
 |---|---|---|
-| `escalate_keywords` | 回答ゲート後に割り込み判定（該当なら即 `escalate`・Web もスキップ） | ✅ 実装済み |
+| `escalate_keywords` | **二段判定**: キーワード候補一致（`_match_keyword`）→ 軽量 LLM 意図分類（`create_intent_classifier`・question/request/incident）。question（FAQ質問）は誤爆とみなし通常フロー継続、それ以外・分類失敗は即 `escalate`（Web もスキップ） | ✅ 実装済み（`_should_force_escalate`） |
 | `notify_th`/`confirm_th` | `_answer_gate()` のしきい値を上書き | ✅ 実装済み |
-| `action_map` | `_decide_action()`（業界別の意図→アクション） | ✅ 実装済み |
-| `require_identity` | `_perform_action()`（本人確認ステップを前置） | ✅ 実装済み |
-| `collections` | 計画の `rag_search` を対象コレクションに限定（planner/tools） | ⏳ 表示のみ（実限定は将来・要コアフック＋実コレクション名） |
-| `prompt_addendum` | reasoning ステップのプロンプトへ追記 | ⏳ 表示のみ（注入は将来・要コアフック） |
-| `sample_queries` / `kpi` | 評価スクリプトで自動計測 | ⏳ 未実装（評価スクリプトは今後） |
+| `action_map` | `_decide_action()`（二段判定: キーワード候補 → 意図分類。question は起票せず回答のみ） | ✅ 実装済み |
+| `require_identity` | `_perform_action()`（本人確認ステップを前置。起動有無は `SupportResult.identity_checked` に記録） | ✅ 実装済み |
+| `collections` | 計画の `rag_search` を対象コレクションに限定（planner/tools） | ⏳ 表示のみ（実限定は `allowed_collections` 案 = `docs/vertical_spec_review.md` §3.2） |
+| `prompt_addendum` | reasoning ステップのプロンプトへ追記 | ⏳ 表示のみ（注入案 = `docs/vertical_spec_review.md` §3.1） |
+| `sample_queries` / `kpi` | 期待ラベル付きテストケースは `eval/vertical/cases/<vertical>.jsonl` に外部化（dataclass には持たせない）。KPI は `eval/vertical/run.py` で自動計測 | ✅ 実装済み（評価ランナー） |
 
 **CLI**: `python agent_support_example.py --vertical gov "住民票の取り方は？"`（プロファイルを選択）。**実装済み**。
 
@@ -227,15 +227,17 @@ python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 
 
 ## 8. 残タスク（次工程候補）
 
-`VerticalProfile`（`--vertical`）は実装済み（PR #106）だが、フル配線には次が残っている。
+`VerticalProfile`（`--vertical`）は実装済み（PR #106）。その後の進捗は次のとおり。
 
-| # | 残タスク | 内容 | 要件 |
+| # | 残タスク | 内容 | 状態 |
 |---|---------|------|------|
-| 1 | `collections` の実検索限定 | プロファイルの対象コレクションで RAG 検索範囲を実際にスコープ制限する（現状は表示メタのみ） | 実 Qdrant コレクション名の割り当て＋planner/tools のコアフック |
-| 2 | `prompt_addendum` のプロンプト注入 | reasoning ステップのプロンプトへ業界方針（断定回避・出典必須・本人確認等）を実際に追記する | reasoning のプロンプト差し込みコアフック |
-| 3 | KPI 評価スクリプト | 自己解決率（deflection）・出典付与率・**根拠なし回答率（0 目標）**・エスカレーション適合率などを `sample_queries` で自動計測 | 業界別テストデータ（コレクション＋想定質問）と評価ランナー |
+| 1 | `collections` の実検索限定 | プロファイルの対象コレクションで RAG 検索範囲を実際にスコープ制限する（現状は表示メタのみ） | ⏳ 未着手（`allowed_collections` 小改修案 = `docs/vertical_spec_review.md` §3.2。実コレクション名の割り当てが前提） |
+| 2 | `prompt_addendum` のプロンプト注入 | reasoning ステップのプロンプトへ業界方針（断定回避・出典必須・本人確認等）を実際に追記する | ⏳ 未着手（`ReasoningTool` の `context` 引数／`config.llm.prompt_addendum` 案 = 同 §3.1） |
+| 3 | KPI 評価スクリプト | 分岐一致率・誤エスカレ率・**強制エスカレ誤発火率（0 目標）**・出典付与率・**根拠なし回答率（0 目標）**・アクション適合率・本人確認遵守率を自動計測 | ✅ **実装済み**（`eval/vertical/run.py`・`eval/vertical/metrics.py`・`cases/{gov,saas,ec}.jsonl` 5 カテゴリ） |
+| 4 | 二段判定（キーワード誤爆抑止） | エスカレ語・アクション語の部分一致を候補検出に格下げし、一致時のみ軽量 LLM（`claude-haiku-4-5-20251001`）で意図分類（question/request/incident）。question は強制エスカレ・起票を抑止 | ✅ **実装済み**（`_should_force_escalate` / `_decide_action`・単体テスト `tests/test_agent_support_vertical.py`） |
 
-> 上記 3 の前提として、**業界別のテストデータ（RAG 用コレクション＋テスト質問セット）の整備**が必要（自治体/SaaS/EC）。データ選定の考え方・無料データ候補は別途整理する。
+> #3 の in-scope 精度計測には**業界別 RAG コレクションの整備**が引き続き必要（自治体/SaaS/EC）。
+> データ選定の考え方・無料データ候補は [`docs/vertical_test_data.md`](../../docs/vertical_test_data.md) を参照。
 
 ---
 
@@ -248,3 +250,4 @@ python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 
 | 0.3 | `VerticalProfile` と `--vertical {gov|saas|ec}` の実装完了（PR #106）に合わせて更新。§6 の適用ポイントに実装状況（escalate_keywords/しきい値/action_map/require_identity=実装済み、collections/prompt_addendum=表示のみ）を追記、§7.2 を「実装済み」へ、ヘッダに実装状況注記を追加 |
 | 0.4 | §8「残タスク（次工程候補）」を追加（collections の実検索限定・prompt_addendum のプロンプト注入・KPI 評価スクリプト）。変更履歴を §9 に繰り下げ |
 | 0.5 | §7 冒頭・§7.1 に残っていた「`--vertical` 未実装」の旧文言を実装済み前提に修正。ヘッダに仕様レビュー（`docs/vertical_spec_review.md`）への参照を追加 |
+| 0.6 | **二段判定（誤爆抑止）**と **KPI 評価ランナー**の実装を反映。§6 適用ポイント表を更新（escalate_keywords/action_map は「キーワード候補検出 → 意図分類」へ、sample_queries/kpi は `eval/vertical/` に外部化）。§8 を進捗表に改め、#3 KPI 評価・#4 二段判定を実装済みに |

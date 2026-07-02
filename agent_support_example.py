@@ -11,6 +11,13 @@
 エスカレ語・回答しきい値・アクション対応・本人確認・方針（プロンプト補足）を切り替える。
 設計は grace/doc/agent_support_verticals.md を参照。
 
+**二段判定（誤爆抑止）**: `escalate_keywords` / `action_map` のキーワード一致は
+**候補検出（第 1 段）**であり、一致時のみ軽量 LLM で意図を分類（第 2 段:
+question / request / incident）する。FAQ 質問（question。例:「課金プランの違いを
+教えて」「解約方法を教えて」）は強制エスカレ・アクション起票の対象外となる。
+分類に失敗した場合は安全側（従来のキーワード判定どおり）に倒す。
+レビュー: docs/vertical_spec_review.md §4-A / §5-P5-1。
+
 設計書: grace/doc/agent_support_example.md ／ 業界特化: grace/doc/agent_support_verticals.md
 上位計画: docs/migration_and_update.md
 
@@ -32,7 +39,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional
+from typing import Callable, Dict, List, Literal, Optional
 
 from grace import (
     ActionDecision,
@@ -63,6 +70,14 @@ DEFAULT_QUERY = "パスワードを忘れました"
 
 Decision = Literal["answer", "escalate"]
 ActionType = Literal["create_ticket", "send_reply", "escalate_to_human"]
+
+# 意図分類（二段判定の第 2 段）:
+#   question = 情報・手順・規定を知りたい（FAQ質問） / request = 操作・手続きの実行依頼
+#   incident = 障害・被害・トラブルの発生報告
+Intent = Literal["question", "request", "incident"]
+
+# 意図分類に使う軽量モデル（CLAUDE.md プロバイダ方針の軽量既定）
+INTENT_MODEL = "claude-haiku-4-5-20251001"
 
 
 @dataclass
@@ -135,10 +150,88 @@ class SupportResult:
     action_result: Optional[str] = None       # アクションの結果メッセージ
     vertical: Optional[str] = None            # 適用した業界プロファイル
     overall_confidence: float = 0.0
+    intent: Optional[Intent] = None           # 意図分類の結果（二段判定が走った場合）
+    forced_escalate: bool = False             # エスカレ語による強制エスカレか（KPI 計測用）
+    identity_checked: bool = False            # 本人確認ステップが起動したか（KPI 計測用）
 
 
 def _banner(title: str) -> None:
     print(f"\n{'=' * 60}\n{title}\n{'=' * 60}")
+
+
+def create_intent_classifier(config) -> Callable[[str], Optional[Intent]]:
+    """問い合わせ意図の LLM 分類器（軽量モデル・二段判定の第 2 段）を返す。
+
+    返す関数は query を question / request / incident のいずれかへ分類する。
+    分類できない場合（API エラー・想定外の出力）は None を返し、呼び出し側が
+    安全側（従来のキーワード判定どおり）に倒す。呼び出しはキーワード候補が
+    一致したときだけなので、追加コストは軽量モデル 1 呼び出しに限られる。
+    """
+    from grace.llm_compat import create_chat_client
+
+    client = create_chat_client(config)
+
+    def classify(query: str) -> Optional[Intent]:
+        prompt = (
+            "あなたはカスタマーサポートの一次受付です。次の問い合わせの意図を 1 語で分類してください。\n\n"
+            "- question : 情報・手順・制度・規定を知りたい（FAQ質問。例:「課金プランの違いを教えて」「解約方法を教えて」）\n"
+            "- request  : 操作・手続きの実行を依頼したい（例:「返品したい」「解約したい」「申請様式がほしい」）\n"
+            "- incident : 障害・被害・トラブルの発生報告（例:「サービスが落ちています」「二重に課金された」「商品が破損していた」）\n\n"
+            f"問い合わせ: {query}\n\n"
+            "出力（question / request / incident のいずれか 1 語のみ）:"
+        )
+        try:
+            response = client.models.generate_content(
+                model=INTENT_MODEL,
+                contents=prompt,
+                config={"temperature": 0.0, "max_output_tokens": 10},
+            )
+            text = (response.text or "").strip().lower()
+            for label in ("incident", "request", "question"):
+                if label in text:
+                    return label
+            print(f"   [intent] 想定外の分類出力: {text!r} → キーワード判定を優先", file=sys.stderr)
+        except Exception as e:
+            print(f"   [intent] 意図分類に失敗（{type(e).__name__}）→ キーワード判定を優先", file=sys.stderr)
+        return None
+
+    return classify
+
+
+def _match_keyword(query: str, keywords) -> Optional[str]:
+    """キーワード候補の部分一致（二段判定の第 1 段）。最初に一致した語を返す。"""
+    for keyword in keywords:
+        if keyword in query:
+            return keyword
+    return None
+
+
+def _should_force_escalate(
+    query: str,
+    profile: Optional[VerticalProfile],
+    classify: Optional[Callable[[str], Optional[Intent]]] = None,
+) -> tuple[bool, Optional[str], Optional[Intent]]:
+    """強制エスカレの二段判定。
+
+    第 1 段: `escalate_keywords` の部分一致（候補検出）。
+    第 2 段: 意図分類。intent が "question"（FAQ質問）なら誤爆とみなして
+    強制エスカレしない（例: SaaS「課金プランの違いを教えて」）。request /
+    incident はエスカレ話題への依頼・報告なので設計どおり有人へ倒す
+    （例: gov「減免を個別に判断してほしい」）。分類器が無い・分類失敗（None）
+    の場合は安全側＝従来どおり強制エスカレする。
+
+    Returns:
+        (forced, matched_keyword, intent)
+    """
+    if profile is None:
+        return False, None, None
+    matched = _match_keyword(query, profile.escalate_keywords)
+    if matched is None:
+        return False, None, None
+    intent = classify(query) if classify is not None else None
+    if intent == "question":
+        return False, matched, intent
+    return True, matched, intent
 
 
 def _answer_gate(
@@ -169,27 +262,37 @@ def _decide_action(
     query: str,
     decision: Decision,
     profile: Optional[VerticalProfile] = None,
+    classify: Optional[Callable[[str], Optional[Intent]]] = None,
 ) -> Optional[ActionRequest]:
-    """問い合わせ内容と回答判定から、必要なアクションを決める。
+    """問い合わせ内容と回答判定から、必要なアクションを決める（二段判定）。
 
-    プロファイル指定時は `action_map`（意図キーワード → action_type）を用いる。
-    未指定時はデモ用の既定マッピング。escalate 時は常に有人エスカレ。
+    第 1 段: キーワード一致で候補を検出（プロファイル指定時は `action_map`、
+    未指定時はデモ用の既定マッピング）。第 2 段: 意図分類。intent が
+    "question"（FAQ質問。例:「解約方法を教えて」）ならアクションは起票せず
+    回答のみとする。分類器が無い・分類失敗（None）の場合は従来どおり起票する
+    （副作用は後段の CONFIRM でも守られる）。escalate 時は常に有人エスカレ。
     """
     if decision == "escalate":
         return ActionRequest("escalate_to_human", {"query": query})
 
+    request: Optional[ActionRequest] = None
     if profile is not None:
-        for keyword, action_type in profile.action_map.items():
-            if keyword in query:
-                return ActionRequest(action_type, {"query": query, "matched": keyword})
-        return None
-
+        matched = _match_keyword(query, profile.action_map)
+        if matched is not None:
+            request = ActionRequest(
+                profile.action_map[matched], {"query": query, "matched": matched}
+            )
     # 既定（プロファイル無し）
-    if any(k in query for k in ("解約", "キャンセル", "退会")):
-        return ActionRequest("create_ticket", {"subject": "解約希望", "query": query})
-    if any(k in query for k in ("パスワード", "ログイン", "サインイン")):
-        return ActionRequest("send_reply", {"template": "password_reset", "query": query})
-    return None
+    elif _match_keyword(query, ("解約", "キャンセル", "退会")):
+        request = ActionRequest("create_ticket", {"subject": "解約希望", "query": query})
+    elif _match_keyword(query, ("パスワード", "ログイン", "サインイン")):
+        request = ActionRequest("send_reply", {"template": "password_reset", "query": query})
+
+    if request is None:
+        return None
+    if classify is not None and classify(query) == "question":
+        return None  # FAQ 質問 → 回答のみ（起票・返信テンプレは不要）
+    return request
 
 
 def _perform_action(
@@ -278,9 +381,11 @@ def _render(result: SupportResult) -> None:
     if result.source_agreement is not None:
         extra = f" / 内部×Web 一致度={result.source_agreement:.2f}"
     vert = f" / vertical={result.vertical}" if result.vertical else ""
+    intent = f" / intent={result.intent}" if result.intent else ""
+    forced = " / 強制エスカレ" if result.forced_escalate else ""
     print(f"\n[根拠] 支持率(groundedness)={result.groundedness:.2f} / "
           f"全体信頼度={result.overall_confidence:.2f} / decision={result.decision}"
-          f" / web={'使用' if result.used_web else '不使用'}{extra}{vert}")
+          f" / web={'使用' if result.used_web else '不使用'}{extra}{vert}{intent}{forced}")
 
 
 def run_support_agent(
@@ -309,6 +414,17 @@ def run_support_agent(
         on_escalate=lambda _req: _AUTO_PROCEED,
     )
     th = config.confidence.thresholds
+
+    # 意図分類器（二段判定の第 2 段）: キーワード候補が一致したときだけ呼ばれる。
+    # 同一クエリへの分類は 1 回で済むようメモ化する（エスカレ判定とアクション判定で共有）。
+    _raw_classify = create_intent_classifier(config)
+    _intent_cache: Dict[str, Optional[Intent]] = {}
+
+    def classify(q: str) -> Optional[Intent]:
+        if q not in _intent_cache:
+            _intent_cache[q] = _raw_classify(q)
+            print(f"  [intent] 意図分類（{INTENT_MODEL}）: {_intent_cache[q] or '不明'}")
+        return _intent_cache[q]
 
     # 業界プロファイル（--vertical）: しきい値・エスカレ語・アクション対応・本人確認を切り替え
     profile = PROFILES.get(vertical) if vertical else None
@@ -347,10 +463,14 @@ def run_support_agent(
     decision, warning = _answer_gate(
         gres.support_rate, gres.verified, len(internal_citations), notify_th, confirm_th
     )
-    forced_escalate = bool(profile and any(k in query for k in profile.escalate_keywords))
+    forced_escalate, matched_kw, _intent = _should_force_escalate(query, profile, classify)
     if forced_escalate:
         decision, warning = "escalate", False
-        print(f"  [profile] エスカレ語を検知 → 有人対応へ（{profile.name}）")
+        print(f"  [profile] エスカレ語 '{matched_kw}'（意図={_intent or '不明'}）を検知 → "
+              f"有人対応へ（{profile.name}）")
+    elif matched_kw is not None:
+        print(f"  [profile] エスカレ語候補 '{matched_kw}' は FAQ 質問（意図=question）→ "
+              "誤爆抑止・通常フローを継続")
 
     support = SupportResult(
         answer=internal_answer,
@@ -406,16 +526,21 @@ def run_support_agent(
 
     # ⑥ アクション（v3）: HITL（CONFIRM）を通して擬似実行
     if do_action:
-        action = _decide_action(query, support.decision, profile)
+        action = _decide_action(query, support.decision, profile, classify)
         if action is not None:
             _banner("⑥ Action（intervention CONFIRM → 擬似ActionTool）")
             print(f"  [action] 種別={action.action_type}（要承認={action.requires_confirmation}）")
             support.action = action
+            require_identity = bool(profile and profile.require_identity)
             support.action_result = _perform_action(
-                action, handler, dry_run,
-                require_identity=bool(profile and profile.require_identity),
+                action, handler, dry_run, require_identity=require_identity,
             )
+            support.identity_checked = require_identity
             print(f"  [action] {support.action_result}")
+
+    # KPI 計測用メタデータ（eval/vertical が参照）
+    support.forced_escalate = forced_escalate
+    support.intent = _intent_cache.get(query)
 
     # ⑦ 応答
     _render(support)
