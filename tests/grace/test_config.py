@@ -26,6 +26,7 @@ class TestConfigModels:
 
         assert config.provider == "anthropic"
         assert config.model == "claude-sonnet-4-6"
+        assert config.light_model == "claude-haiku-4-5-20251001"
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
         assert config.timeout == 30

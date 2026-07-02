@@ -208,8 +208,15 @@ class ConfidenceCalculator:
             step_description: str = "",
             tool_output: str = ""
     ) -> ConfidenceScore:
-        """LLMを使用した信頼度計算"""
-        evaluator = create_llm_evaluator(config=self.config)
+        """LLMを使用した信頼度計算
+
+        評価は統計 Factors の要約タスク（score＋短い理由の定型出力）のため、
+        軽量モデル（config.llm.light_model）で実行しコストを抑える。
+        """
+        evaluator = create_llm_evaluator(
+            config=self.config,
+            model_name=self.config.llm.light_model,
+        )
         eval_result = evaluator.evaluate_with_factors(
             description=step_description,
             output=tool_output,
