@@ -6,5 +6,5 @@
 {"vertical": "ec", "category": "action", "query": "注文をキャンセルしたい", "expected_decision": "answer", "expected_action": "create_ticket", "expect_identity_check": true}
 {"vertical": "ec", "category": "escalate-keyword", "query": "決済が失敗しました", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『決済』＋incident → 強制エスカレ"}
 {"vertical": "ec", "category": "escalate-keyword", "query": "届いた商品が破損していました", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『破損』＋incident → 強制エスカレ"}
-{"vertical": "ec", "category": "keyword-trap", "query": "返金ポリシーを教えて", "expected_decision": "answer", "expected_action": null, "note": "『返金』trap: FAQ質問なので強制エスカレしない"}
-{"vertical": "ec", "category": "keyword-trap", "query": "解約手続きの流れを教えて", "expected_decision": "answer", "expected_action": null, "note": "『解約』action trap: 質問なので起票しない"}
+{"vertical": "ec", "category": "keyword-trap", "query": "返金ポリシーを教えて", "expected_decision": "answer", "expected_action": null, "note": "『返金』trap: FAQ質問なので強制エスカレしない。専用コレクション（ec_policy_anthropic 等）未登録時は社内根拠ゼロ→Web 頼みとなり、reasoning が他社情報の提示を控えると ④' 情報なし検知で escalate に倒れ得る（安全側・実行ごとに揺れあり）。eval/vertical/register_test_collections.py で登録後に再計測すること"}
+{"vertical": "ec", "category": "keyword-trap", "query": "解約手続きの流れを教えて", "expected_decision": "answer", "expected_action": null, "note": "『解約』action trap: 質問なので起票しない。返金ポリシーと同様、専用コレクション未登録時は reasoning の判断次第で escalate に倒れ得る（安全側）"}
