@@ -11,12 +11,15 @@ from types import SimpleNamespace
 import pytest
 
 from agent_support_example import (
+    NO_INFO_MARKERS,
     PROFILES,
     _answer_gate,
     _citation_text,
     _collect_citations,
     _decide_action,
+    _detect_no_info_answer,
     _match_keyword,
+    _merge_citations,
     _should_force_escalate,
 )
 
@@ -197,6 +200,101 @@ class TestCollectCitations:
         assert _citation_text("[社内] a.csv") == "a.csv"
         assert _citation_text("[Web] https://x.jp/") == "https://x.jp/"
         assert _citation_text("ラベルなし") == "ラベルなし"
+
+
+def judge_as(verdict):
+    """常に固定判定を返すスタブ判定器（verdict=None は判定失敗を模す）。"""
+    return lambda _query, _answer: verdict
+
+
+def judge_must_not_be_called(_query, _answer):
+    """候補句が無いとき判定器（=LLM 呼び出し）が走らないことの検査用。"""
+    raise AssertionError("情報なし候補句が無いのに実質回答判定が呼ばれた")
+
+
+class TestDetectNoInfoAnswer:
+    """「情報なし回答」検知の二段判定（④' ゲート）。
+
+    範囲外質問（例: ec「この商品の入荷予定日はいつですか？」）への誠実な
+    「見つかりませんでした」型回答が answer としてゲートを通過するバグの回帰テスト。
+    """
+
+    # ライブ実行ログ（logs/vertical_ec2）の実回答を模したテキスト
+    NO_INFO_ANSWER = (
+        "申し訳ございませんが、ご質問の商品に関する具体的な入荷予定日は、"
+        "提供された情報源には見当たりませんでした。\n"
+        "正確な入荷予定日については、担当窓口をご確認ください。"
+    )
+    SUBSTANTIVE_WITH_MARKER = (
+        "Amazon は商品到着から30日以内の返品・交換に対応しています。"
+        "法律上は8日以内が法定ルールです。\n"
+        "なお、弊社固有の返品規定については情報源には見当たりませんでした。"
+    )
+    PLAIN_ANSWER = "住民票の写しはマイナンバーカードがあればコンビニでも取得できます。"
+
+    def test_no_marker_returns_false_without_judge_call(self):
+        # 定型句が無ければ LLM 判定は走らない（コスト・誤爆ゼロ）
+        no_info, marker = _detect_no_info_answer(
+            "住民票の取り方は？", self.PLAIN_ANSWER, judge_must_not_be_called
+        )
+        assert (no_info, marker) == (False, None)
+
+    def test_marker_and_no_info_verdict_escalates(self):
+        no_info, marker = _detect_no_info_answer(
+            "この商品の入荷予定日はいつですか？", self.NO_INFO_ANSWER, judge_as(True)
+        )
+        assert no_info is True
+        assert marker == "見当たりません"
+
+    def test_marker_but_substantive_answer_is_kept(self):
+        # 実質回答の補足に定型句が現れるケース（返品規定の回答末尾など）は answer 維持
+        no_info, marker = _detect_no_info_answer(
+            "返品規定を教えて", self.SUBSTANTIVE_WITH_MARKER, judge_as(False)
+        )
+        assert no_info is False
+        assert marker == "見当たりません"
+
+    def test_judge_failure_falls_back_to_escalate(self):
+        # 判定失敗（None）は安全側＝escalate（誤答を届けるより有人へ）
+        no_info, _ = _detect_no_info_answer("Q", self.NO_INFO_ANSWER, judge_as(None))
+        assert no_info is True
+
+    def test_no_judge_keeps_legacy_behavior(self):
+        # 判定器なし（LLM を使わない構成）は従来どおり回答を通す
+        no_info, marker = _detect_no_info_answer("Q", self.NO_INFO_ANSWER, None)
+        assert no_info is False
+        assert marker == "見当たりません"
+
+    def test_empty_answer_is_not_flagged(self):
+        assert _detect_no_info_answer("Q", "", judge_must_not_be_called) == (False, None)
+
+    @pytest.mark.parametrize("marker", NO_INFO_MARKERS)
+    def test_markers_match_polite_inflections(self, marker):
+        # 語幹照合なので「〜でした」等の活用でも候補になる
+        assert _match_keyword(f"申し訳ありませんが{marker}でした。", NO_INFO_MARKERS) == marker
+
+
+class TestMergeCitations:
+    """⑤ の出典結合。executor の動的 Web 検索と ⑤ の再検索で同じ URL が
+    "[Web] URL" と "[Web] タイトル（URL）" の両形式で重複するのを防ぐ。"""
+
+    def test_deduplicates_same_url_across_formats(self):
+        internal = ["[社内] qa.csv", "[Web] https://x.jp/faq"]
+        web = ["[Web] よくある質問（https://x.jp/faq）", "[Web] 新情報（https://y.jp/）"]
+        assert _merge_citations(internal, web) == [
+            "[社内] qa.csv",
+            "[Web] https://x.jp/faq",
+            "[Web] 新情報（https://y.jp/）",
+        ]
+
+    def test_keeps_all_when_no_overlap(self):
+        internal = ["[社内] a.csv"]
+        web = ["[Web] t（https://z.jp/）"]
+        assert _merge_citations(internal, web) == ["[社内] a.csv", "[Web] t（https://z.jp/）"]
+
+    def test_empty_inputs(self):
+        assert _merge_citations([], []) == []
+        assert _merge_citations([], ["[Web] t（https://z.jp/）"]) == ["[Web] t（https://z.jp/）"]
 
 
 class TestProfiles:
