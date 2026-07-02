@@ -1,6 +1,10 @@
 # GRACE-Support 業界特化 設計書（自治体 / SaaS / EC）
 
-**Version 0.4（VerticalProfile 実装済み・残タスク明記）** | 最終更新: 2026-06-28
+**Version 0.5（§7 の旧文言を実装済み前提に修正）** | 最終更新: 2026-07-02
+
+> 🔍 **仕様レビュー**: 本設計・実装の横断レビューと改善提案は
+> [`docs/vertical_spec_review.md`](../../docs/vertical_spec_review.md) を参照
+> （残タスク 1・2 は既存コアフックでほぼ実現可能という再見積もりを含む）。
 
 > ✅ **実装状況**: `VerticalProfile` と `--vertical {gov|saas|ec}` は **`agent_support_example.py` に実装済み**（PR #106）。しきい値上書き・エスカレ語・アクション対応・本人確認を配線。`collections`（検索範囲の実限定）と `prompt_addendum`（reasoning への注入）はコアフックが必要なため**現状は表示メタデータ**（将来対応）。
 
@@ -167,16 +171,16 @@ VerticalProfile（dataclass 案）
 
 ## 7. 実行例（コマンド）
 
-業界別アプリの実行例を示す。`--vertical` フラグは §6 の**設計段階（未実装）**のため、次の 2 段構えで示す。
+業界別アプリの実行例を示す。`--vertical` フラグは**実装済み**（PR #106）であり、次の 2 段構えで示す。
 
-- **7.1**: 現時点で動く共通コマンド（GRACE-Support v3）で、業界の代表シナリオを試す
-- **7.2**: `VerticalProfile` 実装後の想定コマンド（`--vertical` でプロファイル切替）
+- **7.1**: 共通コマンド（GRACE-Support v3・プロファイル未適用）で、業界の代表シナリオを試す
+- **7.2**: `--vertical` でプロファイルを切り替えて実行する（推奨）
 
 共通の前提: `.env` に `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`、Qdrant 起動済み＋対象コレクション登録済み。uv 管理環境では `python …` を `uv run python …` に読み替える。
 
 ### 7.1 現時点（v3 共通コマンドで業界シナリオを試す）
 
-共通 CLI は `agent_support_example.py`（引数: `query` / `-v` / `--no-web` / `--no-action` / `--dry-run`）。業界チューニング（コレクション限定・エスカレ語・プロンプト補足）は未適用で、業界の代表クエリを投げて挙動を確認する段階。
+共通 CLI は `agent_support_example.py`（引数: `query` / `-v` / `--no-web` / `--no-action` / `--dry-run`）。`--vertical` を付けない場合は業界チューニング（エスカレ語・しきい値・アクション対応）が適用されないため、共通挙動の確認用。
 
 **自治体（正確性・出典最優先）**
 ```bash
@@ -243,3 +247,4 @@ python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 
 | 0.2 | §2 適用図を縦並び（`flowchart TB`）に変更。§7「実行例（コマンド）」を追加（7.1 現時点の共通コマンド／7.2 `--vertical` 実装後の想定）。変更履歴を §8 に繰り下げ |
 | 0.3 | `VerticalProfile` と `--vertical {gov|saas|ec}` の実装完了（PR #106）に合わせて更新。§6 の適用ポイントに実装状況（escalate_keywords/しきい値/action_map/require_identity=実装済み、collections/prompt_addendum=表示のみ）を追記、§7.2 を「実装済み」へ、ヘッダに実装状況注記を追加 |
 | 0.4 | §8「残タスク（次工程候補）」を追加（collections の実検索限定・prompt_addendum のプロンプト注入・KPI 評価スクリプト）。変更履歴を §9 に繰り下げ |
+| 0.5 | §7 冒頭・§7.1 に残っていた「`--vertical` 未実装」の旧文言を実装済み前提に修正。ヘッダに仕様レビュー（`docs/vertical_spec_review.md`）への参照を追加 |
