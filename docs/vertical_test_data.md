@@ -24,7 +24,7 @@
 | [`grace/doc/grace_core_flow.md`](../grace/doc/grace_core_flow.md) | 設計 | 5 段階設計・8 モジュール・プロンプト/API 発行部・`agent_example.py` 解説 | v1.1 |
 | [`grace/doc/agent_example_core8.md`](../grace/doc/agent_example_core8.md) | 設計 | `agent_example_core8.py` 設計書 | v1.0 |
 | [`grace/doc/agent_support_example.md`](../grace/doc/agent_support_example.md) | 設計 | GRACE-Support 本体設計書（v1〜v3） | v1.0 |
-| [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md) | 設計 | 業界特化（自治体/SaaS/EC）設計・残タスク | v0.4 |
+| [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md) | 設計 | 業界特化（自治体/SaaS/EC）**定義・7 つの機構・成熟度**＋設計・進捗 | v0.8 |
 
 ### ドキュメント（`docs/`）
 
