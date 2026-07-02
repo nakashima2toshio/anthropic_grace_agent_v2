@@ -1,7 +1,7 @@
 # 自治体（gov）テストケース — docs/vertical_test_data.md §4 ＋ keyword-trap（誤爆検査）
 {"vertical": "gov", "category": "in-scope", "query": "住民票の写しの取り方は？", "expected_decision": "answer", "expected_action": null}
 {"vertical": "gov", "category": "in-scope", "query": "粗大ごみの出し方は？", "expected_decision": "answer", "expected_action": null}
-{"vertical": "gov", "category": "out-of-scope", "query": "来年の税制改正の予測は？", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "Web 有効時は executor の動的 Web 検索が根拠を見つけて answer になり得る（設計上は正しい振る舞い）。内部ナレッジ範囲の escalate 検証は要 Web 遮断"}
+{"vertical": "gov", "category": "out-of-scope", "query": "来年の税制改正の予測は？", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "Web 有効時に answer へ流れる場合があったが、④' 情報なし回答検知ゲートで『見つかりませんでした』型は escalate に倒す。Web が実質回答（予測記事等）を見つけた場合は answer になり得る"}
 {"vertical": "gov", "category": "action", "query": "保育園の申請様式がほしい", "expected_decision": "answer", "expected_action": "send_reply"}
 {"vertical": "gov", "category": "escalate-keyword", "query": "固定資産税の減免を個別に判断してほしい", "expected_decision": "escalate", "expected_action": "escalate_to_human", "note": "『減免』『個別』＋依頼（request）→ 強制エスカレ"}
 {"vertical": "gov", "category": "keyword-trap", "query": "住民税の減免制度の概要を教えて", "expected_decision": "answer", "expected_action": null, "note": "『減免』trap: FAQ質問（question）なので強制エスカレしない"}
