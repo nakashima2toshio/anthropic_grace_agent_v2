@@ -1,23 +1,18 @@
 # agent_support_example.py
-"""GRACE-Support v3: 日本語ナレッジ駆動サポート・コパイロット。
+"""GRACE-Support: 日本語ナレッジ駆動サポート・コパイロット。
 
 内部 RAG で回答し、**出典を必ず提示**する。根拠が不足すれば **Web フォールバック**
-（v2）で裏取りし、内部×Web を**相互検証**する。さらに、問い合わせが「対応（アクション）」
-を要する場合は、**擬似 ActionTool** を **HITL（CONFIRM 承認）** を通してから実行する
+（v2）で裏取りし、内部×Web を**相互検証**する。問い合わせが「対応（アクション）」を
+要する場合は、**擬似 ActionTool** を **HITL（CONFIRM 承認）** を通してから実行する
 （v3。既定はドライラン＝実行せずログのみ）。なお根拠不足なら「わかりません」と誠実に
 答えて有人対応へエスカレーションする。
 
-設計書: grace/doc/agent_support_example.md
-上位計画: docs/migration_and_update.md
+**業界特化（VerticalProfile）**: `--vertical {gov|saas|ec}` で業界プロファイルを適用し、
+エスカレ語・回答しきい値・アクション対応・本人確認・方針（プロンプト補足）を切り替える。
+設計は grace/doc/agent_support_verticals.md を参照。
 
-処理の流れ:
-  ① Plan      planner.create_plan(query)
-  ② Execute   executor.execute(plan)（内部 RAG → reasoning）
-  ③ 根拠評価  GroundednessVerifier.verify()（支持率）
-  ④ 回答ゲート _answer_gate()（answer / escalate）
-  ⑤ Webフォールバック（内部が escalate のときのみ・v2）＋相互検証
-  ⑥ アクション（v3）: _decide_action() → intervention CONFIRM → 擬似実行（既定ドライラン）
-  ⑦ 応答
+設計書: grace/doc/agent_support_example.md ／ 業界特化: grace/doc/agent_support_verticals.md
+上位計画: docs/migration_and_update.md
 
 前提:
 - `.env` に ANTHROPIC_API_KEY（LLM 用）と GOOGLE_API_KEY（Embedding 用）を設定
@@ -26,9 +21,10 @@
 使い方::
 
     python agent_support_example.py "パスワードを忘れました"
-    python agent_support_example.py "解約したい"                # アクション（要CONFIRM・ドライラン）
-    python agent_support_example.py --no-dry-run "解約したい"    # 擬似実行（実API連携は将来）
-    python agent_support_example.py --no-web --no-action -v "…"  # 内部RAGのみ
+    python agent_support_example.py --vertical gov "住民票の写しの取り方は？"
+    python agent_support_example.py --vertical ec "返品したい"        # 本人確認→CONFIRM→ドライラン
+    python agent_support_example.py --vertical saas -v "サービスが落ちています"  # 障害→escalate
+    python agent_support_example.py --no-dry-run "解約したい"          # 擬似実行（実API連携は将来）
 """
 from __future__ import annotations
 
@@ -36,7 +32,7 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 from grace import (
     ActionDecision,
@@ -79,8 +75,53 @@ class ActionRequest:
 
 
 @dataclass
+class VerticalProfile:
+    """業界プロファイル（差し替えの共通枠）。設計: agent_support_verticals.md §1/§6。"""
+
+    name: str
+    collections: List[str] = field(default_factory=list)   # 対象ナレッジ（表示・将来の検索限定用）
+    escalate_keywords: List[str] = field(default_factory=list)  # 強制エスカレ語
+    action_map: Dict[str, ActionType] = field(default_factory=dict)  # 意図キーワード → action_type
+    require_identity: bool = False           # アクション前に本人確認を必須化
+    notify_th: Optional[float] = None        # None なら config 既定
+    confirm_th: Optional[float] = None
+    prompt_addendum: str = ""                # 業界固有の方針（表示・将来のプロンプト注入用）
+
+
+# 組み込みプロファイル（自治体 / SaaS / EC）
+PROFILES: Dict[str, VerticalProfile] = {
+    "gov": VerticalProfile(
+        name="自治体",
+        collections=["条例・要綱", "手続き案内", "窓口FAQ"],
+        escalate_keywords=["法的", "訴訟", "減免", "個別", "例外", "不服"],
+        action_map={"申請": "send_reply", "手続": "send_reply", "様式": "send_reply"},
+        require_identity=False,
+        notify_th=0.8, confirm_th=0.5,   # 正確性最優先：厳しめ
+        prompt_addendum="条例・公式案内に基づき、断定を避け、該当ページ・担当課を明示。個人情報は尋ねない。",
+    ),
+    "saas": VerticalProfile(
+        name="SaaS",
+        collections=["製品ドキュメント", "APIリファレンス", "リリースノート", "既知の不具合"],
+        escalate_keywords=["障害", "ダウン", "落ち", "課金", "請求", "情報漏", "セキュリティ"],
+        action_map={"エラー": "create_ticket", "不具合": "create_ticket", "バグ": "create_ticket"},
+        require_identity=False,
+        prompt_addendum="製品バージョンを明示し、再現手順と公式ドキュメント URL を添える。",
+    ),
+    "ec": VerticalProfile(
+        name="EC",
+        collections=["商品情報", "返品・交換規定", "配送・送料", "注文FAQ"],
+        escalate_keywords=["決済", "返金", "破損", "クレーム", "不良品"],
+        action_map={"返品": "create_ticket", "交換": "create_ticket",
+                    "キャンセル": "create_ticket", "解約": "create_ticket"},
+        require_identity=True,           # 注文情報の操作は本人確認必須
+        prompt_addendum="注文情報の照会・変更は本人確認必須。返品・交換は規定の版に基づいて回答。",
+    ),
+}
+
+
+@dataclass
 class SupportResult:
-    """サポート回答の結果（v3）。"""
+    """サポート回答の結果。"""
 
     answer: Optional[str]
     citations: List[str] = field(default_factory=list)
@@ -92,6 +133,7 @@ class SupportResult:
     contradiction: bool = False        # 矛盾の可能性
     action: Optional[ActionRequest] = None    # 実施（予定）のアクション
     action_result: Optional[str] = None       # アクションの結果メッセージ
+    vertical: Optional[str] = None            # 適用した業界プロファイル
     overall_confidence: float = 0.0
 
 
@@ -123,10 +165,26 @@ def _answer_gate(
     return "escalate", False
 
 
-def _decide_action(query: str, decision: Decision) -> Optional[ActionRequest]:
-    """問い合わせ内容と回答判定から、必要なアクションを決める（デモ用のキーワード判定）。"""
+def _decide_action(
+    query: str,
+    decision: Decision,
+    profile: Optional[VerticalProfile] = None,
+) -> Optional[ActionRequest]:
+    """問い合わせ内容と回答判定から、必要なアクションを決める。
+
+    プロファイル指定時は `action_map`（意図キーワード → action_type）を用いる。
+    未指定時はデモ用の既定マッピング。escalate 時は常に有人エスカレ。
+    """
     if decision == "escalate":
         return ActionRequest("escalate_to_human", {"query": query})
+
+    if profile is not None:
+        for keyword, action_type in profile.action_map.items():
+            if keyword in query:
+                return ActionRequest(action_type, {"query": query, "matched": keyword})
+        return None
+
+    # 既定（プロファイル無し）
     if any(k in query for k in ("解約", "キャンセル", "退会")):
         return ActionRequest("create_ticket", {"subject": "解約希望", "query": query})
     if any(k in query for k in ("パスワード", "ログイン", "サインイン")):
@@ -134,12 +192,21 @@ def _decide_action(query: str, decision: Decision) -> Optional[ActionRequest]:
     return None
 
 
-def _perform_action(action: ActionRequest, handler, dry_run: bool) -> str:
+def _perform_action(
+    action: ActionRequest,
+    handler,
+    dry_run: bool,
+    require_identity: bool = False,
+) -> str:
     """HITL（CONFIRM 承認）を通してから擬似アクションを実行する。
 
-    副作用のある操作は必ず intervention の CONFIRM を経由する。承認後、
-    dry_run=True ならログのみ（実行しない）。実 API 連携（Zendesk 等）は将来拡張。
+    副作用のある操作は必ず intervention の CONFIRM を経由する。`require_identity`
+    が True の業界（EC 等）では本人確認ステップを前置する。承認後、dry_run=True なら
+    ログのみ（実行しない）。実 API 連携（Zendesk 等）は将来拡張。
     """
+    if require_identity:
+        print("   [action] 本人確認が必要な操作です（本デモでは確認済みとして続行）")
+
     # intervention.py: 実行前に人間の承認（CONFIRM）を求める
     decision = ActionDecision(
         level=InterventionLevel.CONFIRM,
@@ -210,9 +277,10 @@ def _render(result: SupportResult) -> None:
     extra = ""
     if result.source_agreement is not None:
         extra = f" / 内部×Web 一致度={result.source_agreement:.2f}"
+    vert = f" / vertical={result.vertical}" if result.vertical else ""
     print(f"\n[根拠] 支持率(groundedness)={result.groundedness:.2f} / "
           f"全体信頼度={result.overall_confidence:.2f} / decision={result.decision}"
-          f" / web={'使用' if result.used_web else '不使用'}{extra}")
+          f" / web={'使用' if result.used_web else '不使用'}{extra}{vert}")
 
 
 def run_support_agent(
@@ -221,6 +289,7 @@ def run_support_agent(
     use_web: bool = True,
     do_action: bool = True,
     dry_run: bool = True,
+    vertical: Optional[str] = None,
 ) -> Optional[SupportResult]:
     # 0. APIキーの存在チェック（未設定だと LLM 呼び出しで失敗する）
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -240,6 +309,17 @@ def run_support_agent(
         on_escalate=lambda _req: _AUTO_PROCEED,
     )
     th = config.confidence.thresholds
+
+    # 業界プロファイル（--vertical）: しきい値・エスカレ語・アクション対応・本人確認を切り替え
+    profile = PROFILES.get(vertical) if vertical else None
+    notify_th = profile.notify_th if (profile and profile.notify_th is not None) else th.notify
+    confirm_th = profile.confirm_th if (profile and profile.confirm_th is not None) else th.confirm
+    if profile is not None:
+        _banner(f"業界プロファイル: {profile.name}（--vertical {vertical}）")
+        print(f"  対象コレクション(想定): {', '.join(profile.collections) or '—'}")
+        print(f"  しきい値: notify={notify_th} / confirm={confirm_th} / 本人確認={profile.require_identity}")
+        if profile.prompt_addendum:
+            print(f"  方針: {profile.prompt_addendum}")
 
     # ① Plan
     _banner("① Plan（planner）")
@@ -263,10 +343,14 @@ def run_support_agent(
               f"contradiction={gres.has_contradiction} / verified={gres.verified}")
     print(f"  [groundedness] 支持率={gres.support_rate:.2f} / 出典数={len(internal_citations)}")
 
-    # ④ 回答ゲート（内部）
+    # ④ 回答ゲート（内部）＋ プロファイルのエスカレ語による強制エスカレ
     decision, warning = _answer_gate(
-        gres.support_rate, gres.verified, len(internal_citations), th.notify, th.confirm
+        gres.support_rate, gres.verified, len(internal_citations), notify_th, confirm_th
     )
+    forced_escalate = bool(profile and any(k in query for k in profile.escalate_keywords))
+    if forced_escalate:
+        decision, warning = "escalate", False
+        print(f"  [profile] エスカレ語を検知 → 有人対応へ（{profile.name}）")
 
     support = SupportResult(
         answer=internal_answer,
@@ -274,11 +358,12 @@ def run_support_agent(
         groundedness=gres.support_rate,
         decision=decision,
         warning=warning,
+        vertical=vertical,
         overall_confidence=result.overall_confidence,
     )
 
-    # ⑤ Web フォールバック（内部が escalate のときのみ・v2）
-    if decision == "escalate" and use_web:
+    # ⑤ Web フォールバック（内部が escalate かつ 強制エスカレでない場合のみ・v2）
+    if decision == "escalate" and use_web and not forced_escalate:
         _banner("⑤ Web フォールバック（tools.web_search → reasoning → 相互検証）")
         print("  内部ナレッジの根拠が不足 → Web で裏取りを試みます")
         web_res = tool_registry.execute("web_search", query=query)
@@ -295,13 +380,13 @@ def run_support_agent(
             contradiction = gres_web.has_contradiction
             if internal_answer and web_answer:
                 agreement = agreement_calc.calculate([internal_answer, web_answer])
-                if agreement < th.confirm:
+                if agreement < confirm_th:
                     contradiction = True
                 print(f"  [相互検証] 内部×Web 一致度={agreement:.2f} / 矛盾={contradiction}")
 
             w_decision, w_warning = _answer_gate(
                 gres_web.support_rate, gres_web.verified, len(web_citations),
-                th.notify, th.confirm,
+                notify_th, confirm_th,
             )
             support = SupportResult(
                 answer=web_answer if w_decision == "answer" else internal_answer,
@@ -312,6 +397,7 @@ def run_support_agent(
                 used_web=True,
                 source_agreement=agreement,
                 contradiction=contradiction,
+                vertical=vertical,
                 overall_confidence=result.overall_confidence,
             )
         else:
@@ -320,12 +406,15 @@ def run_support_agent(
 
     # ⑥ アクション（v3）: HITL（CONFIRM）を通して擬似実行
     if do_action:
-        action = _decide_action(query, support.decision)
+        action = _decide_action(query, support.decision, profile)
         if action is not None:
             _banner("⑥ Action（intervention CONFIRM → 擬似ActionTool）")
             print(f"  [action] 種別={action.action_type}（要承認={action.requires_confirmation}）")
             support.action = action
-            support.action_result = _perform_action(action, handler, dry_run)
+            support.action_result = _perform_action(
+                action, handler, dry_run,
+                require_identity=bool(profile and profile.require_identity),
+            )
             print(f"  [action] {support.action_result}")
 
     # ⑦ 応答
@@ -335,7 +424,7 @@ def run_support_agent(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="GRACE-Support v3: 内部RAG＋出典／Web裏取り・相互検証／アクション＋HITL（既定ドライラン）"
+        description="GRACE-Support: 内部RAG＋出典／Web裏取り・相互検証／アクション＋HITL／業界特化(--vertical)"
     )
     parser.add_argument(
         "query", nargs="?", default=DEFAULT_QUERY,
@@ -344,6 +433,10 @@ def main():
     parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="支持率の内訳（supported/total/矛盾）など詳細を表示する",
+    )
+    parser.add_argument(
+        "--vertical", choices=["gov", "saas", "ec"], default=None,
+        help="業界プロファイルを適用（gov=自治体 / saas / ec）",
     )
     parser.add_argument(
         "--no-web", dest="use_web", action="store_false",
@@ -362,7 +455,7 @@ def main():
     try:
         run_support_agent(
             args.query, verbose=args.verbose, use_web=args.use_web,
-            do_action=args.do_action, dry_run=args.dry_run,
+            do_action=args.do_action, dry_run=args.dry_run, vertical=args.vertical,
         )
     except Exception as e:  # サービス未起動・鍵未設定などを分かりやすく表示
         print(f"❌ 実行に失敗しました: {type(e).__name__}: {e}", file=sys.stderr)
