@@ -163,9 +163,10 @@ class QdrantConfig(BaseModel):
     restrict_to_collection: bool = False
     search_priority: list = Field(default_factory=lambda: ["wikipedia_ja", "livedoor", "cc_news", "japanese_text"])
     # 検索を許可するコレクションの許可リスト（空=制限なし）。業界プロファイル等で
-    # 検索範囲（フォールバック連鎖を含む）をスコープするために使う。有効コレクション
-    # （次元一致・実体あり）との一致が 1 つも無い場合は制限を適用せず従来どおり検索
-    # する（コレクション未登録の段階でもデモが動くようにするため。警告ログを出す）。
+    # 検索範囲（フォールバック連鎖を含む）をスコープするために使う。一致判定は
+    # search_priority と同じ部分一致（例: "wikipedia_ja" は "wikipedia_ja_5per" に一致）。
+    # 有効コレクション（次元一致・実体あり）との一致が 1 つも無い場合は制限を適用せず
+    # 従来どおり検索する（コレクション未登録の段階でもデモが動くようにするため。警告ログを出す）。
     allowed_collections: list = Field(default_factory=list)
 
 

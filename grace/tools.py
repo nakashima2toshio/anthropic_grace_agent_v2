@@ -359,13 +359,18 @@ class RAGSearchTool(BaseTool):
     ) -> List[str]:
         """許可リストで検索候補を絞る（業界プロファイル等の検索スコープ制限）。
 
+        一致判定は `search_priority` と同じ**部分一致（含有）**。許可キーワード
+        "wikipedia_ja" は実コレクション "wikipedia_ja_5per" にも一致する
+        （実環境のコレクション名はサフィックス付きが多いため、完全一致だと
+        スコープ制限が意図せず素通りする）。
+
         allowed が空なら制限なし。一致する候補が 1 つも無い場合は、コレクション
         未登録の段階でもデモ・評価が動くよう**制限を適用せず**候補をそのまま返す
         （警告ログを出す。厳格に閉じたい場合は restrict_to_collection を併用）。
         """
         if not allowed:
             return candidates
-        scoped = [c for c in candidates if c in allowed]
+        scoped = [c for c in candidates if any(a == c or a in c for a in allowed)]
         if scoped:
             logger.info(f"RAGSearchTool: allowed_collections で検索範囲を限定: {scoped}")
             return scoped
