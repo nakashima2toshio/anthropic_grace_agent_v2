@@ -54,7 +54,7 @@ GRACE-Support（`agent_support_example.py`）の**回答エンジン・出典検
 ## 2. 業界プロファイルの GRACE-Support への適用
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph CORE["GRACE-Support（共通・v3）"]
         PLN["planner"]
         EXE["executor + tools"]
