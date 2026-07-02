@@ -96,6 +96,7 @@ class RAGSearchTool(BaseTool):
         collection: Optional[str] = None,
         limit: Optional[int] = None,
         score_threshold: Optional[float] = None,
+        allowed_collections: Optional[List[str]] = None,
         **kwargs
     ) -> ToolResult:
         """
@@ -106,6 +107,10 @@ class RAGSearchTool(BaseTool):
             collection: 検索対象コレクション（指定がない場合や、指定したコレクションで結果がない場合は自動的に他を試行）
             limit: 取得件数上限
             score_threshold: スコア閾値
+            allowed_collections: 検索を許可するコレクションの許可リスト
+                （None なら config.qdrant.allowed_collections を使用。空=制限なし。
+                明示指定・フォールバック連鎖を含む全候補に適用され、業界プロファイル等の
+                検索スコープ制限に使う）
 
         Returns:
             ToolResult: 検索結果
@@ -151,6 +156,13 @@ class RAGSearchTool(BaseTool):
             for c in dynamic_collections:
                 if c not in search_candidates:
                     search_candidates.append(c)
+
+        # --- 許可リスト（業界プロファイル等）による検索スコープ制限 ---
+        allowed = (
+            allowed_collections if allowed_collections is not None
+            else self.config.qdrant.allowed_collections
+        )
+        search_candidates = self._apply_allowed_collections(search_candidates, allowed)
 
         logger.info(f"RAGSearchTool: Search candidates: {search_candidates}")
 
@@ -341,6 +353,28 @@ class RAGSearchTool(BaseTool):
         """有効コレクションのキャッシュをクリアする（テスト・再登録後用）。"""
         cls._VALID_COLLECTIONS_CACHE.clear()
 
+    @staticmethod
+    def _apply_allowed_collections(
+        candidates: List[str], allowed: List[str]
+    ) -> List[str]:
+        """許可リストで検索候補を絞る（業界プロファイル等の検索スコープ制限）。
+
+        allowed が空なら制限なし。一致する候補が 1 つも無い場合は、コレクション
+        未登録の段階でもデモ・評価が動くよう**制限を適用せず**候補をそのまま返す
+        （警告ログを出す。厳格に閉じたい場合は restrict_to_collection を併用）。
+        """
+        if not allowed:
+            return candidates
+        scoped = [c for c in candidates if c in allowed]
+        if scoped:
+            logger.info(f"RAGSearchTool: allowed_collections で検索範囲を限定: {scoped}")
+            return scoped
+        logger.warning(
+            "RAGSearchTool: allowed_collections に一致する有効コレクションが無いため"
+            f"制限を適用しません（allowed={allowed} / candidates={candidates}）"
+        )
+        return candidates
+
     def _calculate_confidence_factors(self, scores: List[float]) -> Dict[str, Any]:
         """Confidence計算用の統計情報を算出"""
         if not scores:
@@ -482,6 +516,11 @@ class ReasoningTool(BaseTool):
             "あなたは社内ドキュメント検索システムと連携した「ハイブリッド・ナレッジ・エージェント」です。\n"
             "提供された【参照情報】を元に、ユーザーの質問に対して正確で誠実な回答を生成してください。\n"
         )
+
+        # 業務方針の追記（業界プロファイルの prompt_addendum 注入口）
+        addendum = getattr(self.config.llm, "prompt_addendum", "") or ""
+        if addendum:
+            prompt_parts.append(f"\n### 【業務方針（遵守）】\n{addendum}\n")
 
         # ソース情報（RAG結果）
         if sources:

@@ -8,7 +8,8 @@
 答えて有人対応へエスカレーションする。
 
 **業界特化（VerticalProfile）**: `--vertical {gov|saas|ec}` で業界プロファイルを適用し、
-エスカレ語・回答しきい値・アクション対応・本人確認・方針（プロンプト補足）を切り替える。
+検索スコープ（allowed_collections）・エスカレ語・回答しきい値・アクション対応・
+本人確認・方針（reasoning プロンプトへ注入）を切り替える。
 設計は grace/doc/agent_support_verticals.md を参照。
 
 **二段判定（誤爆抑止）**: `escalate_keywords` / `action_map` のキーワード一致は
@@ -94,7 +95,7 @@ class VerticalProfile:
     """業界プロファイル（差し替えの共通枠）。設計: agent_support_verticals.md §1/§6。"""
 
     name: str
-    collections: List[str] = field(default_factory=list)   # 対象ナレッジ（表示・将来の検索限定用）
+    collections: List[str] = field(default_factory=list)   # 検索スコープ（実 Qdrant コレクション名）
     escalate_keywords: List[str] = field(default_factory=list)  # 強制エスカレ語
     action_map: Dict[str, ActionType] = field(default_factory=dict)  # 意図キーワード → action_type
     require_identity: bool = False           # アクション前に本人確認を必須化
@@ -104,10 +105,16 @@ class VerticalProfile:
 
 
 # 組み込みプロファイル（自治体 / SaaS / EC）
+#
+# collections は実 Qdrant コレクション名（命名規約 `*_anthropic`。
+# docs/vertical_test_data.md 参照）。RAG 検索は config.qdrant.allowed_collections
+# 経由でこのスコープに限定される。未登録のコレクションは自動的に無視され、
+# 1 つも登録が無い場合は制限なし（既定コレクション横断）で従来どおり動作する。
 PROFILES: Dict[str, VerticalProfile] = {
     "gov": VerticalProfile(
         name="自治体",
-        collections=["条例・要綱", "手続き案内", "窓口FAQ"],
+        # wikipedia_ja は専用コレクション（gov_faq/gov_laws）登録までの代替
+        collections=["gov_faq_anthropic", "gov_laws_anthropic", "wikipedia_ja"],
         escalate_keywords=["法的", "訴訟", "減免", "個別", "例外", "不服"],
         action_map={"申請": "send_reply", "手続": "send_reply", "様式": "send_reply"},
         require_identity=False,
@@ -116,7 +123,7 @@ PROFILES: Dict[str, VerticalProfile] = {
     ),
     "saas": VerticalProfile(
         name="SaaS",
-        collections=["製品ドキュメント", "APIリファレンス", "リリースノート", "既知の不具合"],
+        collections=["saas_docs_anthropic", "saas_api_anthropic"],
         escalate_keywords=["障害", "ダウン", "落ち", "課金", "請求", "情報漏", "セキュリティ"],
         action_map={"エラー": "create_ticket", "不具合": "create_ticket", "バグ": "create_ticket"},
         require_identity=False,
@@ -124,7 +131,7 @@ PROFILES: Dict[str, VerticalProfile] = {
     ),
     "ec": VerticalProfile(
         name="EC",
-        collections=["商品情報", "返品・交換規定", "配送・送料", "注文FAQ"],
+        collections=["ec_policy_anthropic", "ec_faq_anthropic"],
         escalate_keywords=["決済", "返金", "破損", "クレーム", "不良品"],
         action_map={"返品": "create_ticket", "交換": "create_ticket",
                     "キャンセル": "create_ticket", "解約": "create_ticket"},
@@ -430,12 +437,19 @@ def run_support_agent(
     profile = PROFILES.get(vertical) if vertical else None
     notify_th = profile.notify_th if (profile and profile.notify_th is not None) else th.notify
     confirm_th = profile.confirm_th if (profile and profile.confirm_th is not None) else th.confirm
+
+    # コアへの配線: 検索スコープ（rag_search の許可リスト）と業界方針（reasoning へ注入）。
+    # tools は config への参照を保持しているため、ここでの設定が実行時に効く。
+    config.qdrant.allowed_collections = list(profile.collections) if profile else []
+    config.llm.prompt_addendum = profile.prompt_addendum if profile else ""
+
     if profile is not None:
         _banner(f"業界プロファイル: {profile.name}（--vertical {vertical}）")
-        print(f"  対象コレクション(想定): {', '.join(profile.collections) or '—'}")
+        print(f"  検索スコープ: {', '.join(profile.collections) or '—'}"
+              "（未登録コレクションは自動的に無視）")
         print(f"  しきい値: notify={notify_th} / confirm={confirm_th} / 本人確認={profile.require_identity}")
         if profile.prompt_addendum:
-            print(f"  方針: {profile.prompt_addendum}")
+            print(f"  方針(reasoningへ注入): {profile.prompt_addendum}")
 
     # ① Plan
     _banner("① Plan（planner）")
