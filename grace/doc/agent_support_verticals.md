@@ -18,7 +18,8 @@
 - [4. SaaS](#4-saas)
 - [5. EC（Eコマース）](#5-eceコマース)
 - [6. 実装への落とし込み（VerticalProfile 案）](#6-実装への落とし込みverticalprofile-案)
-- [7. 変更履歴](#7-変更履歴)
+- [7. 実行例（コマンド）](#7-実行例コマンド)
+- [8. 変更履歴](#8-変更履歴)
 
 ---
 
@@ -160,8 +161,65 @@ VerticalProfile（dataclass 案）
 
 ---
 
-## 7. 変更履歴
+## 7. 実行例（コマンド）
+
+業界別アプリの実行例を示す。`--vertical` フラグは §6 の**設計段階（未実装）**のため、次の 2 段構えで示す。
+
+- **7.1**: 現時点で動く共通コマンド（GRACE-Support v3）で、業界の代表シナリオを試す
+- **7.2**: `VerticalProfile` 実装後の想定コマンド（`--vertical` でプロファイル切替）
+
+共通の前提: `.env` に `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY`、Qdrant 起動済み＋対象コレクション登録済み。uv 管理環境では `python …` を `uv run python …` に読み替える。
+
+### 7.1 現時点（v3 共通コマンドで業界シナリオを試す）
+
+共通 CLI は `agent_support_example.py`（引数: `query` / `-v` / `--no-web` / `--no-action` / `--dry-run`）。業界チューニング（コレクション限定・エスカレ語・プロンプト補足）は未適用で、業界の代表クエリを投げて挙動を確認する段階。
+
+**自治体（正確性・出典最優先）**
+```bash
+python agent_support_example.py "住民票の写しの取り方は？"
+python agent_support_example.py -v "国民健康保険の加入手続きは？"   # 支持率の内訳を表示
+```
+
+**SaaS（速く・正確・再現手順）**
+```bash
+python agent_support_example.py "API のレート制限は？"
+python agent_support_example.py -v "サービスが落ちています"        # 障害系 → escalate 想定
+```
+
+**EC（行動＝返品/キャンセルは HITL）**
+```bash
+python agent_support_example.py "返品したい"                       # アクション(create_ticket)・CONFIRM＋ドライラン
+python agent_support_example.py --no-dry-run "解約したい"          # 擬似実行（実API連携は将来）
+python agent_support_example.py --no-web "配送状況を知りたい"      # 内部ナレッジのみ
+```
+
+### 7.2 将来（VerticalProfile 実装後の想定コマンド）
+
+§6 の `VerticalProfile` 実装後は `--vertical {gov|saas|ec}` でプロファイル（対象コレクション・エスカレ語・プロンプト補足・アクション対応・閾値）を一括切替する想定。
+
+**自治体**
+```bash
+python agent_support_example.py --vertical gov "住民票の写しの取り方は？"
+```
+
+**SaaS**
+```bash
+python agent_support_example.py --vertical saas -v "Webhook の設定方法は？"
+```
+
+**EC**
+```bash
+python agent_support_example.py --vertical ec "返品したい"              # 本人確認 → CONFIRM → ドライラン
+python agent_support_example.py --vertical ec --no-dry-run "返品したい"  # 擬似実行
+```
+
+> ⚠️ `--vertical` は未実装（設計は §6）。着手時に本節を「実装済み」へ更新する。
+
+---
+
+## 8. 変更履歴
 
 | バージョン | 変更内容 |
 |-----------|---------|
 | 0.1 | 初版作成（設計フェーズ）。業界プロファイルの共通枠、GRACE-Support への適用図、自治体/SaaS/EC の対象コレクション・想定質問・エスカレ基準・アクション・KPI・注意点、VerticalProfile 実装案と差し込みポイントを定義 |
+| 0.2 | §2 適用図を縦並び（`flowchart TB`）に変更。§7「実行例（コマンド）」を追加（7.1 現時点の共通コマンド／7.2 `--vertical` 実装後の想定）。変更履歴を §8 に繰り下げ |
