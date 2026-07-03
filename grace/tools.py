@@ -670,7 +670,23 @@ class WebSearchTool(BaseTool):
         self.num_results = self.config.web_search.num_results
         self.language = self.config.web_search.language
         self.timeout = self.config.web_search.timeout
-        logger.info(f"WebSearchTool initialized: backend={self.backend}")
+        self.max_retries = max(1, int(getattr(self.config.web_search, "max_retries", 3)))
+        self.retry_backoff = float(getattr(self.config.web_search, "retry_backoff_seconds", 2.0))
+        self.fallback_backend = getattr(self.config.web_search, "fallback_backend", "")
+        logger.info(f"WebSearchTool initialized: backend={self.backend}"
+                    f" (timeout={self.timeout}s, retries={self.max_retries},"
+                    f" fallback={self.fallback_backend or 'なし'})")
+
+    def _search_with_backend(self, backend: str, query: str,
+                             num_results: int, language: str) -> list:
+        """指定バックエンドで検索を実行する（execute からのディスパッチ）。"""
+        if backend == "duckduckgo":
+            return self._search_ddg(query, num_results, language)
+        if backend == "google_cse":
+            return self._search_google(query, num_results, language)
+        if backend == "serpapi":
+            return self._search_serpapi(query, num_results, language)
+        raise ValueError(f"Unknown web search backend: {backend}")
 
     def execute(
         self,
@@ -698,18 +714,38 @@ class WebSearchTool(BaseTool):
 
         logger.info(f"WebSearch: query='{query[:50]}...', backend={self.backend}, num={num}")
 
+        # 主バックエンド → （失敗/0件なら）フォールバックの順で試行する。
+        # タイムアウト等で検索が空振りすると下流で「情報なし回答」が生成され
+        # ④' ゲートの誤エスカレにつながるため、ここで粘る（saas 500エラー報告対策）。
+        backends = [self.backend]
+        if self.fallback_backend and self.fallback_backend != self.backend:
+            backends.append(self.fallback_backend)
+
+        raw_results: list = []
+        used_backend = self.backend
+        last_error: Optional[Exception] = None
         try:
-            if self.backend == "duckduckgo":
-                raw_results = self._search_ddg(query, num, lang)
-            elif self.backend == "google_cse":
-                raw_results = self._search_google(query, num, lang)
-            elif self.backend == "serpapi":
-                raw_results = self._search_serpapi(query, num, lang)
-            else:
-                raise ValueError(f"Unknown web search backend: {self.backend}")
+            for i, backend in enumerate(backends):
+                try:
+                    raw_results = self._search_with_backend(backend, query, num, lang)
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"web_search backend '{backend}' failed: {e}")
+                    raw_results = []
+                if raw_results:
+                    used_backend = backend
+                    last_error = None
+                    break
+                if i + 1 < len(backends):
+                    msg = (f"  [web] バックエンド '{backend}' が失敗/0件 → "
+                           f"フォールバック '{backends[i + 1]}' で再試行")
+                    logger.warning(msg.strip())
+                    print(msg)
+            if last_error is not None:
+                raise last_error
 
             # rag_search互換フォーマットに変換
-            formatted = self._parse_to_rag_format(raw_results, num)
+            formatted = self._parse_to_rag_format(raw_results, num, used_backend)
             execution_time = int((time.time() - start_time) * 1000)
 
             if not formatted:
@@ -719,19 +755,19 @@ class WebSearchTool(BaseTool):
                     success=False,
                     output=[],
                     error=msg,
-                    confidence_factors={"result_count": 0, "search_engine": self.backend},
+                    confidence_factors={"result_count": 0, "search_engine": used_backend},
                     execution_time_ms=execution_time
                 )
 
             scores = [r["score"] for r in formatted]
-            confidence_factors = self._calculate_confidence_factors(scores)
+            confidence_factors = self._calculate_confidence_factors(scores, used_backend)
 
             # --- [IPO LOG] PROCESS OUTPUT (WEB SEARCH) ---
             import json
             results_display = json.dumps(formatted, indent=2, ensure_ascii=False)
             log_output = (
                 f"\n{'='*20} [WEB SEARCH IPO: OUTPUT] {'='*20}"
-                f"\nBackend: {self.backend}"
+                f"\nBackend: {used_backend}"
                 f"\nQuery: {query}"
                 f"\n{results_display}"
                 f"\n{'='*60}"
@@ -767,7 +803,7 @@ class WebSearchTool(BaseTool):
         region = "jp-jp" if language == "ja" else "wt-wt"
         logger.info(f"DDG search: query='{query}', region={region}, max_results={num_results}")
 
-        with DDGS() as ddgs:
+        with DDGS(timeout=self.timeout) as ddgs:
             results = list(ddgs.text(query, region=region, max_results=num_results))
 
         logger.info(f"DDG search returned {len(results)} results")
@@ -809,7 +845,12 @@ class WebSearchTool(BaseTool):
         return resp.json().get("items", [])
 
     def _search_serpapi(self, query: str, num_results: int, language: str) -> list:
-        """SerpAPI検索バックエンド（リトライ1回付き）"""
+        """SerpAPI検索バックエンド（設定可能なリトライ付き）。
+
+        タイムアウト（Connect/Read）と 5xx（サーバー側一時エラー）をリトライ対象と
+        する。待機は retry_backoff_seconds × 試行回数の線形バックオフ。
+        4xx（キー不正・クォータ超過等）は再試行しても解消しないため即時に送出する。
+        """
         import os
         import time as _time
 
@@ -836,38 +877,57 @@ class WebSearchTool(BaseTool):
             "num": num_results,
         }
 
-        # リトライ1回付き（タイムアウト対策）
-        max_retries = 2
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 resp = requests.get(
                     "https://serpapi.com/search.json",
                     params=params,
                     timeout=self.timeout,
                 )
-                resp.raise_for_status()
+                if resp.status_code >= 500:
+                    resp.raise_for_status()  # 5xx はリトライ対象（下の except へ）
+                resp.raise_for_status()      # 4xx は即時送出（リトライしない）
                 data = resp.json()
 
                 results = data.get("organic_results", [])
                 logger.info(f"SerpAPI search returned {len(results)} results")
                 return results
 
-            except requests.exceptions.ReadTimeout:
-                if attempt < max_retries - 1:
-                    wait = 2 * (attempt + 1)
-                    logger.warning(f"SerpAPI timeout (attempt {attempt + 1}/{max_retries}), retrying in {wait}s...")
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ConnectionError) as e:
+                if attempt < self.max_retries - 1:
+                    wait = self.retry_backoff * (attempt + 1)
+                    logger.warning(f"SerpAPI {type(e).__name__} "
+                                   f"(attempt {attempt + 1}/{self.max_retries}), "
+                                   f"retrying in {wait}s...")
+                    _time.sleep(wait)
+                else:
+                    raise
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                if status >= 500 and attempt < self.max_retries - 1:
+                    wait = self.retry_backoff * (attempt + 1)
+                    logger.warning(f"SerpAPI HTTP {status} "
+                                   f"(attempt {attempt + 1}/{self.max_retries}), "
+                                   f"retrying in {wait}s...")
                     _time.sleep(wait)
                 else:
                     raise
 
-    def _parse_to_rag_format(self, raw_results: list, num_results: int) -> list:
-        """検索結果を rag_search 互換フォーマットに変換"""
+    def _parse_to_rag_format(self, raw_results: list, num_results: int,
+                             backend: Optional[str] = None) -> list:
+        """検索結果を rag_search 互換フォーマットに変換。
+
+        backend はフォールバック時に実際に使ったバックエンドを渡す
+        （結果の項目名がバックエンドごとに異なるため）。省略時は主バックエンド。
+        """
+        backend = backend or self.backend
         formatted = []
         for i, item in enumerate(raw_results):
             # 検索順位ベースの正規化スコア: 1位=1.0, 最下位=0.5
             score = round(1.0 - (i / max(num_results, 1)) * 0.5, 2)
 
-            if self.backend == "duckduckgo":
+            if backend == "duckduckgo":
                 entry = {
                     "score": score,
                     "payload": {
@@ -895,15 +955,17 @@ class WebSearchTool(BaseTool):
             formatted.append(entry)
         return formatted
 
-    def _calculate_confidence_factors(self, scores: list) -> dict:
+    def _calculate_confidence_factors(self, scores: list,
+                                      backend: Optional[str] = None) -> dict:
         """検索結果の Confidence 統計情報を算出"""
+        backend = backend or self.backend
         if not scores:
             return {
                 "result_count": 0,
                 "avg_score": 0.0,
                 "top_score": 0.0,
                 "score_spread": 0.0,
-                "search_engine": self.backend,
+                "search_engine": backend,
             }
 
         return {
@@ -911,7 +973,7 @@ class WebSearchTool(BaseTool):
             "avg_score": round(sum(scores) / len(scores), 2),
             "top_score": max(scores),
             "score_spread": round(max(scores) - min(scores), 2),
-            "search_engine": self.backend,
+            "search_engine": backend,
         }
 
 

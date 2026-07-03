@@ -179,6 +179,14 @@ class WebSearchConfig(BaseModel):
     num_results: int = 5
     language: str = "ja"
     timeout: int = 30
+    # タイムアウト・一時エラー時のリトライ（試行総数）。タイムアウト起因の
+    # 「検索 0 件 → 情報なし回答 → 誤エスカレ」連鎖（saas 500エラー報告で顕在化）
+    # を抑えるため、リトライとフォールバックは設定で調整可能にする。
+    max_retries: int = 3
+    retry_backoff_seconds: float = 2.0        # 待機 = backoff × 試行回数（線形）
+    # 主バックエンドが失敗/0件のとき 1 度だけ試す代替バックエンド（""=無効）。
+    # duckduckgo は API キー不要のため既定のフォールバックに適する。
+    fallback_backend: str = "duckduckgo"
     # Google CSE用（backendが"google_cse"の場合のみ使用）※新規受付停止
     google_cse_api_key: str = ""
     google_cse_engine_id: str = ""

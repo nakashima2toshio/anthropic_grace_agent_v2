@@ -107,7 +107,10 @@ web_search:
   backend: "serpapi"               # "serpapi" or "duckduckgo" or "google_cse"(deprecated)
   num_results: 5
   language: "ja"
-  timeout: 30
+  timeout: 30                      # 秒。15 等に下げるとタイムアウト→検索0件→誤エスカレの連鎖が起きやすい
+  max_retries: 3                   # タイムアウト・5xx 時の試行総数（serpapi）
+  retry_backoff_seconds: 2.0       # 待機 = backoff × 試行回数（線形）
+  fallback_backend: "duckduckgo"   # 主バックエンド失敗/0件時に1度だけ試す代替（""=無効）
   # SerpAPI用（backendが"serpapi"の場合に使用）
   # serpapi_api_key: ""            # 環境変数 SERPAPI_KEY 推奨
   # Google CSE用（※新規受付停止のため非推奨）
