@@ -20,6 +20,7 @@ from agent_support_example import (
     _detect_no_info_answer,
     _match_keyword,
     _merge_citations,
+    _pick_groundedness,
     _should_force_escalate,
     _should_rescue_unaffirmed,
 )
@@ -54,6 +55,35 @@ class TestAnswerGate:
     def test_unverified_or_no_citation_escalates(self):
         assert _answer_gate(0.9, False, 2, 0.7, 0.4) == ("escalate", False)
         assert _answer_gate(0.9, True, 0, 0.7, 0.4) == ("escalate", False)
+
+
+def gres_stub(support_rate, supported, contradicted, total=None):
+    """GroundednessResult 相当のスタブ（support_rate / supported / contradicted のみ使用）。"""
+    return SimpleNamespace(
+        support_rate=support_rate, supported=supported, contradicted=contradicted,
+        total=total if total is not None else supported + contradicted,
+    )
+
+
+class TestPickGroundedness:
+    """⑤ Web フォールバック時の (支持率, 判定主張数) 選択（KPI 伝搬用の純関数）。"""
+
+    def test_picks_higher_support_rate_with_its_decided(self):
+        internal = gres_stub(0.5, supported=1, contradicted=1)
+        web = gres_stub(0.9, supported=9, contradicted=1)
+        assert _pick_groundedness(internal, web) == (0.9, 10)
+
+    def test_tie_prefers_more_decided_claims(self):
+        # 同率 0.0 なら「判定不能（decided=0）」より「判定できた（decided>0）」を優先
+        neutral = gres_stub(0.0, supported=0, contradicted=0, total=3)
+        decided = gres_stub(0.0, supported=0, contradicted=2)
+        assert _pick_groundedness(neutral, decided) == (0.0, 2)
+
+    def test_both_neutral_reports_zero_decided(self):
+        # 両方 neutral → decided=0 が KPI 側へ伝わり「判定不能」と計上される
+        a = gres_stub(0.0, supported=0, contradicted=0, total=4)
+        b = gres_stub(0.0, supported=0, contradicted=0, total=2)
+        assert _pick_groundedness(a, b) == (0.0, 0)
 
 
 class TestMatchKeyword:
