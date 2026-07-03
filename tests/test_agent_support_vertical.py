@@ -299,55 +299,60 @@ class TestMergeCitations:
 
 
 class TestRescueUnaffirmed:
-    """④-救済: 肯定できない（支持0・矛盾なし）が出典付き実質回答を answer 維持する。
+    """④-救済: 肯定の裏付けが弱い（矛盾なし）出典付き実質回答を answer 維持する。
 
-    根拠検証器が全 neutral（decided=0 → support_rate=0）や JSON 崩れ
-    （verified=False）で、良質な内部RAG回答を escalate に落とし、⑤ の Web 二次
-    生成で「情報なし」回答に化けて誤エスカレする回帰（ec「返金ポリシー」）を固定。
+    根拠検証器（Haiku）の出力ぶれ — 全 neutral（decided=0 → support_rate=0）、
+    JSON 崩れ（verified=False）、一部だけ肯定（例 supported=1/contradicted=2 →
+    0.33 < confirm_th）— で良質な内部RAG回答を escalate に落とし、⑤ の Web 二次
+    生成で「情報なし」回答に化けて誤エスカレする回帰（ec「返金ポリシー」「送料」/
+    saas「レート制限」）を固定。判定は支持数の多寡ではなく「矛盾の有無」で行う。
     """
 
     GOOD = "社内ナレッジ（出典：ec_policy.csv）によると、到着確認後5営業日以内に返金いたします。"
     NOINFO = "自社の返金ポリシーは、提供された情報源には見当たりませんでした。担当窓口へお問い合わせください。"
 
     def test_rescues_wellcited_substantive_answer(self):
-        # 全 neutral（supported=0, 矛盾なし）でも出典付き・実質回答なら救済
+        # 全 neutral（矛盾なし）でも出典付き・実質回答なら救済
         assert _should_rescue_unaffirmed(
-            "escalate", False, 0, False, 3, self.GOOD, "返金ポリシーを教えて",
+            "escalate", False, False, 3, self.GOOD, "返金ポリシーを教えて",
             classify_as(None),  # no_info_judge 相当は呼ばれない（マーカー不一致のため）
+        ) is True
+
+    def test_rescues_low_but_nonzero_support(self):
+        # 一部だけ肯定（supported>0 だが support_rate<confirm_th で escalate）でも
+        # 矛盾がなければ救済する。これが回帰（送料 / レート制限）の核心。
+        assert _should_rescue_unaffirmed(
+            "escalate", False, False, 3, self.GOOD, "送料はいくら？",
+            classify_as(None),
         ) is True
 
     def test_no_info_answer_not_rescued(self):
         # 範囲外の「情報なし」回答は救済しない（saas「売上見込み」等は escalate 維持）
         assert _should_rescue_unaffirmed(
-            "escalate", False, 0, False, 9, self.NOINFO, "来期の売上見込みは？",
+            "escalate", False, False, 9, self.NOINFO, "来期の売上見込みは？",
             classify_as(True),  # マーカー一致 → 判定器が no_info(True) を返す
         ) is False
 
     def test_contradiction_not_rescued(self):
+        # 矛盾検出時は安全側（escalate 維持）
         assert _should_rescue_unaffirmed(
-            "escalate", False, 0, True, 3, self.GOOD, "q", classify_as(None),
+            "escalate", False, True, 3, self.GOOD, "q", classify_as(None),
         ) is False
 
     def test_no_citation_not_rescued(self):
         assert _should_rescue_unaffirmed(
-            "escalate", False, 0, False, 0, self.GOOD, "q", classify_as(None),
+            "escalate", False, False, 0, self.GOOD, "q", classify_as(None),
         ) is False
 
     def test_forced_escalate_not_rescued(self):
         assert _should_rescue_unaffirmed(
-            "escalate", True, 0, False, 3, self.GOOD, "q", classify_as(None),
-        ) is False
-
-    def test_supported_evidence_not_rescued(self):
-        # supported>0 は gate 側で処理済み（救済対象外）
-        assert _should_rescue_unaffirmed(
-            "escalate", False, 2, False, 3, self.GOOD, "q", classify_as(None),
+            "escalate", True, False, 3, self.GOOD, "q", classify_as(None),
         ) is False
 
     def test_answer_decision_not_rescued(self):
         # そもそも answer 判定なら救済不要
         assert _should_rescue_unaffirmed(
-            "answer", False, 0, False, 3, self.GOOD, "q", classify_as(None),
+            "answer", False, False, 3, self.GOOD, "q", classify_as(None),
         ) is False
 
 
