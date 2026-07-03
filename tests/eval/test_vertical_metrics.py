@@ -13,7 +13,7 @@ CONFIRM_TH = 0.4
 
 
 def rec(category, expected_decision, decision, *, expected_action=None, action=None,
-        citations=0, groundedness=0.0, forced=False, identity=False,
+        citations=0, groundedness=0.0, decided=1, forced=False, identity=False,
         expect_identity=False, error=None):
     case = {
         "category": category,
@@ -25,6 +25,7 @@ def rec(category, expected_decision, decision, *, expected_action=None, action=N
     return CaseResult(
         case=case, decision=decision, action_type=action,
         citation_count=citations, groundedness=groundedness,
+        groundedness_decided=decided,
         forced_escalate=forced, identity_checked=identity,
         latency_ms=100.0, error=error,
     )
@@ -75,6 +76,30 @@ class TestComputeMetrics:
         assert m["citation_rate"] == 0.5
         assert m["ungrounded_answer_rate"] == 0.5
 
+    def test_neutral_groundedness_not_counted_as_ungrounded(self):
+        # Q&A 形式ソース等で全主張 neutral（decided=0）→ support_rate=0.0 でも
+        # 「根拠なし」ではなく「判定不能」。ungrounded の分子には入れず、
+        # groundedness_neutral_rate で可視化する（過大計上の是正）。
+        results = [
+            rec("in-scope", "answer", "answer", citations=2,
+                groundedness=0.0, decided=0),
+            rec("in-scope", "answer", "answer", citations=1,
+                groundedness=0.9, decided=3),
+        ]
+        m = compute_metrics(results, confirm_th=CONFIRM_TH)
+        assert m["ungrounded_answer_rate"] == 0.0
+        assert m["groundedness_neutral_rate"] == 0.5
+
+    def test_low_support_with_decided_claims_still_ungrounded(self):
+        # 判定できた主張がある（decided>0）のに支持率が低い → 真の「根拠なし」
+        results = [
+            rec("in-scope", "answer", "answer", citations=1,
+                groundedness=0.2, decided=2),
+        ]
+        m = compute_metrics(results, confirm_th=CONFIRM_TH)
+        assert m["ungrounded_answer_rate"] == 1.0
+        assert m["groundedness_neutral_rate"] == 0.0
+
     def test_errors_are_excluded_from_rates(self):
         results = [
             rec("in-scope", "answer", "answer", citations=1, groundedness=0.9),
@@ -101,6 +126,7 @@ class TestComputeMetrics:
         table = format_table(m)
         assert "decision_accuracy" in table
         assert "forced_escalate_misfire_rate" in table
+        assert "groundedness_neutral_rate" in table
         assert "in-scope" in table
 
 

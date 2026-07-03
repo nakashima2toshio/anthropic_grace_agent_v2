@@ -157,6 +157,7 @@ class SupportResult:
     answer: Optional[str]
     citations: List[str] = field(default_factory=list)
     groundedness: float = 0.0
+    groundedness_decided: int = 0      # 判定できた主張数（supported+contradicted）。0=判定不能（中立）
     decision: Decision = "escalate"
     warning: bool = False              # 中信頼（未確認）の注意書きを付けるか
     used_web: bool = False             # Web を使ったか（executor の動的 Web 検索 or ⑤ フォールバック）
@@ -385,6 +386,18 @@ def _answer_gate(
     if support_rate >= confirm_th:
         return "answer", True
     return "escalate", False
+
+
+def _pick_groundedness(*results) -> tuple[float, int]:
+    """複数の GroundednessResult から (支持率, 判定できた主張数) を選ぶ純関数。
+
+    支持率が最大の検証結果を採用し、その decided（supported+contradicted）を
+    併せて返す。同率の場合は decided が多い方（判定の裏付けが強い方）を選ぶ。
+    KPI 側で「支持率が低い」と「判定不能（decided=0）」を区別するために使う。
+    """
+    return max(
+        (g.support_rate, g.supported + g.contradicted) for g in results
+    )
 
 
 def _should_rescue_unaffirmed(
@@ -670,7 +683,9 @@ def run_support_agent(
     if verbose:
         print(f"  [groundedness] supported={gres.supported} / total={gres.total} / "
               f"contradiction={gres.has_contradiction} / verified={gres.verified}")
-    print(f"  [groundedness] 支持率={gres.support_rate:.2f} / 出典数={len(internal_citations)}")
+    print(f"  [groundedness] 支持率={gres.support_rate:.2f}"
+          f"（判定可能 {gres.supported + gres.contradicted}/{gres.total} 主張）"
+          f" / 出典数={len(internal_citations)}")
 
     # ④ 回答ゲート（内部）＋ プロファイルのエスカレ語による強制エスカレ
     decision, warning = _answer_gate(
@@ -701,6 +716,7 @@ def run_support_agent(
         answer=internal_answer,
         citations=internal_citations,
         groundedness=gres.support_rate,
+        groundedness_decided=gres.supported + gres.contradicted,
         decision=decision,
         warning=warning,
         used_web=used_dynamic_web,
@@ -751,10 +767,12 @@ def run_support_agent(
                 gres_web.support_rate, gres_web.verified, len(web_citations),
                 notify_th, confirm_th,
             )
+            g_rate, g_decided = _pick_groundedness(gres, gres_web)
             support = SupportResult(
                 answer=web_answer if w_decision == "answer" else internal_answer,
                 citations=_merge_citations(internal_citations, web_citations),
-                groundedness=max(gres.support_rate, gres_web.support_rate),
+                groundedness=g_rate,
+                groundedness_decided=g_decided,
                 decision=w_decision,
                 warning=w_warning,
                 used_web=True,

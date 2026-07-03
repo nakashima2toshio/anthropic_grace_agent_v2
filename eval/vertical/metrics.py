@@ -10,7 +10,12 @@
 - forced_escalate_misfire : in-scope＋keyword-trap のうち**強制エスカレ**が発火した割合（0 目標）
 - escalate_recall         : out-of-scope＋escalate-keyword のうち escalate になった割合（1.0 目標）
 - citation_rate           : answer のうち出典 1 件以上の割合（1.0 目標）
-- ungrounded_answer_rate  : answer のうち支持率 < confirm_th の割合（0 目標＝「根拠なし回答 = 0」）
+- ungrounded_answer_rate  : answer のうち**判定可能（decided>0）かつ**支持率 < confirm_th の
+                            割合（0 目標＝「根拠なし回答 = 0」）。Groundedness 検証が Q&A 形式
+                            ソース等で全主張 neutral（decided=0）に倒れたケースは「根拠なし」
+                            ではなく「判定不能」であり、分子に含めない
+- groundedness_neutral_rate: answer のうち判定不能（decided=0）だった割合（参考値。
+                            過大計上の除外分をここで可視化し、silent drop を避ける）
 - action_accuracy         : `action_type == expected_action` の割合（None 同士の一致を含む）
 - identity_check_rate     : 本人確認を期待するケースで確認ステップが起動した割合（1.0 目標）
 """
@@ -37,6 +42,7 @@ class CaseResult:
     action_type: Optional[str] = None
     citation_count: int = 0
     groundedness: float = 0.0
+    groundedness_decided: int = 0     # 判定できた主張数（supported+contradicted）。0=判定不能
     forced_escalate: bool = False
     identity_checked: bool = False
     intent: Optional[str] = None
@@ -101,7 +107,12 @@ def compute_metrics(results: List[CaseResult], confirm_th: float) -> Dict[str, A
             sum(1 for r in answers if r.citation_count >= 1), len(answers)
         ),
         "ungrounded_answer_rate": _rate(
-            sum(1 for r in answers if r.groundedness < confirm_th), len(answers)
+            sum(1 for r in answers
+                if r.groundedness_decided > 0 and r.groundedness < confirm_th),
+            len(answers),
+        ),
+        "groundedness_neutral_rate": _rate(
+            sum(1 for r in answers if r.groundedness_decided == 0), len(answers)
         ),
         "action_accuracy": _rate(
             sum(1 for r in ok
@@ -127,6 +138,7 @@ def format_table(metrics: Dict[str, Any]) -> str:
         ("escalate_recall", metrics["escalate_recall"]),
         ("citation_rate", metrics["citation_rate"]),
         ("ungrounded_answer_rate", metrics["ungrounded_answer_rate"]),
+        ("groundedness_neutral_rate", metrics["groundedness_neutral_rate"]),
         ("action_accuracy", metrics["action_accuracy"]),
         ("identity_check_rate", metrics["identity_check_rate"]),
         ("mean_latency_ms", metrics["mean_latency_ms"]),
