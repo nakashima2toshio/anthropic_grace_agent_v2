@@ -1,6 +1,6 @@
 # GRACE-Support 業界特化 設計書（自治体 / SaaS / EC）
 
-**Version 1.0（主な責務・テスト用データ・テスト章を新設、PR #116〜#118 を反映）** | 最終更新: 2026-07-03
+**Version 1.1（コレクション登録後の 3 業種 KPI 再計測結果を反映）** | 最終更新: 2026-07-03
 
 > 🔍 **仕様レビュー**: 本設計・実装の横断レビューと改善提案は
 > [`docs/vertical_spec_review.md`](../../docs/vertical_spec_review.md) を参照
@@ -346,6 +346,7 @@ uv run python -m eval.vertical.register_test_collections --vertical ec --recreat
 このとき keyword-trap 質問（「返金ポリシーを教えて」等）は**社内根拠ゼロ → Web 頼み**となり、
 reasoning が他社情報の提示を控えると ④' 情報なし検知で escalate に倒れ得る（安全側だが実行ごとに揺れる）。
 **登録後に再計測すること**（`cases/ec.jsonl` の該当ケースにも同旨のノートあり）。
+なお 2026-07-03 に全 6 コレクションの登録と 3 業種再計測を実施済み（結果は §9.1）。keyword-trap の揺れは解消された。
 
 ---
 
@@ -381,10 +382,21 @@ KPI 8 指標（`metrics.py`。カテゴリ別の decision/action accuracy も同
 | action_accuracy | `action_type == expected_action` の割合（None 同士の一致を含む） | 1.0 |
 | identity_check_rate | 本人確認を期待するケースで確認ステップが起動した割合 | 1.0 |
 
-**計測履歴**: ベースライン gov 0.857 / saas 0.875 / ec 0.889（decision_accuracy・v0.9 時点）→
-④' few-shot 改善（PR #116）後に **ec 9/9（decision/action/identity すべて 1.000）** を記録。
-専用コレクション未登録による keyword-trap の揺れ（8/9 となる回あり）は §8 の登録で解消見込み。
-**登録 → 3 業種再計測が次アクション**。
+**計測履歴**:
+
+| 時点 | ec | saas | gov | 備考 |
+|---|---|---|---|---|
+| ベースライン（v0.9） | 0.889 | 0.875 | 0.857 | 専用コレクション未登録。keyword-trap が実行ごとに揺れる |
+| ④' few-shot 改善後（PR #116） | **1.000**（9/9） | — | — | 判定基準の具体化で誤 escalate 解消（単発計測） |
+| **コレクション登録後（2026-07-03・§8 実施済み）** | 0.889 | 0.875 | 0.857 | 下記の質的変化を参照 |
+
+登録後計測（vertical_ec5 / saas4 / gov2）の要点:
+
+- ✅ **keyword-trap 6/6 が RAG 根拠つきで安定して answer**（返金ポリシー・解約手続き・課金プラン・SLA・減免概要・行政不服審査）。`検索範囲を限定: ['ec_policy_anthropic', ...]` ログも確認され、**#117 の狙い（揺れの解消）を達成**
+- ✅ **false_escalate_rate = 0.000 / forced_escalate_misfire_rate = 0.000 を 3 業種すべてで達成**（誤エスカレ全滅）。citation_rate 1.000・identity_check_rate 1.000（ec）も維持
+- ✅ ステップ確信度評価の haiku 化（PR #118）が全ケースで動作（`initialized with model: claude-haiku-4-5-20251001`）。既存の安全弁（Heuristic 比較・検索スコア上書き）も期待どおり発動し、**mean_latency は約 65〜75 秒 → 40〜44 秒/ケースに短縮**
+- ⚠️ 残る不一致は 3 件で、いずれも**「out-of-scope／障害系質問 × 動的 Web 検索」の同一パターン**: 社内根拠ゼロ→Web の一般情報で「情報なし＋一般的な確認方法の案内」型の実質回答が生成され、④' が answered と判定して answer 通過（ec 入荷予定日・gov 税制改正予測）。saas「500 エラー報告」は web_search の 15 秒タイムアウトも重なり情報なし回答→ ④' が escalate（期待は answer＋起票）。escalate_recall が ec 0.667 / gov 0.500 に低下した主因（§10 次工程候補①）
+- ⚠️ **ungrounded_answer_rate（0.83〜1.00）は指標の過大計上**: Q&A 形式ソースに対する Groundedness 検証が「neutral (0 decided)」となりがちで support_rate=0 に落ちるため。回答自体は citation 1.000・出典明示つき（計測方法の既知課題・§10 次工程候補②）
 
 ### 9.2 単体テスト（実 API・実 Qdrant 不要）
 
@@ -425,10 +437,12 @@ groundedness 検証・⑤ 再検証・haiku 判定 2 種）。実測ログから
 | 8 | テスト用コレクションの整備 | 合成 Q&A（6 CSV・各 10 件）＋一括登録スクリプト `eval/vertical/register_test_collections.py`。out-of-scope 検証用の「穴」はガードテストで維持 | ✅ **実装済み**（PR #117・§8） |
 | 9 | ステップ確信度評価の軽量化 | `evaluate_with_factors` を `claude-haiku-4-5-20251001`（`config.llm.light_model`）で実行し、eval コストを約 23%/ケース削減。reasoning・groundedness・evaluate_final は sonnet を維持 | ✅ **実装済み**（PR #118・§9.3） |
 
-> テスト用コレクションは #8 で整備済み（§8）。次工程候補は
-> **①専用コレクション登録後の 3 業種 KPI 再計測**（ユーザ環境・§9.1）、
-> **②実運用ナレッジの投入**（実 FAQ・実規約・e-Gov API 等。[`docs/vertical_test_data.md`](../../docs/vertical_test_data.md) 参照）、
-> **③実 ActionTool 連携と本人確認フローの実装**（現状は擬似・ドライラン）。
+> テスト用コレクションは #8 で整備済みで、**登録後の 3 業種 KPI 再計測も完了**（2026-07-03・結果は §9.1）。次工程候補は
+> **① out-of-scope × 動的 Web 検索の answer 化への対処**（社内根拠ゼロの質問で Web の一般情報から「情報なし＋案内」型の実質回答が生成され ④' を answered で通過する。候補: Web 由来ソースのみで社内根拠ゼロの回答は判定を escalate 側に倒す／④' プロンプトに「一般的な確認方法の案内のみ」を no_info とする判定例を追加。escalate_recall 低下（ec 0.667 / gov 0.500）の主因）、
+> **② ungrounded_answer_rate の計測是正**（Q&A 形式ソースへの Groundedness 検証が neutral に倒れ support_rate=0 となる過大計上。claim 分解プロンプトの Q&A 対応 or 指標側で verified=False を除外）、
+> **③ web_search タイムアウト（15 秒）の調整**（saas「500 エラー報告」の不一致に寄与）、
+> **④実運用ナレッジの投入**（実 FAQ・実規約・e-Gov API 等。[`docs/vertical_test_data.md`](../../docs/vertical_test_data.md) 参照）、
+> **⑤実 ActionTool 連携と本人確認フローの実装**（現状は擬似・ドライラン）。
 
 ---
 
@@ -446,3 +460,4 @@ groundedness 検証・⑤ 再検証・haiku 判定 2 種）。実測ログから
 | 0.8 | 概要を全面改訂: **「業界特化」の定義**（共通エンジン×プロファイル差し替え・6 軸）、**構成する 7 つの機構**（実装位置つき）、**成熟度の正直な評価**（厚い部分=エスカレ/アクション/本人確認、薄い部分=ナレッジ未登録・擬似 ActionTool）、**設計理由（トレードオフ）**を明文化。旧「設計フェーズ（未実装）」注記を削除 |
 | 0.9 | §8 に #5「情報なし回答」検知ゲート（④'・二段判定）と #6 Web 重複実行の排除（⑤ の再利用モード）を実装済みとして追加。3 業種ベースライン（gov 0.857 / saas 0.875 / ec 0.889）で共通だった out-of-scope→answer と重複 Web 検索への対処 |
 | 1.0 | **主な責務・テスト章の新設**: 概要に「主な責務／各責務対応のモジュール／主要機能一覧」（doc 規約の 3 点セット）を追加、§3〜5 に業界別の「主な責務」「専用コレクション（テストデータ）」行を追加。**§8「テスト用データ」**（設計条件・意図的な「穴」・業界×コレクション×CSV 対応・登録手順・未登録時の挙動）と**§9「テスト」**（KPI 8 指標・5 カテゴリ・計測履歴・単体テスト一覧・実行コスト）を新設し、旧 §8/§9 を §10/§11 へ繰り下げ。PR #116（④' few-shot）/#117（テストコレクション整備）/#118（確信度評価の haiku 化）を残タスク表へ反映し、成熟度の「ナレッジ未登録」・§7.2 の「collections/prompt_addendum は表示のみ」等の陳腐化記述を更新。ヘッダ版数の不整合（0.8/0.9）を解消 |
+| 1.1 | **登録後再計測の反映**: `register_test_collections --recreate` 実施＋3 業種再計測（vertical_ec5/saas4/gov2）の結果を §9.1 計測履歴に記録。keyword-trap 6/6 の安定 answer・全業種 false_escalate=0・haiku 化の動作確認とレイテンシ短縮（→40〜44 秒/ケース）を確認。残課題として「out-of-scope × 動的 Web の answer 化」「ungrounded_answer_rate の過大計上」「web_search タイムアウト」を §10 次工程候補に整理 |
