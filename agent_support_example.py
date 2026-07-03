@@ -374,7 +374,6 @@ def _answer_gate(
 def _should_rescue_unaffirmed(
     decision: Decision,
     forced_escalate: bool,
-    supported: int,
     has_contradiction: bool,
     citation_count: int,
     answer: str,
@@ -383,23 +382,25 @@ def _should_rescue_unaffirmed(
 ) -> bool:
     """出典付き・非「情報なし」・矛盾なしの内部回答を escalate から救うか。
 
-    `_answer_gate` の支持率は supported/decided で算出されるため、根拠検証器が
-    全 neutral（decided=0）や JSON 崩れ（verified=False）だと 0.0 になり、
-    出典付きの良質な内部RAG回答でも escalate に倒れる。放置すると Web 二次生成へ
-    流れ、無関係な一般Web結果から「情報なし」回答に化けて誤エスカレする
-    （ec「返金ポリシーを教えて」で顕在化）。
+    `_answer_gate` の支持率は supported/decided で算出されるため、根拠検証器
+    （Haiku）の出力ぶれで、出典付きの良質な内部RAG回答でも escalate に倒れる:
+      - 全 neutral（decided=0）や JSON 崩れ（verified=False）→ 支持率 0.0
+      - 一部だけ肯定（例 supported=1 / contradicted=2 → 0.33 < confirm_th）
+    いずれも「肯定の裏付けが弱い」だけで、**矛盾は検出されていない**。放置すると
+    ⑤ の Web 二次生成へ流れ、無関係な一般Web結果から「情報なし」回答に化けて
+    誤エスカレする（ec「返金ポリシー」「送料」/ saas「レート制限」で顕在化）。
 
-    以下をすべて満たすときだけ救済（answer 継続）を許可する:
-      - gate 判定が escalate かつ 強制エスカレでない
-      - 肯定 0 かつ 矛盾なし（＝検証器が肯定も否定もできなかった）
+    そこで支持数の多寡ではなく「矛盾がないか」で判定する。以下をすべて満たす
+    ときだけ救済（answer 継続。未確認注記付き）を許可する:
+      - gate 判定が escalate かつ 強制エスカレでない（エスカレ語は最優先で維持）
+      - 矛盾が検出されていない（矛盾ありは安全側に倒し従来どおり escalate）
       - 出典が 1 件以上あり、回答本文が空でない
       - その回答が実質回答である（範囲外の「情報なし」回答は除外＝従来どおり
-        escalate。例: saas「来期の売上見込み」）
+        escalate。例: saas「来期の売上見込み」/ ec「入荷予定日」）
     """
     if decision != "escalate" or forced_escalate:
         return False
-    unaffirmed = supported == 0 and not has_contradiction
-    if not unaffirmed or citation_count == 0 or not answer:
+    if has_contradiction or citation_count == 0 or not answer:
         return False
     return not _detect_no_info_answer(query, answer, no_info_judge)[0]
 
@@ -673,11 +674,11 @@ def run_support_agent(
     # 「情報なし」回答に化けて ④' で誤エスカレするのを防ぐ（ec「返金ポリシー」で
     # 顕在化）。範囲外の「情報なし」回答は除外され従来どおり escalate（saas 等）。
     if _should_rescue_unaffirmed(
-        decision, forced_escalate, gres.supported, gres.has_contradiction,
+        decision, forced_escalate, gres.has_contradiction,
         len(internal_citations), internal_answer, query, no_info_judge,
     ):
         decision, warning = "answer", True
-        print("  [gate] groundedness は肯定できず（矛盾なし）だが出典付きの実質回答 → "
+        print("  [gate] groundedness の裏付けは弱いが矛盾なし・出典付きの実質回答 → "
               "answer（未確認注記）として維持し、無駄な Web 二次生成・誤エスカレを回避")
 
     support = SupportResult(
