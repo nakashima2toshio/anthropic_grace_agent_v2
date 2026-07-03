@@ -247,8 +247,8 @@ def create_no_info_judge(config) -> Callable[[str, str], Optional[bool]]:
     答えていれば False（answered）、「見つからない・お問い合わせください」に
     留まるなら True（no_info）を返す。判定できない場合（API エラー・想定外の
     出力）は None を返し、呼び出し側が安全側（escalate）に倒す。呼び出しは
-    NO_INFO_MARKERS が一致したときだけなので、追加コストは軽量モデル
-    1 呼び出しに限られる。
+    NO_INFO_MARKERS が一致したとき、または出典が Web のみ（社内根拠ゼロ）の
+    回答に限られるので、追加コストは軽量モデル 1 呼び出しに留まる。
     """
     from grace.llm_compat import create_chat_client
 
@@ -261,16 +261,26 @@ def create_no_info_judge(config) -> Callable[[str, str], Optional[bool]]:
             "- answered : 質問されたトピックについて実質的な内容（規定・手順・条件・料金の目安・\n"
             "  一般的なルールなど）を 1 つでも提供している。一般論・参考情報ベースの回答でもよい。\n"
             "  「弊社固有の情報は見当たらなかった」という断り書きがあっても、本体が内容を\n"
-            "  提供していれば answered。\n"
+            "  提供していれば answered。制度や仕組みの説明を求める一般知識の質問に、公的情報を\n"
+            "  根拠として定義・特徴を説明する回答も answered。\n"
             "- no_info  : 質問された事柄そのもの（日付・金額・可否・内容）について実質的な情報が\n"
             "  ゼロで、「見つからない・確認できない」という報告と、確認方法の案内・他窓口への\n"
-            "  誘導だけで構成されている。\n\n"
+            "  誘導・他社や一般サイトの事例紹介だけで構成されている。\n"
+            "  「質問された事柄そのもの」と「それをどこで確認できるかの案内」は区別すること。\n"
+            "  後者だけの回答は、案内が丁寧でも no_info。\n"
+            "  また、質問が将来の予測・見通しを求めており、回答が確定情報ではなく要望・検討段階の\n"
+            "  情報の紹介に留まる（「確定した内容ではない」等の注記つき）場合も no_info\n"
+            "  （不確実な予測は有人対応に回すべきため）。\n\n"
             "判定例:\n"
             "- 質問「返品規定を教えて」に、一般的な返品ルール（30日以内・法定8日等）を提示し、\n"
             "  末尾で「弊社固有の規定は見当たりませんでした」と断る回答 → answered\n"
             "- 質問「送料はいくら？」に、一般的な料金の目安表を提示する回答 → answered\n"
-            "- 質問「この商品の入荷予定日は？」に、日付を一切示せず、確認方法の案内と\n"
-            "  問い合わせ先への誘導のみの回答 → no_info\n\n"
+            "- 質問「〜とはどんな制度ですか？」に、公的サイトを根拠として制度の目的・対象・\n"
+            "  手続きを説明する回答 → answered\n"
+            "- 質問「この商品の入荷予定日は？」に、日付を一切示せず、「商品ページで確認できる\n"
+            "  場合がある」等の一般的な確認方法の案内と問い合わせ先への誘導のみの回答 → no_info\n"
+            "- 質問「来年の〜の予測は？」に、確定情報ではない要望・検討段階の情報を紹介し、\n"
+            "  「正式に確定した内容ではない」と注記する回答 → no_info\n\n"
             f"質問: {query}\n\n回答:\n{answer}\n\n"
             "出力（answered / no_info のいずれか 1 語のみ）:"
         )
@@ -297,6 +307,7 @@ def _detect_no_info_answer(
     query: str,
     answer: str,
     judge: Optional[Callable[[str, str], Optional[bool]]] = None,
+    force_judge: bool = False,
 ) -> tuple[bool, Optional[str]]:
     """「情報なし回答」の二段判定（docs/vertical_spec_review.md の残課題①）。
 
@@ -305,11 +316,16 @@ def _detect_no_info_answer(
     判定器が無い場合は従来どおり回答を通す（False）。判定失敗（None）は
     誤答を届けるより有人へ回す方が安全なので True（escalate）に倒す。
 
+    force_judge=True（出典が Web のみ＝社内根拠ゼロの回答）の場合は、候補句が
+    一致しなくても第 2 段の LLM 判定を必ず実施する。社内根拠ゼロの回答は
+    「確認方法の案内だけ」「非確定の予測情報の紹介だけ」でも候補句を含まない
+    ことがあり、answer で通過してしまうため（out-of-scope × 動的 Web 検索）。
+
     Returns:
         (no_info, matched_marker)
     """
     marker = _match_keyword(answer or "", NO_INFO_MARKERS)
-    if marker is None:
+    if marker is None and not (force_judge and answer):
         return False, None
     if judge is None:
         return False, marker
@@ -757,14 +773,23 @@ def run_support_agent(
     # answer で通過してしまう（範囲外質問で顕在化）。二段判定で実質回答か
     # を確かめ、情報なしなら有人対応へ倒す。
     if support.decision == "answer" and support.answer:
-        no_info, marker = _detect_no_info_answer(query, support.answer, no_info_judge)
+        # 出典が Web のみ（社内コレクション根拠ゼロ）の回答は、候補句がなくても
+        # ④' 判定を必須にする（out-of-scope × 動的 Web 検索の answer 化対策）
+        web_only = bool(support.citations) and all(
+            c.startswith("[Web]") for c in support.citations
+        )
+        no_info, marker = _detect_no_info_answer(
+            query, support.answer, no_info_judge, force_judge=web_only,
+        )
         if no_info:
-            print(f"  [gate] 情報なし回答を検知（候補句 '{marker}'）→ 有人対応へエスカレーション")
+            trigger = f"候補句 '{marker}'" if marker is not None else "出典が Web のみ"
+            print(f"  [gate] 情報なし回答を検知（{trigger}）→ 有人対応へエスカレーション")
             support.decision = "escalate"
             support.warning = False
             support.no_info_detected = True
-        elif marker is not None:
-            print(f"  [gate] 情報なし候補句 '{marker}' はあるが実質回答（answered）→ 回答を維持")
+        elif marker is not None or web_only:
+            trigger = f"情報なし候補句 '{marker}' はあるが" if marker is not None else "出典が Web のみだが"
+            print(f"  [gate] {trigger}実質回答（answered）→ 回答を維持")
 
     # ⑥ アクション（v3）: HITL（CONFIRM）を通して擬似実行
     if do_action:

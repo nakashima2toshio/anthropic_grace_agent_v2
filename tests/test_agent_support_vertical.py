@@ -274,6 +274,57 @@ class TestDetectNoInfoAnswer:
         # 語幹照合なので「〜でした」等の活用でも候補になる
         assert _match_keyword(f"申し訳ありませんが{marker}でした。", NO_INFO_MARKERS) == marker
 
+    # --- force_judge（Web-only 回答の ④' 必須化。out-of-scope × 動的 Web 対策） ---
+
+    SPECULATIVE_ANSWER = (
+        "来年度の税制改正について、現時点で報じられている主な改正の見込みを"
+        "ご案内します。年収の壁の引き上げ等が検討されています。\n"
+        "上記は要望・大綱・報道情報に基づくものであり、正式に確定した内容ではない"
+        "項目も含まれます。"
+    )
+
+    def test_force_judge_runs_without_marker(self):
+        # 候補句を含まない Web-only 回答（税制改正型）でも判定にかかり escalate
+        no_info, marker = _detect_no_info_answer(
+            "来年の税制改正の予測は？", self.SPECULATIVE_ANSWER,
+            judge_as(True), force_judge=True,
+        )
+        assert no_info is True
+        assert marker is None
+
+    def test_force_judge_keeps_substantive_answer(self):
+        # Web-only でも実質回答（行政不服審査制度型）は answered で維持
+        no_info, marker = _detect_no_info_answer(
+            "行政不服審査制度とはどんな制度ですか？", self.PLAIN_ANSWER,
+            judge_as(False), force_judge=True,
+        )
+        assert (no_info, marker) == (False, None)
+
+    def test_force_judge_failure_falls_back_to_escalate(self):
+        # 判定失敗（None）は安全側＝escalate（既存の安全弁と同じ）
+        no_info, _ = _detect_no_info_answer(
+            "Q", self.PLAIN_ANSWER, judge_as(None), force_judge=True,
+        )
+        assert no_info is True
+
+    def test_force_judge_without_judge_keeps_legacy_behavior(self):
+        # 判定器なし（LLM を使わない構成）は force_judge でも回答を通す
+        assert _detect_no_info_answer(
+            "Q", self.PLAIN_ANSWER, None, force_judge=True,
+        ) == (False, None)
+
+    def test_force_judge_empty_answer_is_not_flagged(self):
+        assert _detect_no_info_answer(
+            "Q", "", judge_must_not_be_called, force_judge=True,
+        ) == (False, None)
+
+    def test_no_force_judge_skips_judge_without_marker(self):
+        # 社内根拠のある回答（force_judge=False）は従来どおり候補句一致時のみ判定
+        no_info, marker = _detect_no_info_answer(
+            "Q", self.PLAIN_ANSWER, judge_must_not_be_called, force_judge=False,
+        )
+        assert (no_info, marker) == (False, None)
+
 
 class TestMergeCitations:
     """⑤ の出典結合。executor の動的 Web 検索と ⑤ の再検索で同じ URL が
@@ -315,7 +366,7 @@ class TestRescueUnaffirmed:
         # 全 neutral（矛盾なし）でも出典付き・実質回答なら救済
         assert _should_rescue_unaffirmed(
             "escalate", False, False, 3, self.GOOD, "返金ポリシーを教えて",
-            classify_as(None),  # no_info_judge 相当は呼ばれない（マーカー不一致のため）
+            judge_as(None),  # no_info_judge は呼ばれない（マーカー不一致のため）
         ) is True
 
     def test_rescues_low_but_nonzero_support(self):
@@ -323,30 +374,30 @@ class TestRescueUnaffirmed:
         # 矛盾がなければ救済する。これが回帰（送料 / レート制限）の核心。
         assert _should_rescue_unaffirmed(
             "escalate", False, False, 3, self.GOOD, "送料はいくら？",
-            classify_as(None),
+            judge_as(None),
         ) is True
 
     def test_no_info_answer_not_rescued(self):
         # 範囲外の「情報なし」回答は救済しない（saas「売上見込み」等は escalate 維持）
         assert _should_rescue_unaffirmed(
             "escalate", False, False, 9, self.NOINFO, "来期の売上見込みは？",
-            classify_as(True),  # マーカー一致 → 判定器が no_info(True) を返す
+            judge_as(True),  # マーカー一致 → 判定器が no_info(True) を返す
         ) is False
 
     def test_contradiction_not_rescued(self):
         # 矛盾検出時は安全側（escalate 維持）
         assert _should_rescue_unaffirmed(
-            "escalate", False, True, 3, self.GOOD, "q", classify_as(None),
+            "escalate", False, True, 3, self.GOOD, "q", judge_as(None),
         ) is False
 
     def test_no_citation_not_rescued(self):
         assert _should_rescue_unaffirmed(
-            "escalate", False, False, 0, self.GOOD, "q", classify_as(None),
+            "escalate", False, False, 0, self.GOOD, "q", judge_as(None),
         ) is False
 
     def test_forced_escalate_not_rescued(self):
         assert _should_rescue_unaffirmed(
-            "escalate", True, False, 3, self.GOOD, "q", classify_as(None),
+            "escalate", True, False, 3, self.GOOD, "q", judge_as(None),
         ) is False
 
     def test_answer_decision_not_rescued(self):
