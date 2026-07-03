@@ -21,6 +21,7 @@ from agent_support_example import (
     _match_keyword,
     _merge_citations,
     _should_force_escalate,
+    _should_rescue_unaffirmed,
 )
 
 GOV = PROFILES["gov"]
@@ -295,6 +296,59 @@ class TestMergeCitations:
     def test_empty_inputs(self):
         assert _merge_citations([], []) == []
         assert _merge_citations([], ["[Web] t（https://z.jp/）"]) == ["[Web] t（https://z.jp/）"]
+
+
+class TestRescueUnaffirmed:
+    """④-救済: 肯定できない（支持0・矛盾なし）が出典付き実質回答を answer 維持する。
+
+    根拠検証器が全 neutral（decided=0 → support_rate=0）や JSON 崩れ
+    （verified=False）で、良質な内部RAG回答を escalate に落とし、⑤ の Web 二次
+    生成で「情報なし」回答に化けて誤エスカレする回帰（ec「返金ポリシー」）を固定。
+    """
+
+    GOOD = "社内ナレッジ（出典：ec_policy.csv）によると、到着確認後5営業日以内に返金いたします。"
+    NOINFO = "自社の返金ポリシーは、提供された情報源には見当たりませんでした。担当窓口へお問い合わせください。"
+
+    def test_rescues_wellcited_substantive_answer(self):
+        # 全 neutral（supported=0, 矛盾なし）でも出典付き・実質回答なら救済
+        assert _should_rescue_unaffirmed(
+            "escalate", False, 0, False, 3, self.GOOD, "返金ポリシーを教えて",
+            classify_as(None),  # no_info_judge 相当は呼ばれない（マーカー不一致のため）
+        ) is True
+
+    def test_no_info_answer_not_rescued(self):
+        # 範囲外の「情報なし」回答は救済しない（saas「売上見込み」等は escalate 維持）
+        assert _should_rescue_unaffirmed(
+            "escalate", False, 0, False, 9, self.NOINFO, "来期の売上見込みは？",
+            classify_as(True),  # マーカー一致 → 判定器が no_info(True) を返す
+        ) is False
+
+    def test_contradiction_not_rescued(self):
+        assert _should_rescue_unaffirmed(
+            "escalate", False, 0, True, 3, self.GOOD, "q", classify_as(None),
+        ) is False
+
+    def test_no_citation_not_rescued(self):
+        assert _should_rescue_unaffirmed(
+            "escalate", False, 0, False, 0, self.GOOD, "q", classify_as(None),
+        ) is False
+
+    def test_forced_escalate_not_rescued(self):
+        assert _should_rescue_unaffirmed(
+            "escalate", True, 0, False, 3, self.GOOD, "q", classify_as(None),
+        ) is False
+
+    def test_supported_evidence_not_rescued(self):
+        # supported>0 は gate 側で処理済み（救済対象外）
+        assert _should_rescue_unaffirmed(
+            "escalate", False, 2, False, 3, self.GOOD, "q", classify_as(None),
+        ) is False
+
+    def test_answer_decision_not_rescued(self):
+        # そもそも answer 判定なら救済不要
+        assert _should_rescue_unaffirmed(
+            "answer", False, 0, False, 3, self.GOOD, "q", classify_as(None),
+        ) is False
 
 
 class TestProfiles:

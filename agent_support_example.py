@@ -371,6 +371,39 @@ def _answer_gate(
     return "escalate", False
 
 
+def _should_rescue_unaffirmed(
+    decision: Decision,
+    forced_escalate: bool,
+    supported: int,
+    has_contradiction: bool,
+    citation_count: int,
+    answer: str,
+    query: str,
+    no_info_judge: Optional[Callable[[str, str], Optional[bool]]] = None,
+) -> bool:
+    """出典付き・非「情報なし」・矛盾なしの内部回答を escalate から救うか。
+
+    `_answer_gate` の支持率は supported/decided で算出されるため、根拠検証器が
+    全 neutral（decided=0）や JSON 崩れ（verified=False）だと 0.0 になり、
+    出典付きの良質な内部RAG回答でも escalate に倒れる。放置すると Web 二次生成へ
+    流れ、無関係な一般Web結果から「情報なし」回答に化けて誤エスカレする
+    （ec「返金ポリシーを教えて」で顕在化）。
+
+    以下をすべて満たすときだけ救済（answer 継続）を許可する:
+      - gate 判定が escalate かつ 強制エスカレでない
+      - 肯定 0 かつ 矛盾なし（＝検証器が肯定も否定もできなかった）
+      - 出典が 1 件以上あり、回答本文が空でない
+      - その回答が実質回答である（範囲外の「情報なし」回答は除外＝従来どおり
+        escalate。例: saas「来期の売上見込み」）
+    """
+    if decision != "escalate" or forced_escalate:
+        return False
+    unaffirmed = supported == 0 and not has_contradiction
+    if not unaffirmed or citation_count == 0 or not answer:
+        return False
+    return not _detect_no_info_answer(query, answer, no_info_judge)[0]
+
+
 def _decide_action(
     query: str,
     decision: Decision,
@@ -634,6 +667,18 @@ def run_support_agent(
     elif matched_kw is not None:
         print(f"  [profile] エスカレ語候補 '{matched_kw}' は FAQ 質問（意図=question）→ "
               "誤爆抑止・通常フローを継続")
+
+    # ④-救済: 出典付き・非「情報なし」・矛盾なしの内部回答が、groundedness を
+    # 「肯定できなかった」というだけで escalate に落ち、⑤ の Web 二次生成で
+    # 「情報なし」回答に化けて ④' で誤エスカレするのを防ぐ（ec「返金ポリシー」で
+    # 顕在化）。範囲外の「情報なし」回答は除外され従来どおり escalate（saas 等）。
+    if _should_rescue_unaffirmed(
+        decision, forced_escalate, gres.supported, gres.has_contradiction,
+        len(internal_citations), internal_answer, query, no_info_judge,
+    ):
+        decision, warning = "answer", True
+        print("  [gate] groundedness は肯定できず（矛盾なし）だが出典付きの実質回答 → "
+              "answer（未確認注記）として維持し、無駄な Web 二次生成・誤エスカレを回避")
 
     support = SupportResult(
         answer=internal_answer,
