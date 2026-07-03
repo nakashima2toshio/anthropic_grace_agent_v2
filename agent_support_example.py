@@ -64,6 +64,7 @@ from grace import (
     get_config,
 )
 from grace.confidence import create_groundedness_verifier
+from support_actions import create_action_backend, create_identity_verifier
 
 # 非対話 CLI 用: CONFIRM/ESCALATE を自動承認するレスポンス（実行はドライランで安全）
 _AUTO_PROCEED = InterventionResponse(action=InterventionAction.PROCEED)
@@ -474,17 +475,24 @@ def _decide_action(
 def _perform_action(
     action: ActionRequest,
     handler,
-    dry_run: bool,
-    require_identity: bool = False,
+    backend,
+    identity_verifier=None,
+    identity: Optional[Dict[str, str]] = None,
 ) -> str:
-    """HITL（CONFIRM 承認）を通してから擬似アクションを実行する。
+    """本人確認 → HITL（CONFIRM 承認）→ バックエンド実行 の順でアクションを行う。
 
-    副作用のある操作は必ず intervention の CONFIRM を経由する。`require_identity`
-    が True の業界（EC 等）では本人確認ステップを前置する。承認後、dry_run=True なら
-    ログのみ（実行しない）。実 API 連携（Zendesk 等）は将来拡張。
+    - 本人確認（identity_verifier 指定時）: 提示された識別子を照合し、未確認なら
+      アクションを実行せず有人対応へ引き継ぐ（安全側）
+    - CONFIRM: 副作用のある操作は必ず intervention の承認を経由する
+    - 実行: backend（dry-run / webhook / pseudo）に委譲（support_actions.py）
     """
-    if require_identity:
-        print("   [action] 本人確認が必要な操作です（本デモでは確認済みとして続行）")
+    if identity_verifier is not None:
+        result = identity_verifier.verify(identity)
+        status = "確認済み" if result.verified else "未確認"
+        print(f"   [action] 本人確認（{result.method}）: {status} — {result.detail}")
+        if not result.verified:
+            return (f"本人確認が完了しないため '{action.action_type}' は実行せず、"
+                    "有人対応へ引き継ぎます")
 
     # intervention.py: 実行前に人間の承認（CONFIRM）を求める
     decision = ActionDecision(
@@ -496,10 +504,8 @@ def _perform_action(
     if not response.should_continue:
         return f"アクション '{action.action_type}' はキャンセルされました"
 
-    if dry_run:
-        return f"[DRY-RUN] '{action.action_type}' を実行（ログのみ・args={action.args}）"
-    # 擬似実行（実 API 連携は将来）
-    return f"'{action.action_type}' を実行しました（擬似・args={action.args}）"
+    outcome = backend.execute(action.action_type, action.args)
+    return outcome.message
 
 
 def _collect_citations(step_results) -> List[str]:
@@ -601,6 +607,7 @@ def run_support_agent(
     do_action: bool = True,
     dry_run: bool = True,
     vertical: Optional[str] = None,
+    identity: Optional[Dict[str, str]] = None,
 ) -> Optional[SupportResult]:
     # 0. APIキーの存在チェック（未設定だと LLM 呼び出しで失敗する）
     if not os.getenv("ANTHROPIC_API_KEY"):
@@ -809,16 +816,21 @@ def run_support_agent(
             trigger = f"情報なし候補句 '{marker}' はあるが" if marker is not None else "出典が Web のみだが"
             print(f"  [gate] {trigger}実質回答（answered）→ 回答を維持")
 
-    # ⑥ アクション（v3）: HITL（CONFIRM）を通して擬似実行
+    # ⑥ アクション（v3）: 本人確認 → HITL（CONFIRM）→ バックエンド実行
     if do_action:
         action = _decide_action(query, support.decision, profile, classify)
         if action is not None:
-            _banner("⑥ Action（intervention CONFIRM → 擬似ActionTool）")
+            backend = create_action_backend(dry_run=dry_run)
+            _banner(f"⑥ Action（本人確認 → intervention CONFIRM → ActionTool[{backend.name}]）")
             print(f"  [action] 種別={action.action_type}（要承認={action.requires_confirmation}）")
             support.action = action
             require_identity = bool(profile and profile.require_identity)
+            identity_verifier = (
+                create_identity_verifier(dry_run=dry_run) if require_identity else None
+            )
             support.action_result = _perform_action(
-                action, handler, dry_run, require_identity=require_identity,
+                action, handler, backend,
+                identity_verifier=identity_verifier, identity=identity,
             )
             support.identity_checked = require_identity
             print(f"  [action] {support.action_result}")
@@ -858,14 +870,26 @@ def main():
     )
     parser.add_argument(
         "--dry-run", dest="dry_run", action=argparse.BooleanOptionalAction, default=True,
-        help="アクションを実行せずログのみ（既定 ON。--no-dry-run で擬似実行）",
+        help="アクションを実行せずログのみ（既定 ON。--no-dry-run で実連携/擬似実行）",
+    )
+    parser.add_argument(
+        "--identity", action="append", default=None, metavar="KEY=VALUE",
+        help="本人確認の識別子（例: --identity order_id=1001 --identity email=a@example.com。"
+             "--no-dry-run 時に SUPPORT_IDENTITY_FILE の台帳と照合）",
     )
     args = parser.parse_args()
+
+    identity: Optional[Dict[str, str]] = None
+    if args.identity:
+        identity = dict(
+            pair.split("=", 1) for pair in args.identity if "=" in pair
+        )
 
     try:
         run_support_agent(
             args.query, verbose=args.verbose, use_web=args.use_web,
             do_action=args.do_action, dry_run=args.dry_run, vertical=args.vertical,
+            identity=identity,
         )
     except Exception as e:  # サービス未起動・鍵未設定などを分かりやすく表示
         print(f"❌ 実行に失敗しました: {type(e).__name__}: {e}", file=sys.stderr)
