@@ -1,6 +1,6 @@
 # GRACE-Support 業界特化 設計書（自治体 / SaaS / EC）
 
-**Version 1.3（#10 実装後の再計測で ec 9/9・gov 7/7＝escalate_recall 1.000 回復を確認）** | 最終更新: 2026-07-03
+**Version 1.4（次工程候補①〜④をすべて実装: ungrounded 計測是正・web_search 耐性強化・実データ取得・実 ActionTool＋本人確認）** | 最終更新: 2026-07-03
 
 > 🔍 **仕様レビュー**: 本設計・実装の横断レビューと改善提案は
 > [`docs/vertical_spec_review.md`](../../docs/vertical_spec_review.md) を参照
@@ -445,14 +445,17 @@ groundedness 検証・⑤ 再検証・haiku 判定 2 種）。実測ログから
 | 7 | ④' 判定プロンプトの few-shot 改善 | 「弊社固有の規定は見当たりませんでした」等の断り書きに haiku ジャッジが反応し、実質回答まで no_info と誤判定する over-strict を、判定基準の具体化＋few-shot 判定例で是正 | ✅ **実装済み**（PR #116。ec 9/9 に回復） |
 | 8 | テスト用コレクションの整備 | 合成 Q&A（6 CSV・各 10 件）＋一括登録スクリプト `eval/vertical/register_test_collections.py`。out-of-scope 検証用の「穴」はガードテストで維持 | ✅ **実装済み**（PR #117・§8） |
 | 9 | ステップ確信度評価の軽量化 | `evaluate_with_factors` を `claude-haiku-4-5-20251001`（`config.llm.light_model`）で実行し、eval コストを約 23%/ケース削減。reasoning・groundedness・evaluate_final は sonnet を維持 | ✅ **実装済み**（PR #118・§9.3） |
-| 10 | out-of-scope × 動的 Web の answer 化対策（escalate_recall 回復） | ①④' 判定基準を精密化: 「質問された事柄そのもの」と「確認方法の案内」を区別し案内のみは no_info、将来予測質問への非確定情報（要望・検討段階）の紹介も no_info。一般知識質問への Web 根拠つき実質回答は answered として保護する few-shot を併記。②出典が Web のみ（社内根拠ゼロ）の answer は候補句がなくても ④' 判定を必須化（`_detect_no_info_answer` の `force_judge`）。追加コストは Web-only 回答 1 件あたり haiku 1 呼び出し | ✅ **実装済み・効果確認済み**（`create_no_info_judge` / `_detect_no_info_answer`。再計測 vertical_ec6/gov3 で ec 9/9・gov 7/7＝escalate_recall 1.000 回復。saas 500 エラーは次工程候補②） |
+| 10 | out-of-scope × 動的 Web の answer 化対策（escalate_recall 回復） | ①④' 判定基準を精密化: 「質問された事柄そのもの」と「確認方法の案内」を区別し案内のみは no_info、将来予測質問への非確定情報（要望・検討段階）の紹介も no_info。一般知識質問への Web 根拠つき実質回答は answered として保護する few-shot を併記。②出典が Web のみ（社内根拠ゼロ）の answer は候補句がなくても ④' 判定を必須化（`_detect_no_info_answer` の `force_judge`）。追加コストは Web-only 回答 1 件あたり haiku 1 呼び出し | ✅ **実装済み・効果確認済み**（`create_no_info_judge` / `_detect_no_info_answer`。再計測 vertical_ec6/gov3 で ec 9/9・gov 7/7＝escalate_recall 1.000 回復。saas 500 エラーは #12） |
+| 11 | ungrounded_answer_rate の計測是正（次工程候補①） | `SupportResult`/`CaseResult` に判定できた主張数 `groundedness_decided` を伝搬し、「判定可能（decided>0）かつ支持率 < confirm_th」のみを根拠なしに計上。判定不能（Q&A 形式ソースで全 neutral）は新指標 `groundedness_neutral_rate` で可視化。根本対策として Groundedness プロンプトに Q&A 形式ソースの扱いを明記 | ✅ **実装済み**（PR #126。効果は次回再計測で確認） |
+| 12 | web_search のタイムアウト耐性強化（次工程候補②） | タイムアウト→検索0件→情報なし回答→誤エスカレの連鎖（saas「500エラー報告」）を遮断。リトライを設定化（`max_retries`/`retry_backoff_seconds`・対象を Timeout/ConnectionError/5xx に拡大）＋主バックエンド失敗/0件時の `fallback_backend`（既定 duckduckgo・キー不要）を追加 | ✅ **実装済み**（PR #127。効果は saas 再計測で確認） |
+| 13 | 実運用ナレッジの取得整備（次工程候補③） | `eval/vertical/fetch_real_knowledge.py`: gov=e-Gov 法令 API（条単位 text CSV）/ saas=OSS 公式ドキュメント（セクション単位 text CSV）を 1 コマンドで取得・整形。ec は合成 or 自社 CSV を同一手順で登録（詳細: [`docs/vertical_test_data.md`](../../docs/vertical_test_data.md) §5） | ✅ **実装済み**（PR #128。取得・登録の実行はユーザー環境） |
+| 14 | 実 ActionTool 連携と本人確認フロー（次工程候補④） | `support_actions.py`: ActionBackend 抽象（dry-run / **Webhook 実連携**（JSON POST・Bearer 任意）/ pseudo）＋本人確認（dry-run=デモ照合、実モード=顧客台帳 CSV 照合・台帳未設定は安全側で未確認→有人へ）。⑥ Action を「本人確認→CONFIRM→バックエンド実行」に再配線。CLI `--identity KEY=VALUE` 追加 | ✅ **実装済み**（PR #129。実連携は `SUPPORT_ACTION_WEBHOOK_URL` 等で有効化） |
 
 > テスト用コレクションは #8 で整備済みで、**登録後の 3 業種 KPI 再計測も完了**（2026-07-03・結果は §9.1）。
-> 再計測で判明した escalate_recall 低下（ec 0.667 / gov 0.500）への対処は **#10 として実装済み・効果確認済み**（vertical_ec6/gov3 で ec/gov とも 1.000 に回復。§9.1）。次工程候補は
-> **① ungrounded_answer_rate の計測是正**（Q&A 形式ソースへの Groundedness 検証が neutral に倒れ support_rate=0 となる過大計上。claim 分解プロンプトの Q&A 対応 or 指標側で verified=False を除外）、
-> **② web_search タイムアウト（15 秒）の調整**（saas「500 エラー報告」の不一致に寄与）、
-> **③実運用ナレッジの投入**（実 FAQ・実規約・e-Gov API 等。[`docs/vertical_test_data.md`](../../docs/vertical_test_data.md) 参照）、
-> **④実 ActionTool 連携と本人確認フローの実装**（現状は擬似・ドライラン）。
+> 再計測で判明した escalate_recall 低下（ec 0.667 / gov 0.500）への対処は **#10 として実装済み・効果確認済み**（vertical_ec6/gov3 で ec/gov とも 1.000 に回復。§9.1）。
+> **次工程候補①〜④は #11〜#14 としてすべて実装済み**（上表参照・2026-07-03）。残るライブ作業は
+> ユーザー環境での (1) 実データ取得・登録（#13 のコマンド）、(2) saas を含む 3 業種 KPI 再計測
+> （#11 の指標是正・#12 の web_search 耐性・#14 の本人確認フローの効果確認）。
 
 ---
 
@@ -472,4 +475,5 @@ groundedness 検証・⑤ 再検証・haiku 判定 2 種）。実測ログから
 | 1.0 | **主な責務・テスト章の新設**: 概要に「主な責務／各責務対応のモジュール／主要機能一覧」（doc 規約の 3 点セット）を追加、§3〜5 に業界別の「主な責務」「専用コレクション（テストデータ）」行を追加。**§8「テスト用データ」**（設計条件・意図的な「穴」・業界×コレクション×CSV 対応・登録手順・未登録時の挙動）と**§9「テスト」**（KPI 8 指標・5 カテゴリ・計測履歴・単体テスト一覧・実行コスト）を新設し、旧 §8/§9 を §10/§11 へ繰り下げ。PR #116（④' few-shot）/#117（テストコレクション整備）/#118（確信度評価の haiku 化）を残タスク表へ反映し、成熟度の「ナレッジ未登録」・§7.2 の「collections/prompt_addendum は表示のみ」等の陳腐化記述を更新。ヘッダ版数の不整合（0.8/0.9）を解消 |
 | 1.1 | **登録後再計測の反映**: `register_test_collections --recreate` 実施＋3 業種再計測（vertical_ec5/saas4/gov2）の結果を §9.1 計測履歴に記録。keyword-trap 6/6 の安定 answer・全業種 false_escalate=0・haiku 化の動作確認とレイテンシ短縮（→40〜44 秒/ケース）を確認。残課題として「out-of-scope × 動的 Web の answer 化」「ungrounded_answer_rate の過大計上」「web_search タイムアウト」を §10 次工程候補に整理 |
 | 1.2 | **#10 escalate_recall 回復を実装**: ④' 判定基準の精密化（「事柄そのもの」と「確認方法の案内」の区別・将来予測質問への非確定情報は no_info・一般知識質問の保護例）＋出典 Web のみの answer への ④' 必須化（`force_judge`）。§10 残タスク表に #10 追加、次工程候補を再番号付け。あわせて PR #120/#121 由来のテストバグ（judge 引数への `classify_as` 誤用）を修正 |
+| 1.4 | **次工程候補①〜④を #11〜#14 としてすべて実装**: ① ungrounded_answer_rate の過大計上是正（`groundedness_decided` 伝搬・判定不能は `groundedness_neutral_rate` へ分離・Groundedness プロンプトの Q&A ソース対応。PR #126）② web_search 耐性強化（リトライ設定化＋Timeout/5xx 対象拡大＋`fallback_backend`。PR #127）③ 実運用ナレッジ取得の 1 コマンド化（`fetch_real_knowledge.py`: e-Gov 法令／OSS docs → text CSV。PR #128）④ 実 ActionTool（Webhook 連携）＋本人確認フロー（台帳照合・未確認は安全側で有人へ。`support_actions.py`。PR #129）。§10 の残タスク表・次工程候補ブロックを更新。残るライブ作業は実データ登録と 3 業種 KPI 再計測（ユーザー環境） |
 | 1.3 | **#10 実装後の再計測結果を反映**: vertical_ec6（9/9・全指標 1.000）／vertical_gov3（7/7・decision_accuracy 1.000）を §9.1 計測履歴に追記。escalate_recall は ec 0.667→**1.000**・gov 0.500→**1.000** に回復し、2 つの是正機構（④' 判定基準精密化＝ec 入荷予定日、`force_judge`＋将来予測基準＝gov 税制改正）の動作をログで確認。keyword-trap 6/6・false_escalate 0.000 の維持（誤爆なし）と mean_latency（ec 38.0s／gov 41.0s）も記録。§10 の #10 を「効果確認済み」に更新 |
