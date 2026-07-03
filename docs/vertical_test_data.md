@@ -31,7 +31,7 @@
 | パス | 種別 | 内容 | 状態 |
 |---|---|---|---|
 | [`docs/migration_and_update.md`](./migration_and_update.md) | 計画 | 需要分析・GRACE-Support 採用方針・全体ロードマップ | v1.0 |
-| `docs/vertical_test_data.md` | ガイド | 本書（テストデータ準備＋成果物一覧） | v1.5 |
+| `docs/vertical_test_data.md` | ガイド | 本書（テストデータ準備＋成果物一覧） | v1.6 |
 | [`docs/vertical_spec_review.md`](./vertical_spec_review.md) | レビュー | 業界特化の仕様レビュー・改善提案（不整合の検証／残タスク再見積もり／KPI 評価設計／ロードマップ） | v1.2 |
 
 ### 評価・テスト（`eval/` ・ `tests/`）
@@ -260,3 +260,4 @@ python agent_support_example.py --vertical gov "固定資産税の減免を個�
 | 1.3 | **TODO(b) 完了**: §3 に WebSearch 検証結果を反映（e-Gov 法令 API=政府標準利用規約 2.0・商用可 / 横浜市ポータル=CC BY 4.0 だが FAQ 専用 CSV は未確認 / JGLUE 系=CC BY-SA 4.0 / amazon_reviews_multi=配布終了確定→EC は合成を第一候補に）。§5 に**実コレクション名の確定表**（`gov_faq_anthropic` 等）と登録コマンド（`register_to_qdrant.py` / `make_qa_register_qdrant.py`）を追加 |
 | 1.4 | **専用コレクションの合成データ登録を 1 コマンド化**: `eval/vertical/register_test_collections.py` と合成 Q&A（`eval/vertical/data/*.csv`・6 コレクション×各 10 件）を追加（§5 手順 2）。out-of-scope の「穴」を保つ設計をテスト（`tests/eval/test_register_test_collections.py`）で担保。ec.jsonl の keyword-trap に「未登録時は ④' 検知で escalate に倒れ得る（安全側）」ノートを追記 |
 | 1.5 | **進捗最新化**: §0 成果物一覧に「評価・テスト（`eval/vertical/*`・`tests/*`）」を追加。§6 TODO を現況に同期（実装は `agent_support_verticals.md` §8 で 6/6 ✅ 完了／残は登録・KPI 実測のみ）＋ 検証コスト削減 (d)（record/replay キャッシュ）を候補として追記 |
+| 1.6 | **KPI ベースライン実測＋誤エスカレ修正**: 3 業界の初回計測を反映（decision_accuracy = gov 0.857 / saas 1.000 / ec 0.889、citation_rate=1.00・ungrounded=0.00 は全業界）。ec の唯一の失敗「返金ポリシーを教えて」= **false escalate** を修正。原因は、出典付きの良質な内部RAG回答でも `GroundednessVerifier` が全 neutral（decided=0）だと `support_rate=0.0` になり `_answer_gate` が escalate に倒し、⑤ Web 二次生成で無関係な一般Web結果から「情報なし」回答に化けて ④' で誤エスカレする連鎖。**④-救済**（`_should_rescue_unaffirmed`）を追加し、支持0・矛盾なし・出典あり・**実質回答**の内部回答は未確認注記付きで answer を維持（範囲外の「情報なし」回答は除外し従来どおり escalate ＝ saas「売上見込み」は影響なし）。無駄な Web 二次生成も省け latency/コストも低減。テスト `tests/test_agent_support_vertical.py::TestRescueUnaffirmed` で固定。gov out-of-scope「税制改正の予測」の取りこぼし（予測・未確定系の intent）は別課題として残置 |
