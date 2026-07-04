@@ -1,6 +1,6 @@
 # 業界特化・SaaS ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-03
+**Version 1.1** | 最終更新: 2026-07-04
 
 GRACE-Support の業界特化（`--vertical saas`）のうち、**SaaS プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -46,17 +46,21 @@ SaaS プロファイルの性格は「**技術 FAQ は自動で捌き、障害�
 ```mermaid
 flowchart TB
     subgraph Profile["saas プロファイル（agent_support_example.py PROFILES）"]
+        direction TB
         COL["collections: saas_docs / saas_api"]
         TH["しきい値: 既定 0.7/0.4"]
         KW["escalate_keywords: 障害・課金 等 7 語"]
         AM["action_map: エラー/不具合/バグ → create_ticket"]
         PA["prompt_addendum: バージョン・再現手順・公式 URL"]
+        COL ~~~ TH ~~~ KW ~~~ AM ~~~ PA
     end
     subgraph Pipeline["GRACE-Support パイプライン"]
+        direction TB
         RAG["② Execute: rag_search（allowed_collections で限定）"]
         REA["② Execute: reasoning（業務方針を注入）"]
         GATE["④ 回答ゲート ＋ 強制エスカレ（二段判定）"]
         ACT["⑥ Action（create_ticket・CONFIRM 承認つき）"]
+        RAG ~~~ REA ~~~ GATE ~~~ ACT
     end
     COL --> RAG
     PA --> REA
@@ -198,3 +202,4 @@ escalate-keyword 2/2 は達成済み。
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。saas プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと saas 実例＝課金/障害 trap・専用コレクション限定と「暫定代替なし」の設計・prompt_addendum の技術回答様式・TODO(b) 結論＝OSS docs 現実解と投入手順・KPI 8 ケースと直近計測 7/8＋#12 対策の再計測観点）を整理 |
+| 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |

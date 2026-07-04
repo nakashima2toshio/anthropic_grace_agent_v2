@@ -1,6 +1,6 @@
 # 業界特化・自治体（gov）ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-03
+**Version 1.1** | 最終更新: 2026-07-04
 
 GRACE-Support の業界特化（`--vertical gov`）のうち、**自治体プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -44,17 +44,21 @@ GRACE-Support の業界特化（`--vertical gov`）のうち、**自治体プロ
 ```mermaid
 flowchart TB
     subgraph Profile["gov プロファイル（agent_support_example.py PROFILES）"]
+        direction TB
         COL["collections: gov_faq / gov_laws / wikipedia_ja"]
         TH["notify_th=0.8 / confirm_th=0.5"]
         KW["escalate_keywords: 減免・不服 等 6 語"]
         AM["action_map: 申請/手続/様式 → send_reply"]
         PA["prompt_addendum: 断定回避・担当課明示"]
+        COL ~~~ TH ~~~ KW ~~~ AM ~~~ PA
     end
     subgraph Pipeline["GRACE-Support パイプライン"]
+        direction TB
         RAG["② Execute: rag_search（allowed_collections で限定）"]
         REA["② Execute: reasoning（業務方針を注入）"]
         GATE["④ 回答ゲート（0.8/0.5 で判定）＋ 強制エスカレ（二段判定）"]
         ACT["⑥ Action（send_reply・CONFIRM 承認つき）"]
+        RAG ~~~ REA ~~~ GATE ~~~ ACT
     end
     COL --> RAG
     PA --> REA
@@ -206,3 +210,4 @@ force_judge＋将来予測基準で escalate）・keyword-trap 2/2 誤爆なし�
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。gov プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと gov 実例・allowed_collections の暫定代替 wikipedia_ja・prompt_addendum の方針と狙い・TODO(b) 検証結論と e-Gov 投入手順・KPI 7 ケースと直近計測 7/7）を整理 |
+| 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |

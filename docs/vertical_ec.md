@@ -1,6 +1,6 @@
 # 業界特化・EC ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-03
+**Version 1.1** | 最終更新: 2026-07-04
 
 GRACE-Support の業界特化（`--vertical ec`）のうち、**EC プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -46,19 +46,23 @@ keyword-trap の誤爆抑止が最も効く業界でもある。7 つの機構�
 ```mermaid
 flowchart TB
     subgraph Profile["ec プロファイル（agent_support_example.py PROFILES）"]
+        direction TB
         COL["collections: ec_policy / ec_faq"]
         TH["しきい値: 既定 0.7/0.4"]
         KW["escalate_keywords: 決済・返金 等 5 語"]
         AM["action_map: 返品/交換/キャンセル/解約 → create_ticket"]
         RI["require_identity: True"]
         PA["prompt_addendum: 本人確認必須・規定の版"]
+        COL ~~~ TH ~~~ KW ~~~ AM ~~~ RI ~~~ PA
     end
     subgraph Pipeline["GRACE-Support パイプライン"]
+        direction TB
         RAG["② Execute: rag_search（allowed_collections で限定）"]
         REA["② Execute: reasoning（業務方針を注入）"]
         GATE["④ 回答ゲート ＋ 強制エスカレ（二段判定）"]
         IDV["⑥ Action: 本人確認（support_actions）"]
         ACT["⑥ Action: CONFIRM → ActionBackend 実行"]
+        RAG ~~~ REA ~~~ GATE ~~~ IDV
     end
     COL --> RAG
     PA --> REA
@@ -221,3 +225,4 @@ uv run python -m eval.vertical.run --vertical ec --limit 3     # スモーク
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。ec プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと ec 実例＝返品/返金/解約 trap・自社規定へのスコープ限定の意図・prompt_addendum と本人確認フロー（require_identity=True・support_actions 連携）・TODO(b) 結論＝合成第一候補と投入手順・KPI 9 ケースと直近計測 9/9）を整理 |
+| 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |
