@@ -1,6 +1,6 @@
 # 業界特化 テストデータ準備ガイド ＋ 成果物一覧
 
-**Version 1.9** | 最終更新: 2026-07-03
+**Version 2.0** | 最終更新: 2026-07-04
 
 本書は GRACE-Support 業界特化（自治体 / SaaS / EC）の**テストデータ（RAG コレクション＋テスト質問）の考え方・無料データ候補**をまとめ、あわせて本取り組みで作成した**仕様書・ドキュメント・プログラムの一覧**を先頭に掲げる。
 
@@ -36,6 +36,7 @@
 | [`docs/vertical_gov.md`](./vertical_gov.md) | 業界別説明 | 自治体（gov）プロファイルの特化部分（7 機構の割り当て・二段判定・スコープ・prompt_addendum・TODO(b)・KPI） | v1.0 |
 | [`docs/vertical_saas.md`](./vertical_saas.md) | 業界別説明 | SaaS プロファイルの特化部分（同上・課金/障害 trap・OSS docs 投入） | v1.0 |
 | [`docs/vertical_ec.md`](./vertical_ec.md) | 業界別説明 | EC プロファイルの特化部分（同上・本人確認フロー・合成/自社データ投入） | v1.0 |
+| [`docs/vertical_comparison.md`](./vertical_comparison.md) | 業界比較 | 3 業界の横並び対比（性格・7 機構・6 軸・二段判定・スコープ・データ戦略・KPI の 8 観点） | v1.0 |
 
 ### 評価・テスト（`eval/` ・ `tests/`）
 
@@ -281,6 +282,7 @@ python agent_support_example.py --vertical gov "固定資産税の減免を個�
 | 1.4 | **専用コレクションの合成データ登録を 1 コマンド化**: `eval/vertical/register_test_collections.py` と合成 Q&A（`eval/vertical/data/*.csv`・6 コレクション×各 10 件）を追加（§5 手順 2）。out-of-scope の「穴」を保つ設計をテスト（`tests/eval/test_register_test_collections.py`）で担保。ec.jsonl の keyword-trap に「未登録時は ④' 検知で escalate に倒れ得る（安全側）」ノートを追記 |
 | 1.5 | **進捗最新化**: §0 成果物一覧に「評価・テスト（`eval/vertical/*`・`tests/*`）」を追加。§6 TODO を現況に同期（実装は `agent_support_verticals.md` §8 で 6/6 ✅ 完了／残は登録・KPI 実測のみ）＋ 検証コスト削減 (d)（record/replay キャッシュ）を候補として追記 |
 | 1.6 | **KPI ベースライン実測＋誤エスカレ修正**: 3 業界の初回計測を反映（decision_accuracy = gov 0.857 / saas 1.000 / ec 0.889、citation_rate=1.00・ungrounded=0.00 は全業界）。ec の唯一の失敗「返金ポリシーを教えて」= **false escalate** を修正。原因は、出典付きの良質な内部RAG回答でも `GroundednessVerifier` が全 neutral（decided=0）だと `support_rate=0.0` になり `_answer_gate` が escalate に倒し、⑤ Web 二次生成で無関係な一般Web結果から「情報なし」回答に化けて ④' で誤エスカレする連鎖。**④-救済**（`_should_rescue_unaffirmed`）を追加し、支持0・矛盾なし・出典あり・**実質回答**の内部回答は未確認注記付きで answer を維持（範囲外の「情報なし」回答は除外し従来どおり escalate ＝ saas「売上見込み」は影響なし）。無駄な Web 二次生成も省け latency/コストも低減。テスト `tests/test_agent_support_vertical.py::TestRescueUnaffirmed` で固定。gov out-of-scope「税制改正の予測」の取りこぼし（予測・未確定系の intent）は別課題として残置 |
+| 2.0 | **業界比較ドキュメントを追加**: `docs/vertical_comparison.md`（3 業界の横並び対比＝性格・7 機構・6 軸・二段判定の衝突語彙・検索スコープ設計・prompt_addendum・データ戦略・KPI の 8 観点＋全体対比図）。§0 ドキュメント一覧に追記 |
 | 1.9 | **業界別説明ドキュメントを追加**: `docs/vertical_gov.md` / `vertical_saas.md` / `vertical_ec.md`（各業界の特化部分＝7 機構の割り当て・二段判定・collections 実検索限定・prompt_addendum 注入・実コレクション命名＋TODO(b)・KPI 評価ハーネス）。§0 ドキュメント一覧に追記 |
 | 1.8 | **実運用ナレッジ取得を 1 コマンド化（次工程候補③）**: `eval/vertical/fetch_real_knowledge.py` を追加。gov は e-Gov 法令 API（v1 XML・政府標準利用規約 2.0）から法令全文を条単位の text CSV へ、saas は OSS 公式ドキュメント（既定 FastAPI 日本語版・MIT・タグ固定 URL）を見出しセクション単位の text CSV へ整形（長文は文境界で分割・出典 URL を source 列に保持）。ec は公開実データが無いため合成 or 自社 CSV を同一手順で登録（§5 手順 3 を 3-1 取得 / 3-2 登録に再構成）。パース・分割・CSV 出力は `tests/eval/test_fetch_real_knowledge.py` で固定（ネットワーク不要）。ライブ取得・登録・KPI 再計測はユーザー環境で実施 |
 | 1.7 | **④-救済の判定基準を是正（回帰修正）**: v1.6 で追加した ④-救済が再計測で false escalate を減らせず、むしろ悪化（saas 1.000→0.875・ec 0.889→0.778／新規の in-scope 誤エスカレ = saas「API のレート制限」・ec「送料」）。原因は救済条件が `supported == 0`（全 neutral）に限定されていたこと。`GroundednessVerifier`（Haiku）は出力ぶれで **一部だけ肯定**（例 `supported=1 / contradicted=2` → `support_rate=0.33 < confirm_th`）も返し、この場合も「肯定の裏付けが弱いだけで矛盾なし」の良質回答が escalate→⑤ Web 二次生成→④' 誤エスカレの連鎖に落ちる。救済判定を**支持数の多寡ではなく「矛盾の有無」**に変更（`_should_rescue_unaffirmed` から `supported` 引数を削除。矛盾なし・出典あり・実質回答なら未確認注記付きで answer 維持）。矛盾検出時・範囲外「情報なし」回答（saas「売上見込み」/ ec「入荷予定日」）は従来どおり escalate。`TestRescueUnaffirmed` に低支持（`supported>0` かつ低 support_rate）ケースを追加して固定。**注意**: 失敗の主因である ③ groundedness は Haiku 依存で非決定的なため、`eval/vertical/run.py --show-agent-output` で失敗ケースのゲート発火を確認しつつ再計測して検証すること |
