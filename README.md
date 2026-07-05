@@ -1,4 +1,35 @@
 # 自律型Agent + RAG (Anthropic Claude API版) プロジェクト
+
+## 【NEW】業界特化（Gov・自治体、SaaS、EC）自律型AI-Agent（GRACE-Support）
+
+日本語 RAG 自律エージェント（GRACE）を土台にした**カスタマーサポート／社内ナレッジ・コパイロット**の業界特化版です。
+**「共通エンジンは 1 つ、差し替わるのはプロファイルだけ」** — `--vertical {gov|saas|ec}` で業界プロファイル
+（`VerticalProfile`）を適用し、次の 6 軸を業界別に切り替えます。
+
+- **検索スコープ**（`allowed_collections`）: 回答の根拠にしてよいナレッジを業界のコレクションに限定
+- **回答の厳しさ**（しきい値）: gov は「間違えるくらいなら窓口へ」＝ 3 業界で唯一 0.8/0.5 に厳格化
+- **強制エスカレ語 × 二段判定**: キーワード候補検出（第 1 段）＋軽量 LLM 意図分類（第 2 段）で、
+  「減免制度の概要を教えて」（FAQ）は回答し「減免を個別に判断してほしい」（依頼）は人へ — 誤エスカレ・誤起票を抑止
+- **アクション**: 不具合・返品等の依頼を HITL（CONFIRM 承認）経由で起票（既定は安全なドライラン。Webhook 実連携対応）
+- **本人確認**: EC のみ `require_identity=True`（注文操作は本人確認 → 承認 → 実行の順・未確認なら有人へ）
+- **KPI 自動計測**: `eval/vertical/run.py` で分岐一致率・誤エスカレ率・出典付与率・本人確認遵守率等を計測
+  （直近: gov 7/7・EC 9/9・SaaS 7/8）
+
+回答には**必ず出典**を付け、根拠不足なら Web フォールバックで裏取りして内部×Web を相互検証、
+それでも不足なら「わかりません」と誠実に答えて**有人対応へエスカレーション**します。
+
+**業界特化ドキュメント一覧:**
+
+> | # | ドキュメント | 説明 |
+> |---|---|---|
+> | 1 | [docs/agent_support_example.md](docs/agent_support_example.md) | GRACE-Support 本体（`agent_support_example.py`）の IPO 仕様 — 全体アーキテクチャ・①Plan〜⑦応答のデータフロー・クラス/関数詳細・CLI/プログラム使用例 |
+> | 2 | [docs/vertical_comparison.md](docs/vertical_comparison.md) | **3 業界の横並び比較** — 性格・7 つの機構・6 軸・二段判定の衝突語彙・検索スコープ設計・データ戦略・KPI の 8 観点対比＋全体対比図 |
+> | 3 | [docs/vertical_gov.md](docs/vertical_gov.md) | **Gov・自治体プロファイル** — 「間違えるくらいなら窓口へ」。唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤爆抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
+> | 4 | [docs/vertical_saas.md](docs/vertical_saas.md) | **SaaS プロファイル** — 「技術 FAQ は自動・障害/課金は即・人へ」。エスカレ語 7 語（最多）・課金/SLA trap・不具合の起票・OSS docs 投入・KPI 7/8 |
+> | 5 | [docs/vertical_ec.md](docs/vertical_ec.md) | **EC プロファイル** — 「手続きは自動化・注文情報には本人確認」。唯一の `require_identity=True`（本人確認フロー）・返品/返金/解約 trap・KPI 9/9 |
+
+---
+
 #### (1) 自律型Agent（Anthropic Claude API利用、スクラッチで作成）
 - (1-1) 自立型Agentの全体ロジック・流れ
 - 計画策定（Plan） → 実行（Execute）- → 信頼度評価（Confidence） → 介入判定（Intervention） → リプラン（Replan）
