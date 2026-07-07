@@ -1,15 +1,18 @@
 # agent_support_example.py - 日本語ナレッジ駆動サポート・コパイロット（GRACE-Support）設計書
 
-**Version 1.0（v1〜v3 実装済み）** | 最終更新: 2026-06-28
+**Version 1.1（v1〜v3 ＋ 業界特化 実装済み）** | 最終更新: 2026-07-07
 
 > **参考ドキュメント**
+> - [`grace/doc/agent_support_example_flow.md`](./agent_support_example_flow.md) — **1 コマンドの実行トレース**（`--vertical gov` の IN/OUT データフロー。本書 §1 のフロー図に対応）
 > - [`docs/migration_and_update.md`](../../docs/migration_and_update.md) — 需要分析と GRACE-Support 採用方針（本設計の上位資料）
 > - [`grace/doc/agent_support_verticals.md`](./agent_support_verticals.md) — 業界特化（自治体/SaaS/EC）設計
 > - [`grace/doc/grace_core_flow.md`](./grace_core_flow.md) — 5 段階設計・8 コアモジュール・プロンプト/API 発行部
 > - [`grace/doc/agent_example_core8.md`](./agent_example_core8.md) — コア 8 モジュール明示利用サンプルの設計書
 > - [`grace/doc/grace_core.md`](./grace_core.md) — コアモジュール群の横断アーキテクチャ
 
-> ✅ **実装状況**: `agent_support_example.py` は **v1〜v3 を実装済み**（内部RAG＋出典／Webフォールバック＋相互検証／アクション＋HITL・既定ドライラン）。本書は実装に合わせて更新済み。
+> ✅ **実装状況**: `agent_support_example.py` は **v1〜v3 ＋ 業界特化（`--vertical {gov|saas|ec}`）を実装済み**（内部RAG＋出典／Webフォールバック＋相互検証／アクション＋HITL・既定ドライラン／二段判定・④' 情報なし回答検知）。本書は実装に合わせて更新済み。
+>
+> 💡 **実行環境**: 本リポジトリは `uv` 管理。以下のコマンド例はすべて `uv run python …` 形式で示す（従来の `python …` でも動くが、依存解決を含む `uv run` を推奨）。
 
 ---
 
@@ -22,11 +25,17 @@
 - [4. 新規ツール ActionTool 仕様](#4-新規ツール-actiontool-仕様)
 - [5. HITL ポリシー](#5-hitl-ポリシー)
 - [6. 処理シーケンス](#6-処理シーケンス)
-- [7. 想定プログラム構成（関数）](#7-想定プログラム構成関数)
+- [7. プログラム構成（実装済み関数）](#7-プログラム構成実装済み関数)
 - [8. CLI 仕様](#8-cli-仕様)
 - [9. 評価指標（KPI）](#9-評価指標kpi)
 - [10. 実装ロードマップ](#10-実装ロードマップ)
 - [11. 変更履歴](#11-変更履歴)
+
+> 📎 **1 コマンドの実行トレースを見たい場合**は、本書の姉妹編
+> [`agent_support_example_flow.md`](./agent_support_example_flow.md) を参照。
+> `uv run python agent_support_example.py --vertical gov "住民票の写しの取り方は？"` が
+> §1 のフロー図（① Plan →②Execute →③Confidence →④ゲート →⑤Web →⑥Action）を
+> どう流れるかを、**モジュール・コード・データ（IN/OUT）**で追跡している。
 
 ---
 
@@ -120,29 +129,43 @@ class Q,CLS,RAG,GND,GATE,ANS,WARN,WEB,ESC,ACT,HITL,DO,OUT default
 
 ## 3. データ契約（実装済み・dataclass）
 
-v1〜v3 では `agent_support_example.py` 内の **dataclass** として実装している（コア `schemas.py` への追加は将来。出典は当面 `list[str]`）。
+v1〜v3 ＋業界特化では `agent_support_example.py` 内の **dataclass** として実装している（コア `schemas.py` への追加は将来。出典は当面 `list[str]`）。
 
-```text
-ActionRequest（v3）
-  - action_type: "create_ticket" | "send_reply" | "escalate_to_human"
-  - args: dict                     # 起票内容・宛先など
-  - requires_confirmation: bool = True   # 副作用は原則 True
+```python
+@dataclass
+class ActionRequest:
+    """副作用のある操作の要求（v3・擬似）。"""
+    action_type: Literal["create_ticket", "send_reply", "escalate_to_human"]
+    args: dict = field(default_factory=dict)      # 起票内容・宛先など
+    requires_confirmation: bool = True            # 副作用は原則 True
 
-SupportResult（v3）
-  - answer: Optional[str]          # 最終回答（出典つき）
-  - citations: list[str]           # 提示した出典（"[社内] …" / "[Web] …"）
-  - groundedness: float            # 支持率 (0.0-1.0)
-  - decision: "answer" | "escalate"
-  - warning: bool                  # 中信頼（未確認）の注意書きを付けるか
-  - used_web: bool                 # Web フォールバックを使ったか（v2）
-  - source_agreement: Optional[float]  # 内部×Web の意味的一致度（v2 相互検証）
-  - contradiction: bool            # 矛盾の可能性（v2）
-  - action: Optional[ActionRequest]    # 実施（予定）のアクション（v3）
-  - action_result: Optional[str]       # アクションの結果メッセージ（v3）
-  - overall_confidence: float          # executor 由来の較正済み全体信頼度
+@dataclass
+class SupportResult:
+    """サポート回答の結果（回答ゲート／Web／アクション／業界特化を集約）。"""
+    answer: Optional[str]                         # 最終回答（出典つき）
+    citations: List[str] = field(default_factory=list)   # "[社内] …" / "[Web] …"
+    groundedness: float = 0.0                     # 支持率 (0.0-1.0)
+    groundedness_decided: int = 0                 # 判定できた主張数(supported+contradicted)。0=判定不能
+    decision: Literal["answer", "escalate"] = "escalate"
+    warning: bool = False                         # 中信頼（未確認）の注意書きを付けるか
+    used_web: bool = False                        # Web（動的検索 or ⑤ フォールバック）を使ったか
+    source_agreement: Optional[float] = None      # 内部×Web の意味的一致度（相互検証）
+    contradiction: bool = False                   # 矛盾の可能性
+    action: Optional[ActionRequest] = None        # 実施（予定）のアクション
+    action_result: Optional[str] = None           # アクションの結果メッセージ
+    vertical: Optional[str] = None                # 適用した業界プロファイル（gov/saas/ec）
+    overall_confidence: float = 0.0               # executor 由来の較正済み全体信頼度
+    intent: Optional[Literal["question","request","incident"]] = None  # 二段判定の意図分類結果
+    forced_escalate: bool = False                 # エスカレ語による強制エスカレか（KPI 用）
+    identity_checked: bool = False                # 本人確認ステップが起動したか（KPI 用）
+    no_info_detected: bool = False                # ④' 情報なし回答検知で escalate に倒したか
+    web_reused: bool = False                      # ⑤ で executor の Web 結果を再利用したか
 ```
 
-> 📝 現状 `decision` は `answer` / `escalate` の 2 値（設計当初の `ask`/`action` は `warning` フラグ・`action` フィールドに整理）。`Citation` の構造化（kind/collection/score）はコア schemas 化時に導入予定。
+> 📝 `decision` は `answer` / `escalate` の 2 値（設計当初の `ask`/`action` は `warning` フラグ・`action` フィールドに整理）。
+> `groundedness_decided` / `intent` / `forced_escalate` / `identity_checked` / `no_info_detected` / `web_reused` /
+> `vertical` は **業界特化・二段判定・④' ゲート・KPI 計測**のために追加したフィールド（`eval/vertical/` が参照）。
+> `Citation` の構造化（kind/collection/score）はコア schemas 化時に導入予定。
 
 ---
 
@@ -223,15 +246,49 @@ sequenceDiagram
 
 `agent_example.py` / `agent_example_core8.py` と同じ CLI 作法（`.env`＋鍵ガード＋`argparse main()`＋`try/except`＋`if __name__`）。
 
+### 7.1 オーケストレーション・回答ゲート
+
 | 関数 | 概要（実装） |
 |------|-------------|
-| `run_support_agent(query, verbose, use_web, do_action, dry_run)` | 計画 → 実行 → 根拠評価 → 回答ゲート → （不足時）Web＋相互検証 → （必要なら）アクション → `SupportResult` を返す |
-| `_answer_gate(support_rate, verified, citation_count, notify_th, confirm_th)` | 支持率・出典数から `(decision, warning)` を決める純関数（answer/escalate） |
-| `_decide_action(query, decision)` | 問い合わせ意図＋判定から `ActionRequest` を選ぶ（v3） |
-| `_perform_action(action, handler, dry_run)` | intervention CONFIRM を通してから擬似実行（v3・既定ドライラン） |
-| `_collect_internal_citations` / `_web_citations` / `_web_source_texts` | 内部/Web の出典・検証用本文の抽出 |
-| `_render(support_result)` | 出典つき回答・判定・注意書き・アクション結果を整形表示 |
-| `main()` | argparse（`query`・`-v`・`--no-web`・`--no-action`・`--dry-run`）→ `run_support_agent` を例外保護実行 |
+| `run_support_agent(query, verbose, use_web, do_action, dry_run, vertical, identity)` | ①計画 →②実行 →③根拠評価 →④回答ゲート＋強制エスカレ →⑤（不足時）Web＋相互検証 →④'情報なし検知 →⑥（必要なら）本人確認＋アクション →⑦整形 → `SupportResult` を返す。中核オーケストレータ |
+| `_answer_gate(support_rate, verified, citation_count, notify_th, confirm_th)` | 支持率・出典数から `(decision, warning)` を決める純関数（answer/escalate。しきい値はプロファイルで上書き） |
+| `_pick_groundedness(*results)` | 複数の `GroundednessResult` から `(支持率, 判定できた主張数)` を選ぶ純関数（同率なら decided 多を優先） |
+| `_should_rescue_unaffirmed(...)` | 出典付き・非「情報なし」・矛盾なしの内部回答を、支持率が弱いだけで escalate に落とさず救済すべきか判定（無駄な⑤・誤エスカレを回避） |
+
+### 7.2 二段判定（業界特化・誤爆抑止）
+
+| 関数 | 概要（実装） |
+|------|-------------|
+| `create_intent_classifier(config)` | 軽量 LLM（`claude-haiku-4-5-20251001`）で意図を `question/request/incident` に分類する関数を返す（第 2 段） |
+| `_match_keyword(query, keywords)` | キーワード候補の部分一致（第 1 段）。最初に一致した語を返す純関数 |
+| `_should_force_escalate(query, profile, classify)` | エスカレ語×意図分類の二段判定で強制エスカレ要否を決める（`question` は誤爆抑止） |
+| `_decide_action(query, decision, profile, classify)` | `action_map`（またはデモ既定）×意図分類でアクションを選ぶ（`question` は起票せず回答のみ） |
+
+### 7.3 ④' 情報なし回答検知
+
+| 関数 | 概要（実装） |
+|------|-------------|
+| `create_no_info_judge(config)` | 軽量 LLM で「実質回答(answered)／情報なし(no_info)」を判定する関数を返す（第 2 段） |
+| `_detect_no_info_answer(query, answer, judge, force_judge)` | 定型句（`NO_INFO_MARKERS`）候補検出＋LLM 判定の二段判定。Web のみ出典は `force_judge=True` で必須判定 |
+
+### 7.4 アクション・出典・表示
+
+| 関数 | 概要（実装） |
+|------|-------------|
+| `_perform_action(action, handler, backend, identity_verifier, identity)` | **本人確認 → intervention CONFIRM → バックエンド実行** の順で擬似実行（既定ドライラン。`support_actions.py` に委譲） |
+| `_collect_citations(step_results)` | 各ステップの sources を重複排除し `[社内]`/`[Web]` ラベルを付与 |
+| `_citation_text` / `_merge_citations` / `_web_citations` / `_web_source_texts` | 出典ラベルの除去・内部×Web 出典の結合（URL 包含で重複排除）・Web 結果からの出典/検証本文抽出 |
+| `_render(support_result)` | 出典つき回答・判定・注意書き・アクション結果・根拠メタ（vertical/intent 等）を整形表示 |
+| `main()` | argparse（`query`・`-v`・`--vertical`・`--no-web`・`--no-action`・`--dry-run`・`--identity`）→ `run_support_agent` を例外保護実行 |
+
+### 7.5 定数・プロファイル
+
+| 定義 | 概要 |
+|------|------|
+| `PROFILES: Dict[str, VerticalProfile]` | 組み込み業界プロファイル（`gov`/`saas`/`ec`）。検索スコープ・エスカレ語・アクション語彙・本人確認・しきい値・方針を保持 |
+| `VerticalProfile`（dataclass） | 業界プロファイルの共通枠（設計: `agent_support_verticals.md` §1/§6） |
+| `NO_INFO_MARKERS` | 「見当たりません」等の情報なし候補検出パターン（④' 第 1 段） |
+| `INTENT_MODEL = "claude-haiku-4-5-20251001"` | 二段判定・④' 判定に使う軽量モデル |
 
 ---
 
@@ -239,18 +296,51 @@ sequenceDiagram
 
 | 引数 | 既定 | 説明 |
 |------|------|------|
-| `query`（位置・任意） | サンプル質問 | 問い合わせ内容 |
+| `query`（位置・任意） | `"パスワードを忘れました"` | 問い合わせ内容 |
 | `-v`, `--verbose` | off | 支持率の内訳（supported/total/矛盾）など詳細を表示 |
+| `--vertical {gov\|saas\|ec}` | なし（共通挙動） | 業界プロファイルを適用（検索スコープ・エスカレ語・しきい値・アクション対応・本人確認・方針を一括切替） |
 | `--no-web` | off（Web 有効） | Web フォールバックを無効化（内部RAGのみ） |
 | `--no-action` | off（アクション有効） | アクション（v3）を無効化 |
-| `--dry-run / --no-dry-run` | `dry-run`（安全） | アクションを実行せずログのみ（既定 ON。`--no-dry-run` で擬似実行） |
+| `--dry-run / --no-dry-run` | `dry-run`（安全） | アクションを実行せずログのみ（既定 ON。`--no-dry-run` で実連携/擬似実行） |
+| `--identity KEY=VALUE`（複数可） | なし | 本人確認の識別子（例: `--identity order_id=1001`）。`--no-dry-run` 時に台帳と照合（EC 等） |
+
+### 8.1 基本（共通・プロファイル未適用）
 
 ```bash
-python agent_support_example.py "パスワードを忘れました"        # FAQ即答→出典つき
-python agent_support_example.py "解約したい"                    # アクション（CONFIRM＋ドライラン）
-python agent_support_example.py --no-dry-run "解約したい"        # 擬似実行
-python agent_support_example.py -v "最新の料金改定は？"          # 内部不足→Webフォールバック＋相互検証
+# FAQ 即答 → 出典つき回答
+uv run python agent_support_example.py "パスワードを忘れました"
+
+# アクション（CONFIRM ＋ 既定ドライラン）
+uv run python agent_support_example.py "解約したい"
+
+# 擬似実行（--no-dry-run で実連携/擬似実行に切替）
+uv run python agent_support_example.py --no-dry-run "解約したい"
+
+# 内部不足 → Web フォールバック ＋ 相互検証（-v で支持率の内訳も表示）
+uv run python agent_support_example.py -v "最新の料金改定は？"
 ```
+
+### 8.2 業界特化（`--vertical`）
+
+`--vertical` を付けると、その業界の**検索スコープ・エスカレ語・しきい値・アクション語彙・本人確認・方針**が一括で適用される。
+
+```bash
+# 自治体: 正確性最優先（notify=0.8/confirm=0.5）・断定回避・迷ったら窓口へ
+uv run python agent_support_example.py --vertical gov "住民票の写しの取り方は？"
+
+# SaaS: 速く・正確・再現手順（障害/課金は escalate）
+uv run python agent_support_example.py --vertical saas -v "Webhook の設定方法は？"
+uv run python agent_support_example.py --vertical saas "サービスが落ちています"        # 障害 → escalate
+
+# EC: 副作用操作は 本人確認 → CONFIRM → ドライラン
+uv run python agent_support_example.py --vertical ec "返品したい"
+uv run python agent_support_example.py --vertical ec --no-dry-run \
+    --identity order_id=1001 --identity email=a@example.com "返品したい"
+```
+
+> 📎 上記 `--vertical gov "住民票の写しの取り方は？"` の 1 実行が、§1 のフロー図をどう流れるか
+> （各ステップの IN/OUT データ）は [`agent_support_example_flow.md`](./agent_support_example_flow.md) を参照。
+> 業界特化の全体設計・KPI・テストデータは [`agent_support_verticals.md`](./agent_support_verticals.md)。
 
 ---
 
@@ -275,7 +365,8 @@ python agent_support_example.py -v "最新の料金改定は？"          # 内�
 | **v1 (MVP)** | 内部 RAG → 出典つき回答／根拠不足なら「わかりません」 | 回答ゲート（`_answer_gate`）＋ `SupportResult` | ✅ 実装済み（PR #99） |
 | **v2** | 内部不足時に Web フォールバック＋相互検証（矛盾提示） | web_search 起動条件・引用統合・`SourceAgreementCalculator` | ✅ 実装済み（PR #100） |
 | **v3** | アクション（起票/返信/エスカレ）＋ HITL（ドライラン） | 擬似 ActionTool ＋ CONFIRM 配線（`_decide_action`/`_perform_action`） | ✅ 実装済み（PR #101） |
-| 次 | 業界特化（自治体/SaaS/EC） | `VerticalProfile` 差し替え | 設計済み（[`agent_support_verticals.md`](./agent_support_verticals.md)） |
+| **業界特化** | `--vertical {gov\|saas\|ec}`（検索スコープ・エスカレ語・しきい値・アクション・本人確認・方針） | `VerticalProfile`／`PROFILES`／二段判定（`_should_force_escalate`）／`allowed_collections`／`prompt_addendum` | ✅ 実装済み（PR #106 ほか。[`agent_support_verticals.md`](./agent_support_verticals.md)） |
+| **④' 情報なし検知ほか** | 「見つかりません」型回答の escalate 化・Web 重複実行の排除・KPI 是正・本人確認フロー | `_detect_no_info_answer`／`create_no_info_judge`／`_should_rescue_unaffirmed`／`support_actions.py` | ✅ 実装済み（PR #116〜#129。[`agent_support_verticals.md` §10](./agent_support_verticals.md)） |
 
 ---
 
@@ -285,3 +376,4 @@ python agent_support_example.py -v "最新の料金改定は？"          # 内�
 |-----------|---------|
 | 0.1 | 初版作成（設計フェーズ）。GRACE-Support の回答判定フロー・groundedness ゲート・データ契約・ActionTool 仕様・HITL ポリシー・処理シーケンス・想定関数構成・CLI 仕様・KPI・実装ロードマップ v1〜v3 を定義 |
 | 1.0 | v1〜v3 実装完了に合わせて更新。データ契約を実装済み dataclass（SupportResult/ActionRequest・decision は answer/escalate の 2 値）に、関数構成・CLI 仕様（`--no-web`/`--no-action`/`--dry-run`）を実コードに整合。ロードマップを実装済みに更新し、業界特化設計（`agent_support_verticals.md`）へのリンクを追加 |
+| 1.1 | **業界特化の実装反映＋コマンド表記統一**。コマンド例を `uv run python …` 形式に統一。§8 CLI に `--vertical {gov\|saas\|ec}` / `--identity` を追加し、業界別の実行例（8.1 共通／8.2 業界特化）を新設。§3 データ契約を実コードの dataclass（`groundedness_decided`/`vertical`/`intent`/`forced_escalate`/`identity_checked`/`no_info_detected`/`web_reused` を追記）に更新。§7 関数構成を二段判定・④' 情報なし検知・本人確認フローを含む実装済み関数（`_should_force_escalate`/`_decide_action`/`create_intent_classifier`/`create_no_info_judge`/`_detect_no_info_answer`/`_should_rescue_unaffirmed`/`_perform_action`）＋定数（`PROFILES`/`NO_INFO_MARKERS`/`INTENT_MODEL`）に刷新。ロードマップに業界特化・④' 行を追加。姉妹編 `agent_support_example_flow.md`（1 コマンド実行トレース）へのリンクを各所に追加 |
