@@ -420,9 +420,9 @@ uv run python -m eval.vertical.run --vertical ec --report logs/vertical_ec.json
 - **Claude API 版（本記事の実装）**: https://github.com/nakashima2toshio/anthropic_grace_agent_v2
 - **ローカル LLM 版（Ollama・オンプレ向け）**: https://github.com/nakashima2toshio/ollama_grace_agent_v2
 - 詳細ドキュメント（リポジトリ内）
-  - `docs/vertical_comparison.md` — 3 業種の横並び比較（8 観点）
-  - `docs/vertical_gov.md` / `vertical_saas.md` / `vertical_ec.md` — 業種別の特化部分
-  - `docs/agent_support_example.md` — 本体の仕様（IPO 形式）
-  - `grace/doc/agent_support_verticals.md` — 業界特化の設計書（改善履歴・KPI 計測履歴つき）
+  - [docs/vertical_comparison.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_comparison.md) — 3 業種の横並び比較（8 観点）
+  - [docs/vertical_gov.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_gov.md) / [vertical_saas.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_saas.md) / [vertical_ec.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_ec.md) — 業種別の特化部分
+  - [docs/agent_support_example.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/agent_support_example.md) — 本体の仕様（IPO 形式）
+  - [grace/doc/agent_support_verticals.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/grace/doc/agent_support_verticals.md) — 業界特化の設計書（改善履歴・KPI 計測履歴つき）
 
 日本語 RAG・社内ナレッジ検索・自律エージェントの PoC からオンプレ本番化まで、お手伝いしています。「クラウドに出せないデータで試したい」「PoC で止まっている」方、ご相談は GitHub または X の DM へどうぞ。
