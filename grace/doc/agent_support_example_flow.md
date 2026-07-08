@@ -1,6 +1,6 @@
 # agent_support_example.py - 1 コマンド実行トレース（`--vertical gov`）
 
-**Version 1.0** | 最終更新: 2026-07-07
+**Version 1.1** | 最終更新: 2026-07-08
 
 > 本書は [`agent_support_example.md`](./agent_support_example.md) の姉妹編。
 > 設計書 §1「アーキテクチャ構成図（回答判定フロー）」の流れに沿って、
@@ -94,7 +94,8 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 ## 2. ステップ別トレース（モジュール・コード・データ IN/OUT）
 
 各ステップを **モジュール / コード（関数・行） / データ（IN・OUT）** の 3 点で示す。
-行番号は `agent_support_example.py` の実装（本書作成時点）に対応。
+各 `text` ブロックは **IN（入力）→ Process（呼び出すクラス・関数と処理）→ OUT（出力＝Process の生成物）** の
+3 段で読む。行番号は `agent_support_example.py` の実装（本書作成時点）に対応。
 
 ### S0. 起動・引数解釈（`main()`→`run_support_agent`）
 
@@ -105,11 +106,13 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 | **処理** | 1. `argparse` が `--vertical gov` と位置引数 `query` を解釈<br>2. `--identity` 未指定なので `identity=None`<br>3. `ANTHROPIC_API_KEY` の存在をガード（未設定なら警告して `None` 返却） |
 
 ```text
-IN : argv = ["--vertical", "gov", "住民票の写しの取り方は？"]
-OUT: run_support_agent(
-        query="住民票の写しの取り方は？",
-        verbose=False, use_web=True, do_action=True, dry_run=True,
-        vertical="gov", identity=None)
+IN     : argv = ["--vertical", "gov", "住民票の写しの取り方は？"]
+Process: main() … argparse.parse_args() で argv を解釈し、--identity 未指定→None、
+         ANTHROPIC_API_KEY をガードしてから run_support_agent(...) を呼ぶ
+OUT    : run_support_agent(
+             query="住民票の写しの取り方は？",
+             verbose=False, use_web=True, do_action=True, dry_run=True,
+             vertical="gov", identity=None)
 ```
 
 ### S1. 業界プロファイル適用（gov）
@@ -121,16 +124,20 @@ OUT: run_support_agent(
 | **処理** | 1. `get_config()` で共通設定を取得し、planner/executor/verifier/tool_registry/intervention を生成<br>2. `create_intent_classifier(config)` / `create_no_info_judge(config)`（軽量 `claude-haiku-4-5-20251001`）を用意（**この時点では呼ばない**。候補一致時のみ発火）<br>3. gov プロファイルで `notify_th=0.8 / confirm_th=0.5` に上書き<br>4. **検索スコープと方針をコア config へ書き込む**（tools は config 参照を保持するため実行時に効く） |
 
 ```text
-IN : vertical="gov"
-OUT: profile = VerticalProfile(name="自治体",
-        collections=["gov_faq_anthropic","gov_laws_anthropic","wikipedia_ja"],
-        escalate_keywords=["法的","訴訟","減免","個別","例外","不服"],
-        action_map={"申請":"send_reply","手続":"send_reply","様式":"send_reply"},
-        require_identity=False, notify_th=0.8, confirm_th=0.5,
-        prompt_addendum="条例・公式案内に基づき、断定を避け、該当ページ・担当課を明示。個人情報は尋ねない。")
-     config.qdrant.allowed_collections = [...gov 3 コレクション...]   # RAG 検索を限定
-     config.llm.prompt_addendum        = "条例・公式案内に基づき…"      # reasoning へ注入
-     notify_th=0.8 / confirm_th=0.5
+IN     : vertical="gov"
+Process: run_support_agent() 内 … get_config() で config 取得、
+         planner/executor/verifier/tool_registry/intervention を生成、
+         PROFILES.get("gov") で profile を取得し、
+         config.qdrant.allowed_collections / config.llm.prompt_addendum へ配線
+OUT    : profile = VerticalProfile(name="自治体",
+             collections=["gov_faq_anthropic","gov_laws_anthropic","wikipedia_ja"],
+             escalate_keywords=["法的","訴訟","減免","個別","例外","不服"],
+             action_map={"申請":"send_reply","手続":"send_reply","様式":"send_reply"},
+             require_identity=False, notify_th=0.8, confirm_th=0.5,
+             prompt_addendum="条例・公式案内に基づき、断定を避け、該当ページ・担当課を明示。個人情報は尋ねない。")
+         config.qdrant.allowed_collections = [...gov 3 コレクション...]   # RAG 検索を限定
+         config.llm.prompt_addendum        = "条例・公式案内に基づき…"      # reasoning へ注入
+         notify_th=0.8 / confirm_th=0.5
 ```
 
 **端末出力（抜粋）**:
@@ -152,11 +159,13 @@ OUT: profile = VerticalProfile(name="自治体",
 | **処理** | LLM がクエリの複雑度を推定し、`rag_search`（必要なら `reasoning`）ステップからなる `ExecutionPlan` を生成 |
 
 ```text
-IN : query="住民票の写しの取り方は？"
-OUT: plan = ExecutionPlan(
-        steps=[ PlanStep(step_id=1, action="rag_search", ...),
-                PlanStep(step_id=2, action="reasoning", ...) ],
-        complexity=<0.0-1.0>)
+IN     : query="住民票の写しの取り方は？"
+Process: Planner.create_plan(query) … LLM がクエリの複雑度を推定し、
+         rag_search（必要なら reasoning）ステップからなる ExecutionPlan を生成
+OUT    : plan = ExecutionPlan(
+             steps=[ PlanStep(step_id=1, action="rag_search", ...),
+                     PlanStep(step_id=2, action="reasoning", ...) ],
+             complexity=<0.0-1.0>)
 ```
 
 **端末出力**: `[plan] 2 ステップ (complexity=0.35)` のような 1 行。
@@ -170,16 +179,19 @@ OUT: plan = ExecutionPlan(
 | **処理** | 1. `RAGSearchTool` が Qdrant を検索。**S1 で設定した `allowed_collections` により gov 3 コレクションへ限定**（`_apply_allowed_collections`。未登録は無視、1 つも無ければ制限なし）<br>2. スコア不足時は executor が `web_search` を**動的挿入**（その出典は `[Web]` ラベルになる）<br>3. `ReasoningTool._build_prompt()` が **S1 の `prompt_addendum` を「業務方針（遵守）」としてシステム指示直後に注入**し、根拠から日本語回答を生成 |
 
 ```text
-IN : plan（②の計画）, config.qdrant.allowed_collections（gov 3 件）, config.llm.prompt_addendum（gov 方針）
-OUT: result = ExecutionResult(
-        final_answer="住民票の写しは、お住まいの市区町村の窓口（市民課等）または"
-                     "コンビニ交付・郵送で請求できます。本人確認書類が必要です。"
-                     "詳しくは担当課の案内ページをご確認ください。",
-        step_results=[StepResult(step_id=1, status="success", sources=["gov_faq_anthropic/住民票.md"]), ...],
-        overall_confidence=<0.0-1.0>)
-     internal_answer   = result.final_answer
-     internal_citations = ["[社内] gov_faq_anthropic/住民票.md", ...]
-     used_dynamic_web  = False   # [Web] ラベルが無い＝内部だけで回答
+IN     : plan（②の計画）, config.qdrant.allowed_collections（gov 3 件）, config.llm.prompt_addendum（gov 方針）
+Process: executor.execute(plan) … RAGSearchTool が Qdrant を allowed_collections で限定検索
+         → （スコア不足なら web_search を動的挿入）→ ReasoningTool._build_prompt() が
+         prompt_addendum を注入して回答生成。_collect_citations() で出典にラベル付与
+OUT    : result = ExecutionResult(
+             final_answer="住民票の写しは、お住まいの市区町村の窓口（市民課等）または"
+                          "コンビニ交付・郵送で請求できます。本人確認書類が必要です。"
+                          "詳しくは担当課の案内ページをご確認ください。",
+             step_results=[StepResult(step_id=1, status="success", sources=["gov_faq_anthropic/住民票.md"]), ...],
+             overall_confidence=<0.0-1.0>)
+         internal_answer   = result.final_answer
+         internal_citations = ["[社内] gov_faq_anthropic/住民票.md", ...]
+         used_dynamic_web  = False   # [Web] ラベルが無い＝内部だけで回答
 ```
 
 **端末出力（抜粋）**: `step1: success (sources=3)` / `step2: success (sources=0)`。
@@ -193,10 +205,12 @@ OUT: result = ExecutionResult(
 | **処理** | 回答を主張に分解し、各主張が出典に **supported / contradicted / neutral** のどれかを判定。支持率 = supported / (supported+contradicted)。出典が無い／LLM 失敗時は `verified=False` |
 
 ```text
-IN : query, internal_answer, sources=["gov_faq_anthropic/住民票.md", ...]（ラベル除去済み本文/識別子）
-OUT: gres = GroundednessResult(
-        support_rate=0.86, supported=3, contradicted=0, total=4,
-        has_contradiction=False, verified=True)
+IN     : query, internal_answer, sources=["gov_faq_anthropic/住民票.md", ...]（ラベル除去済み本文/識別子）
+Process: GroundednessVerifier.verify(query, answer, sources) … 回答を主張に分解し、
+         各主張を supported/contradicted/neutral に判定。支持率=supported/(supported+contradicted)
+OUT    : gres = GroundednessResult(
+             support_rate=0.86, supported=3, contradicted=0, total=4,
+             has_contradiction=False, verified=True)
 ```
 
 **端末出力**: `[groundedness] 支持率=0.86（判定可能 3/4 主張） / 出典数=3`。
@@ -210,14 +224,18 @@ OUT: gres = GroundednessResult(
 | **処理** | 1. **回答ゲート**: `verified=True` かつ 出典≥1 かつ 支持率0.86≥notify0.8 → `("answer", warning=False)`<br>2. **強制エスカレ（第 1 段）**: `_match_keyword(query, escalate_keywords)` — クエリに `法的/訴訟/減免/個別/例外/不服` は**含まれない** → 候補なし → **意図分類 LLM は呼ばれない（追加コスト 0）**<br>3. `_should_rescue_unaffirmed` は `decision != "escalate"` なので発火せず（救済不要） |
 
 ```text
-IN : support_rate=0.86, verified=True, citation_count=3, notify_th=0.8, confirm_th=0.5
-     query="住民票の写しの取り方は？", profile=gov
-OUT: (decision, warning) = ("answer", False)
-     forced_escalate=False, matched_kw=None, intent=None   # エスカレ語なし → classify 未実行
-     support = SupportResult(answer=..., citations=[3件], groundedness=0.86,
-                             groundedness_decided=3, decision="answer",
-                             warning=False, used_web=False, vertical="gov",
-                             overall_confidence=...)
+IN     : support_rate=0.86, verified=True, citation_count=3, notify_th=0.8, confirm_th=0.5
+         query="住民票の写しの取り方は？", profile=gov
+Process: _answer_gate(...) が 支持率0.86≥notify0.8 かつ 出典3≥1 → ("answer", False)。
+         _should_force_escalate(query, gov, classify) が _match_keyword で候補なし→強制エスカレせず
+         （classify=意図分類LLMは未実行）。_should_rescue_unaffirmed は escalate でないため不発。
+         結果を SupportResult に集約
+OUT    : (decision, warning) = ("answer", False)
+         forced_escalate=False, matched_kw=None, intent=None   # エスカレ語なし → classify 未実行
+         support = SupportResult(answer=..., citations=[3件], groundedness=0.86,
+                                 groundedness_decided=3, decision="answer",
+                                 warning=False, used_web=False, vertical="gov",
+                                 overall_confidence=...)
 ```
 
 > 別入力例: 「固定資産税の**減免**を**個別**に判断してほしい」なら第 1 段が `減免` に一致 →
@@ -232,8 +250,10 @@ OUT: (decision, warning) = ("answer", False)
 | **処理** | 条件は `decision == "escalate"`。今回は **`decision == "answer"` のため丸ごとスキップ**（Web 検索・相互検証は走らない） |
 
 ```text
-IN : decision="answer"
-OUT: （分岐に入らない。support は S5 のまま）
+IN     : decision="answer", use_web=True, forced_escalate=False
+Process: `if decision == "escalate" and use_web and not forced_escalate:` の条件評価。
+         decision="answer" のため条件不成立 → ⑤ ブロック全体をスキップ
+OUT    : （分岐に入らない。support は S5 のまま）
 ```
 
 > `decision` が escalate だった場合のみ、内部が Web を使い済みなら**再検証のみ**（重複推論を省略、`web_reused=True`）、
@@ -248,8 +268,11 @@ OUT: （分岐に入らない。support は S5 のまま）
 | **処理** | 1. `web_only = 出典がすべて [Web]?` → 今回は `[社内]` 出典があるので **False**<br>2. 第 1 段: `NO_INFO_MARKERS`（「見当たりません」等）が回答に含まれるか → 含まれない → **候補なし**<br>3. `force_judge=False` かつ候補なし → **LLM 判定は呼ばれず** `no_info=False`（実質回答として維持） |
 
 ```text
-IN : query, answer（住民票の取り方の実質回答）, force_judge=False, citations に [社内] を含む
-OUT: (no_info, marker) = (False, None)   # 実質回答 → decision="answer" を維持
+IN     : query, answer（住民票の取り方の実質回答）, force_judge=False, citations に [社内] を含む
+Process: web_only = all(c.startswith("[Web]")) → False。
+         _detect_no_info_answer() 第1段: _match_keyword(answer, NO_INFO_MARKERS) 不一致 →
+         force_judge=False かつ候補なしのため no_info_judge（LLM）は未実行 → False
+OUT    : (no_info, marker) = (False, None)   # 実質回答 → decision="answer" を維持
 ```
 
 > 出典が Web のみ（社内根拠ゼロ）の回答は `force_judge=True` になり、候補句が無くても
@@ -264,8 +287,11 @@ OUT: (no_info, marker) = (False, None)   # 実質回答 → decision="answer" �
 | **処理** | 1. `decision="answer"` なので有人エスカレは選ばれない<br>2. 第 1 段: `_match_keyword(query, profile.action_map=申請/手続/様式)` → 「住民票の写しの取り方」に**該当語なし** → 候補なし<br>3. `action = None` → **⑥ ブロックに入らない**（CONFIRM も本人確認も走らない） |
 
 ```text
-IN : query="住民票の写しの取り方は？", decision="answer", profile.action_map={申請,手続,様式→send_reply}
-OUT: action = None   # アクションなし
+IN     : query="住民票の写しの取り方は？", decision="answer", profile.action_map={申請,手続,様式→send_reply}
+Process: _decide_action() … decision="answer" で有人エスカレは非選択、
+         _match_keyword(query, action_map) が「取り方」に候補なし → classify 未実行 → None。
+         action が None なので ⑥（本人確認→CONFIRM→backend.execute）には入らない
+OUT    : action = None   # アクションなし
 ```
 
 > 別入力例: 「保育園の**申請**様式がほしい」なら第 1 段が `申請` に一致 → 第 2 段 `request` →
@@ -280,8 +306,11 @@ OUT: action = None   # アクションなし
 | **処理** | `decision="answer"` なので回答本文＋出典一覧＋根拠メタ行を表示。KPI 計測用メタ（vertical/intent/forced/no_info/web_reused）も付与 |
 
 ```text
-IN : support（S5〜S7 で確定した SupportResult）
-OUT: 端末表示 ＋ 呼び出し元へ SupportResult を返却
+IN     : support（S5〜S7 で確定した SupportResult）
+Process: support.forced_escalate / support.intent を確定した後、
+         _render(support) が回答本文＋出典一覧＋根拠メタ行を整形表示し、
+         run_support_agent() が support を return
+OUT    : 端末表示 ＋ 呼び出し元へ SupportResult を返却
 ```
 
 **端末出力（抜粋）**:
@@ -352,3 +381,4 @@ OUT: 端末表示 ＋ 呼び出し元へ SupportResult を返却
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。`uv run python agent_support_example.py --vertical gov "住民票の写しの取り方は？"` の 1 実行を、設計書 §1 の回答判定フローに沿って S0〜S9 でトレース。各ステップをモジュール・コード・データ（IN/OUT）で記述し、SupportResult の積み上がり・別入力の分岐（強制エスカレ・keyword-trap・④' 情報なし・アクション・本人確認）を整理 |
+| 1.1 | 各 `text` ブロックの IN と OUT の間に **Process 行**（呼び出すクラス・関数と処理内容。OUT はその生成物）を追加し、IN → Process → OUT の 3 段構成に統一（S0〜S9 の全 10 ブロック） |
