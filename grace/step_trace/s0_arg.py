@@ -2,28 +2,6 @@ from __future__ import annotations
 
 import argparse
 import pprint
-import os
-import sys
-from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Literal, Optional
-
-from grace import (
-    ActionDecision,
-    InterventionAction,
-    InterventionLevel,
-    InterventionResponse,
-    create_executor,
-    create_intervention_handler,
-    create_planner,
-    create_source_agreement_calculator,
-    create_tool_registry,
-    get_config,
-)
-from grace.confidence import create_groundedness_verifier
-from support_actions import create_action_backend, create_identity_verifier
-
-# 非対話 CLI 用: CONFIRM/ESCALATE を自動承認するレスポンス（実行はドライランで安全）
-_AUTO_PROCEED = InterventionResponse(action=InterventionAction.PROCEED)
 
 # .env から ANTHROPIC_API_KEY / GOOGLE_API_KEY 等を読み込む（未導入でも続行）
 try:
@@ -35,21 +13,13 @@ except ImportError:
 
 DEFAULT_QUERY = "パスワードを忘れました"
 
-Decision = Literal["answer", "escalate"]
-ActionType = Literal["create_ticket", "send_reply", "escalate_to_human"]
-
-# 意図分類（二段判定の第 2 段）:
-#   question = 情報・手順・規定を知りたい（FAQ質問） / request = 操作・手続きの実行依頼
-#   incident = 障害・被害・トラブルの発生報告
-Intent = Literal["question", "request", "incident"]
-
-# 意図分類に使う軽量モデル（CLAUDE.md プロバイダ方針の軽量既定）
-INTENT_MODEL = "claude-haiku-4-5-20251001"
-
 # -----
 # S0. 起動・引数解釈（main()→run_support_agent）
 # uv run python agent_support_example.py --vertical gov "住民票の写しの取り方は？"
 # uv run python grace/step_trace/s0_arg.py --vertical gov "住民票の写しの取り方は？"
+#
+# 本スクリプトは agent_support_example.py の main() のうち「引数解釈」だけを
+# 取り出した S0 トレース用スタブ。argparse がどんな args を作るかを確認する。
 # -----
 
 
