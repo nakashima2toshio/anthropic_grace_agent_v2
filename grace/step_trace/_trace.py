@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -32,6 +33,40 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
+
+# トレース出力に混ざる実行基盤の INFO ログ（agent_cache / agent_parallel_search /
+# qdrant_client_wrapper / grace.config 等）を抑制する対象ロガー。
+_NOISY_LOGGERS = (
+    "agent_cache",
+    "agent_parallel_search",
+    "qdrant_client_wrapper",
+    "grace",  # grace.config など grace.* を包括
+)
+
+
+def quiet_logs(level: int = logging.WARNING) -> None:
+    """実行基盤の初期化 INFO ログを抑制し、IN/Process/OUT のトレースを見やすくする。
+
+    grace/config.py が root logger を INFO + StreamHandler で構成するため、
+    各モジュールの初期化 INFO（例: "CollectionCache initialized" /
+    "QdrantClient シングルトン作成" / "Config loaded from ..."）が端末に混ざる。
+    ここで対象ロガーを WARNING へ引き上げ、INFO を握りつぶす
+    （ロガー側で落とすためハンドラ構成に依存せず確実）。
+
+    `_trace` は各 sN スタブで最初に import されるため、この抑制は後続の重い
+    `import agent_support_example`（＝ import 時に出る INFO）にも間に合う。
+    デバッグで INFO を見たいときは環境変数 GRACE_TRACE_VERBOSE=1 を設定する。
+    """
+    if os.getenv("GRACE_TRACE_VERBOSE") == "1":
+        return
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
+
+# import 時に自動適用（各 sN は先頭で _trace を import するため、
+# 後続の import による INFO も含めて抑制される）。
+quiet_logs()
 
 
 def banner(title: str) -> None:
