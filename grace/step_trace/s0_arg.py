@@ -9,6 +9,12 @@ from __future__ import annotations
 import argparse
 import pprint
 
+from _trace import quiet_logs
+
+# 実行基盤/httpx の INFO ログを抑制し、トレース出力を見やすくする
+# （s1〜s9 と同じ挙動。GRACE_TRACE_VERBOSE=1 で従来通り INFO を表示）。
+quiet_logs()
+
 # .env から ANTHROPIC_API_KEY / GOOGLE_API_KEY 等を読み込む（未導入でも続行）
 try:
     from dotenv import load_dotenv

@@ -42,6 +42,8 @@ _NOISY_LOGGERS = (
     "agent_parallel_search",
     "qdrant_client_wrapper",
     "grace",  # grace.config など grace.* を包括
+    "httpx",  # 実 API/Qdrant 呼び出し時の "HTTP Request ..." を抑制
+    "httpcore",
 )
 
 
