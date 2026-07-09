@@ -1,7 +1,9 @@
 # ============================================================
 # 実行例（uv run）:
 #   uv run python grace/step_trace/s9_render.py
-#   ※ gov 代表例の SupportResult 最終形を組み立てて _render で整形表示（LLM・Qdrant 不要）
+#   ※ 引数は取らず、gov 代表例の SupportResult を組み立てて _render で整形表示（LLM・Qdrant 不要）。
+#     saas / ec も整形処理（_render）は共通で、build_sample() の値（answer/citations/vertical 等）が
+#     変わるだけ。saas/ec の表示を見たい場合は build_sample() の vertical と本文を差し替える。
 # ============================================================
 # grace/step_trace/s9_render.py
 """S9. ⑦ 応答整形（SupportResult → _render）。

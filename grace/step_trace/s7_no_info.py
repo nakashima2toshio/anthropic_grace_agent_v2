@@ -1,7 +1,9 @@
 # ============================================================
 # 実行例（uv run）:
-#   uv run python grace/step_trace/s7_no_info.py "住民票の写しの取り方は？"
-#   uv run python grace/step_trace/s7_no_info.py --web-only "この商品の入荷予定日は？"
+#   （--vertical は取らず、query/--answer/--web-only で検知を試す）
+#   uv run python grace/step_trace/s7_no_info.py "住民票の写しの取り方は？"           # gov
+#   uv run python grace/step_trace/s7_no_info.py "APIのレート制限は？"                 # saas
+#   uv run python grace/step_trace/s7_no_info.py --web-only "この商品の入荷予定日は？"  # ec（Web出典のみ→必須判定）
 #   uv run python grace/step_trace/s7_no_info.py --answer "該当する情報が見当たりません" "在庫は？"
 # ============================================================
 # grace/step_trace/s7_no_info.py
