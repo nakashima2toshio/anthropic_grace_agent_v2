@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s1_profile.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s1_profile.py --vertical saas "APIのレート制限は？"
+#   uv run python grace/step_trace/s1_profile.py --vertical ec "返品したい"
+# ============================================================
 # grace/step_trace/s1_profile.py
 """S1. 業界プロファイル適用（gov / saas / ec）。
 

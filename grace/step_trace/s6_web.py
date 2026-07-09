@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s6_web.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s6_web.py --force-escalate "来年の税制改正の予測は？"
+#   uv run python grace/step_trace/s6_web.py --decision escalate "最新の補助金情報は？"
+# ============================================================
 # grace/step_trace/s6_web.py
 """S6. ⑤ Web フォールバック（内部が escalate かつ 非強制のときのみ）。
 

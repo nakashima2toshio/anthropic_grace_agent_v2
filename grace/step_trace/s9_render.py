@@ -1,3 +1,8 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s9_render.py
+#   ※ gov 代表例の SupportResult 最終形を組み立てて _render で整形表示（LLM・Qdrant 不要）
+# ============================================================
 # grace/step_trace/s9_render.py
 """S9. ⑦ 応答整形（SupportResult → _render）。
 
