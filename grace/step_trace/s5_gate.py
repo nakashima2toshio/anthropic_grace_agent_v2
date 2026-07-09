@@ -1,7 +1,8 @@
 # ============================================================
 # 実行例（uv run）:
-#   uv run python grace/step_trace/s5_gate.py --vertical gov "住民票の写しの取り方は？"
 #   uv run python grace/step_trace/s5_gate.py --vertical gov "固定資産税の減免を個別に判断してほしい"
+#   uv run python grace/step_trace/s5_gate.py --vertical saas "本番環境で障害が発生している"
+#   uv run python grace/step_trace/s5_gate.py --vertical ec "決済の返金がされない"
 #   uv run python grace/step_trace/s5_gate.py --vertical gov "住民票の取り方は？" --support-rate 0.6
 # ============================================================
 # grace/step_trace/s5_gate.py
