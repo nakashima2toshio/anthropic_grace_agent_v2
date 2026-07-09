@@ -16,7 +16,11 @@ import sys
 # プロジェクトルートをPythonパスに追加（qa_qdrant/command/ から2階層上）
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from qdrant_client_wrapper import create_qdrant_client, get_all_collections, get_collection_stats
+from qdrant_client_wrapper import (
+    create_qdrant_client,
+    get_all_collections,
+    get_collection_stats,
+)
 
 
 def main():
