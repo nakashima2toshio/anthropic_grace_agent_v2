@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s7_no_info.py "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s7_no_info.py --web-only "この商品の入荷予定日は？"
+#   uv run python grace/step_trace/s7_no_info.py --answer "該当する情報が見当たりません" "在庫は？"
+# ============================================================
 # grace/step_trace/s7_no_info.py
 """S7. ④' 情報なし回答検知。
 

@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s3_execute.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s3_execute.py --vertical ec "注文のキャンセル方法は？"
+#   ※ 実 RAG 検索は Qdrant 起動＋gov コレクション登録が必要
+# ============================================================
 # grace/step_trace/s3_execute.py
 """S3. ② Execute（内部 RAG → reasoning）。
 

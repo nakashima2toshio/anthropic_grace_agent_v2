@@ -1,3 +1,8 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s2_plan.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s2_plan.py --vertical saas "SSO設定の手順を教えて"
+# ============================================================
 # grace/step_trace/s2_plan.py
 """S2. ① Plan（質問分類・計画）。
 

@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s0_arg.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s0_arg.py --vertical ec "返品したい" --no-web
+#   uv run python grace/step_trace/s0_arg.py -v --identity order_id=1001
+# ============================================================
 from __future__ import annotations
 
 import argparse

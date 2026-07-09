@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s4_confidence.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s4_confidence.py "パスワードを忘れました"
+#   ※ ANTHROPIC_API_KEY があれば代表サンプルで実 verify を呼ぶ（Qdrant 不要）
+# ============================================================
 # grace/step_trace/s4_confidence.py
 """S4. ③ Confidence（支持率評価）。
 

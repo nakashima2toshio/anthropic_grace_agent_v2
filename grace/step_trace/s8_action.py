@@ -1,3 +1,9 @@
+# ============================================================
+# 実行例（uv run）:
+#   uv run python grace/step_trace/s8_action.py --vertical gov "住民票の写しの取り方は？"
+#   uv run python grace/step_trace/s8_action.py --vertical ec "返品したい"
+#   uv run python grace/step_trace/s8_action.py --vertical gov "保育園の申請様式がほしい"
+# ============================================================
 # grace/step_trace/s8_action.py
 """S8. ⑥ Action（本人確認 → HITL CONFIRM → ActionTool 実行）。
 
