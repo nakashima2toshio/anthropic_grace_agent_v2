@@ -1,6 +1,6 @@
 # s3_execute.py - S3. ② Execute（内部 RAG → reasoning）トレースドキュメント
 
-**Version 1.2** | 最終更新: 2026-07-10
+**Version 1.3** | 最終更新: 2026-07-10
 
 ---
 
@@ -45,6 +45,13 @@ S0〜S9 に分解したトレース用スタブ群のうち、**S3. ② Execute*
 ## 責務
 
 - S3 の入力（S2 が生成した `plan`）と S1 相当の配線（`config.qdrant.allowed_collections`／`config.llm.prompt_addendum` へのプロファイル反映）を受け取り、`ToolRegistry` / `Planner` / `Executor` を生成する。
+
+> **前提（重要）**: `s2_plan.py` を先に実行したり、その出力を受け渡したりする**必要はない**。
+> 各 `sN_*.py` スタブは自己完結で、ステップ間のファイル・標準出力の受け渡しは行わない。
+> 本スタブは内部で `create_planner(config)` → `planner.create_plan(args.query)` を呼び、
+> **S2 相当の `plan` を自前で再生成**してから `executor.execute(plan)` に渡す。
+> IPO の IN に書かれた「plan（②の計画）」は、本体 `run_support_agent()` のフロー上で
+> S3 が受け取る**論理的な入力**を示す表記である（S1 相当の config 配線も同様に内部で再現する）。
 - `executor.execute(plan)` を実行し、`ExecutionResult`（`final_answer` / `step_results` / `overall_confidence`）を IPO 形式で表示する。
 - `ase._collect_citations(result.step_results)` で出典を `[社内]`／`[Web]` にラベル付けし、`used_dynamic_web`（`[Web]` ラベルの有無）を判定する。
 - 各 `StepResult`（`step_id` / `status` / `sources`）を `step{id}: {status} (sources=N)` 形式で列挙し、動的 Web 検索が使われた場合は `[web]` の注記を出力する。
@@ -296,3 +303,4 @@ uv run python grace/step_trace/s3_execute.py --vertical ec "注文のキャン�
 | 1.0 | 2026-07-09 | 初版作成（`s3_execute.py` の S3. ② Execute トレースを IPO・CLI・フロー図で文書化） |
 | 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |
 | 1.2 | 2026-07-10 | 実呼び出し失敗時に `main()` と同じヒント（Qdrant 起動・`.env` 確認）を表示して終了するエラーハンドリングを追加 |
+| 1.3 | 2026-07-10 | 前提の明確化: `s2_plan.py` の事前実行・出力受け渡しは不要（スタブが内部で `planner.create_plan()` を呼び S2 相当の plan を自前再生成する）ことを「責務」に注記 |
