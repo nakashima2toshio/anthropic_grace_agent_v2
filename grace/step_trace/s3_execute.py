@@ -23,6 +23,7 @@ uv run python grace/step_trace/s3_execute.py --vertical gov "住民票の写し�
 from __future__ import annotations
 
 import argparse
+import sys
 
 from _trace import banner, have_key, ipo, note_no_key
 
@@ -61,12 +62,22 @@ def main() -> None:
         )
         return
 
-    tool_registry = create_tool_registry(config)
-    planner = create_planner(config)
-    executor = create_executor(config, tool_registry)
+    # main() と同様、サービス未起動・鍵不正などをヒントつきで分かりやすく表示する
+    try:
+        tool_registry = create_tool_registry(config)
+        planner = create_planner(config)
+        executor = create_executor(config, tool_registry)
 
-    plan = planner.create_plan(args.query)
-    result = executor.execute(plan)
+        plan = planner.create_plan(args.query)
+        result = executor.execute(plan)
+    except Exception as e:
+        print(f"❌ 実行に失敗しました: {type(e).__name__}: {e}", file=sys.stderr)
+        print(
+            "  ヒント: Qdrant の起動（docker-compose -f docker-compose/docker-compose.yml up -d）"
+            "と .env の API キーを確認してください。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     internal_answer = result.final_answer or ""
     internal_citations = ase._collect_citations(result.step_results)
     used_dynamic_web = any(c.startswith("[Web]") for c in internal_citations)
