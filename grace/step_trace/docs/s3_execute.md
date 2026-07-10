@@ -1,6 +1,6 @@
 # s3_execute.py - S3. ② Execute（内部 RAG → reasoning）トレースドキュメント
 
-**Version 1.1** | 最終更新: 2026-07-09
+**Version 1.2** | 最終更新: 2026-07-10
 
 ---
 
@@ -37,6 +37,7 @@ S0〜S9 に分解したトレース用スタブ群のうち、**S3. ② Execute*
 
 - `ANTHROPIC_API_KEY` があり、かつ Qdrant が起動・コレクション登録済みであれば実際に `Executor.execute()` を呼び、本物の `ExecutionResult` を表示する。
 - 鍵が無い場合は `note_no_key("executor.execute")` を出力し、実呼び出しをスキップして `agent_support_example_flow.md` の gov 代表例で OUT の構造だけを示す。
+- 鍵はあるが Qdrant 未起動・鍵不正などで実呼び出しに失敗した場合は、`agent_support_example.main()` と同じヒント（Qdrant の起動コマンドと `.env` の確認）を stderr に表示して `sys.exit(1)` する（生のスタックトレースは出さない）。
 - LLM は Anthropic Claude（既定 `claude-sonnet-4-6`、軽量 `claude-haiku-4-5-20251001`）、Embedding は Gemini `gemini-embedding-001`（3072 次元、`GOOGLE_API_KEY`）を用いる。実 RAG 検索には Qdrant 起動＋各コレクション登録が要る。
 
 ---
@@ -294,3 +295,4 @@ uv run python grace/step_trace/s3_execute.py --vertical ec "注文のキャン�
 |----|------|------|
 | 1.0 | 2026-07-09 | 初版作成（`s3_execute.py` の S3. ② Execute トレースを IPO・CLI・フロー図で文書化） |
 | 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |
+| 1.2 | 2026-07-10 | 実呼び出し失敗時に `main()` と同じヒント（Qdrant 起動・`.env` 確認）を表示して終了するエラーハンドリングを追加 |
