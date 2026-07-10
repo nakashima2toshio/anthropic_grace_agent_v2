@@ -1,6 +1,6 @@
 # s6_web.py - S6. ⑤ Web フォールバック トレーススタブ ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,7 +9,8 @@
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
-4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
+4. [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
+5. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [8. CLI 仕様](#8-cli-仕様)
 7. [依存関係](#依存関係)
@@ -97,6 +98,63 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 > 本モジュール `s6_web.py` は上図の **`WEB`（S6. ⑤ Web フォールバック）** ノードだけを
 > 取り出したトレーススタブである。S5（`GATE`）で `escalate` になった経路のみが
 > `WEB` に流れ、その後 S7（`NOINFO`）へ合流する。
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+`grace/step_trace/s6_web.py` そのものの呼び出し構造を示す。`main()` は
+`get_config()` で設定を得たあと、`enter = decision == "escalate" and use_web and not forced_escalate`
+を評価する。`False` なら ⑤ をスキップ（`support` は S5 のまま）し、`True` のときだけ
+`create_tool_registry()` → `tool_registry.execute("web_search", ...)` を試行し、
+`agent_support_example._web_citations()` で出典を組み立てて表示する。`have_key()` が
+`False`（`ANTHROPIC_API_KEY` 未設定）の場合は reasoning／相互検証を省略し、web_search のみ試行する。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S6["s6_web.py"]
+        MAIN["main()"]
+        COND{"enter = decision==escalate<br>かつ use_web かつ not forced_escalate"}
+        SKIP["スキップ（support は S5 のまま）"]
+        OUTP["ipo()/出典表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+        CTR["create_tool_registry()"]
+        WS["tool_registry.execute(web_search)"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        WC["_web_citations()"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> IPO
+    MAIN --> COND
+    COND -->|False| SKIP
+    COND -->|True| CTR
+    CTR --> WS
+    WS --> WC
+    WC --> OUTP
+    MAIN -.->|"鍵なしは reasoning/相互検証を省略"| HK
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,COND,SKIP,OUTP,BAN,HK,IPO,CFG,CTR,WS,WC default
+style MOD_S6 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+> スタブでは `forced_escalate` を常に `False` 固定とし、`--force-escalate` は
+> `decision` を `escalate` にする用途で使う（本体 `run_support_agent` では
+> 強制エスカレ時に ⑤ をスキップするが、本スタブは可視化のため固定している）。
 
 ---
 
@@ -251,3 +309,4 @@ uv run python grace/step_trace/s6_web.py --vertical ec --decision escalate "最�
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
 | 1.0 | 2026-07-09 | 初版作成（S6. ⑤ Web フォールバック トレーススタブの IPO ドキュメント化） |
+| 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

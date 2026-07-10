@@ -1,6 +1,6 @@
 # s1_profile.py - S1 業界プロファイル適用トレース ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,7 +9,8 @@
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
-4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
+4. [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
+5. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [5. 設定・定数](#5-設定定数)
 7. [8. CLI 仕様](#8-cli-仕様)
@@ -80,6 +81,54 @@ flowchart TB
     WEB --> NOINFO
 classDef default fill:#000,stroke:#fff,color:#fff
 class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
+```
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+`grace/step_trace/s1_profile.py` そのものの呼び出し構造を、モジュール別に示します。前掲の共通フロー図が
+S0〜S9 全体での位置づけを示すのに対し、本図は **`s1_profile.py` の `main()` が実際に触れる関数・属性**
+だけを描いたものです。`main()` は `get_config()` で共通設定を取得し、`PROFILES.get(vertical)` で
+プロファイルを解決した上で、`config.qdrant.allowed_collections` / `config.llm.prompt_addendum` へ配線し、
+`notify_th` / `confirm_th` を解決します。表示は `_trace.py` の `banner()` / `ipo()` を用います。
+**本モジュール（S1）は LLM を呼びません**（分類器・判定器は用意のみで未発火）。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S1["s1_profile.py"]
+        MAIN["main()"]
+        WIRE["config.qdrant.allowed_collections /<br>llm.prompt_addendum へ配線"]
+        TH["notify_th / confirm_th 解決"]
+        OUTP["banner()/ipo() で<br>IN/Process/OUT 表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        IPO["ipo()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+        THS["config.confidence.thresholds"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        PROF["PROFILES.get(vertical)"]
+    end
+    ENTRY --> MAIN
+    MAIN --> CFG
+    MAIN --> PROF
+    MAIN --> WIRE
+    MAIN --> TH
+    TH -.-> THS
+    MAIN --> OUTP --> BAN
+    OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,WIRE,TH,OUTP,BAN,IPO,CFG,THS,PROF default
+style MOD_S1 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -237,3 +286,4 @@ uv run python grace/step_trace/s1_profile.py --vertical ec "返品したい"
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版作成（2026-07-09） |
+| 1.1 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

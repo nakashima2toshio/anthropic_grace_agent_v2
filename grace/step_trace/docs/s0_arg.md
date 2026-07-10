@@ -1,10 +1,11 @@
 # s0_arg.py - S0. 起動・引数解釈（argparse 入口スタブ） ドキュメント
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ## 目次
 - [概要](#概要)
 - [責務](#責務)
 - [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+  - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 - [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 - [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
   - [7.6 クラス・関数 IPO 詳細](#76-クラス関数-ipo-詳細)
@@ -72,6 +73,46 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 **本モジュールの位置づけ**: `s0_arg.py` は上図の起点 `Q（uv run 起動）` に対応する。
 すなわち S0＝ユーザーが `uv run` でコマンドを起動した直後の「起動・引数解釈」だけを担い、
 以降の `PROF`（S1）以降のステップは行わない。s0 の出力（`args`）が後続フローの入力となる。
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上図が S0〜S9 全体の共通フローであるのに対し、本節は `grace/step_trace/s0_arg.py`
+**そのもの**の呼び出し構造を示す。s0 は import 時に `_trace.quiet_logs()` と
+`dotenv.load_dotenv()` を実行し、`main()` では `argparse` で `args` を組み立てて
+`pprint` するだけで、`grace` 本体や LLM は一切呼ばない。
+
+```mermaid
+flowchart TB
+    ENTRY["__main__"]
+    subgraph MOD_S0["s0_arg.py"]
+        MAIN["main()"]
+        ARGS["argparse: query/--verbose/--vertical<br>--no-web/--no-action/--dry-run/--identity"]
+        PP["pprint(parser) / pprint(vars(args))"]
+        DQ["DEFAULT_QUERY"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        QL["quiet_logs()"]
+    end
+    subgraph MOD_EXT["外部"]
+        ENV["dotenv.load_dotenv()"]
+    end
+    ENTRY --> MAIN
+    MAIN --> ARGS
+    ARGS -.->|"query 省略時の既定値"| DQ
+    MAIN --> PP
+    MAIN -.->|"import 時に実行"| QL
+    MAIN -.->|"import 時に実行"| ENV
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,ARGS,PP,DQ,QL,ENV default
+style MOD_S0 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_EXT fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+> `QL`（`quiet_logs()`）と `ENV`（`load_dotenv()`）はモジュール import 時点で実行される
+> トップレベル副作用であり、`main()` の実行フローとは厳密には独立している（図では点線＋
+> 「import 時に実行」ラベルで表現）。`main()` 本体が能動的に呼ぶのは `argparse` と `pprint` のみ。
 
 ## 2. 回答ポリシー（groundedness ゲート）
 
@@ -184,4 +225,5 @@ uv run python grace/step_trace/s0_arg.py --vertical ec "返品したい" --ident
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
+| 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |
 | 1.0 | 2026-07-09 | 初版。`s0_arg.py`（S0＝起動・引数解釈スタブ）の概要・責務・共通フロー図・回答ポリシー・`main()` の IPO 詳細・CLI 仕様・依存関係を実装（`argparse` 引数定義・`quiet_logs()`・`DEFAULT_QUERY`）と突合して記述 |

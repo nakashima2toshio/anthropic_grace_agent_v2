@@ -1,12 +1,13 @@
 # s7_no_info.py - S7. ④' 情報なし回答検知（トレース用スタブ）ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ## 目次
 
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+   - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [7.6 クラス・関数 IPO 詳細](#76-クラス関数-ipo-詳細)
@@ -92,6 +93,63 @@ flowchart TB
     WEB --> NOINFO
 classDef default fill:#000,stroke:#fff,color:#fff
 class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
+```
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上図は `run_support_agent()` の共通フロー上での位置づけを示すものだが、
+以下は **本スタブ `s7_no_info.py` そのものの呼び出し構造**である。
+`main()` が `_trace.py`（`banner` / `have_key` / `ipo`）・`grace`（`get_config`）・
+`agent_support_example.py`（`create_no_info_judge` / `_match_keyword` /
+`NO_INFO_MARKERS` / `_detect_no_info_answer`）をどう呼び分けるかを表す。
+第 1 段は `_match_keyword` による候補検出（LLM 不要）、第 2 段は
+`_detect_no_info_answer` 内部で軽量 Claude 判定器（`create_no_info_judge`）を呼ぶ。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S7["s7_no_info.py"]
+        MAIN["main()"]
+        NK["have_key(): no_info_judge を用意 or None"]
+        SA["SAMPLE_ANSWER"]
+        OUTP["ipo()/判定メッセージ表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        CNJ["create_no_info_judge()"]
+        MK["_match_keyword(answer, NO_INFO_MARKERS)"]
+        NM["NO_INFO_MARKERS"]
+        DET["_detect_no_info_answer(query, answer, judge, force_judge)"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> HK
+    HK -->|"鍵あり"| CNJ
+    MAIN --> NK
+    MAIN --> MK
+    MK -.-> NM
+    MAIN --> DET
+    DET -.->|"第2段"| CNJ
+    DET -.-> SA
+    MAIN --> IPO
+    MAIN --> OUTP
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,NK,SA,OUTP,BAN,HK,IPO,CFG,CNJ,MK,NM,DET default
+style MOD_S7 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -263,3 +321,4 @@ uv run python grace/step_trace/s7_no_info.py --answer "該当する情報が見�
 | 版 | 日付 | 内容 |
 |----|------|------|
 | 1.0 | 2026-07-09 | 初版作成（S7. ④' 情報なし回答検知トレースの IPO／CLI／フロー図を整備） |
+| 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

@@ -1,6 +1,6 @@
 # s5_gate.py - S5 ④回答ゲート＋強制エスカレ（二段判定）トレース ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,7 +9,8 @@
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
-4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
+4. [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
+5. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [8. CLI 仕様](#8-cli-仕様)
 7. [依存関係](#依存関係)
@@ -76,6 +77,60 @@ flowchart TB
     WEB --> NOINFO
 classDef default fill:#000,stroke:#fff,color:#fff
 class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
+```
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上記の共通フロー図（S0〜S9 全体）とは別に、本節では **`grace/step_trace/s5_gate.py` そのものの呼び出し構造**
+（`main()` が実際に import して呼ぶモジュール・関数）を示す。`main()` は共通ヘルパ `_trace`（`banner`/`have_key`/`ipo`）、
+設定 `grace.get_config()`、本処理 `agent_support_example`（`PROFILES`/`create_intent_classifier`/`_answer_gate`/
+`_should_force_escalate`）を呼び出す。意図分類器（`create_intent_classifier`）は `have_key()` が真のときだけ生成され、
+第 2 段の `classify` は `_should_force_escalate` 内でエスカレ語が一致したときにのみ発火する（追加コスト 0 の設計）。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S5["s5_gate.py"]
+        MAIN["main()"]
+        TH["notify_th/confirm_th 解決"]
+        NK["have_key(): classify を用意 or None"]
+        OUTP["ipo()/分岐メッセージ表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+        THS["config.confidence.thresholds"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        PROF["PROFILES"]
+        CIC["create_intent_classifier()"]
+        AG["_answer_gate()"]
+        FE["_should_force_escalate()<br>第1段 _match_keyword→第2段 classify"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> PROF
+    MAIN --> TH -.-> THS
+    MAIN --> NK -->|鍵あり| CIC
+    NK --> HK
+    MAIN --> AG
+    MAIN --> FE
+    FE -.->|エスカレ語一致時のみ| CIC
+    MAIN --> OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,TH,NK,OUTP,BAN,HK,IPO,CFG,THS,PROF,CIC,AG,FE default
+style MOD_S5 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
 ---
@@ -224,3 +279,4 @@ uv run python grace/step_trace/s5_gate.py --vertical gov "住民票の取り方�
 | 版 | 日付 | 変更内容 |
 |----|------|---------|
 | 1.0 | 2026-07-09 | 初版作成。S5 ④回答ゲート＋強制エスカレ二段判定トレースの IPO・CLI・フロー図を整備 |
+| 1.1 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |
