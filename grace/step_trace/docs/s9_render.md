@@ -1,6 +1,6 @@
 # s9_render.py - S9 ⑦ 応答整形（SupportResult 最終形 → _render 整形表示）ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-10
 
 ---
 
@@ -9,6 +9,7 @@
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+   - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [8. CLI 仕様](#8-cli-仕様)
@@ -90,6 +91,50 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 > **本モジュール ＝ `OUT`（S9）に対応**。S3〜S8 で積み上がった `SupportResult` の最終形を受け、
 > `forced_escalate` / `intent` を確定してから `_render` で回答本文＋出典＋根拠メタを表示する
 > 「出口」のステップを取り出してトレースする。
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上の共通フロー図が S0〜S9 全体の位置づけを示すのに対し、ここでは **`s9_render.py`
+そのもの**の呼び出し構造を示す。`main()` は引数を取らず、`build_sample()` で gov 代表の
+`SupportResult` を組み立て、`support.forced_escalate=False` / `support.intent=None` を確定した
+うえで、`banner()` / `ipo()`（`_trace.py`）で見出し・IPO を表示し、最後に
+`agent_support_example._render(support)` で回答本文＋出典＋根拠メタ行を整形表示する。
+`SupportResult` / `_render` は `agent_support_example.py` 由来で、LLM・Qdrant は使用しない。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S9["s9_render.py"]
+        MAIN["main()"]
+        BS["build_sample()"]
+        FIX["support.forced_escalate=False /<br>support.intent=None を確定"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        IPO["ipo()"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        SR["SupportResult(...)"]
+        RND["_render(support)"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> BS --> SR
+    MAIN --> FIX
+    MAIN --> IPO
+    MAIN --> RND
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,BS,FIX,BAN,IPO,SR,RND default
+style MOD_S9 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+> `main()` は `banner()`（見出し）→ `build_sample()`（最終形 `SupportResult` の組み立て）→
+> 確定処理（`forced_escalate` / `intent`）→ `ipo()`（IN/Process/OUT 表示）→ `_render(support)`
+> （整形表示）の順に呼ぶ。本モジュールで定義されるのは `main()` / `build_sample()` のみで、
+> `banner` / `ipo` は `_trace`、`SupportResult` / `_render` は `agent_support_example` 由来。
 
 ---
 
@@ -327,3 +372,4 @@ class S9,TRACE,ASE default
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
 | 1.0 | 2026-07-09 | 初版作成。S9 ⑦ 応答整形トレーススタブ（`build_sample()` で gov 代表 `SupportResult` 最終形を組み立て → `forced_escalate` / `intent` 確定 → `ase._render` で回答本文＋出典＋根拠メタ行を整形表示）を IPO・CLI・依存関係・SupportResult 最終形フィールド表で記述 |
+| 1.1 | 2026-07-10 | 「1.1 ソース構成図（本モジュールの呼び出し構造）」を追加。`s9_render.py` の実際の呼び出し構造（`__main__` → `main()` → `banner`/`build_sample`→`SupportResult`/`forced_escalate`・`intent` 確定/`ipo`/`_render`）をモジュール別サブグラフの Mermaid で図示 |

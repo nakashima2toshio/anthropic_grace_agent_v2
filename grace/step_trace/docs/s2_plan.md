@@ -1,6 +1,6 @@
 # s2_plan.py - S2. ① Plan（質問分類・計画）トレースドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,6 +9,7 @@
 - [概要](#概要)
 - [責務](#責務)
 - [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+  - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 - [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 - [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
   - [7.6 クラス・関数 IPO 詳細](#76-クラス関数-ipo-詳細)
@@ -74,6 +75,60 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 
 本モジュール（`s2_plan.py`）は上図の **`CLS`（S2: ① Plan 質問分類・計画）** に対応する。
 S2 で生成される `ExecutionPlan` が、後続 S3（② Execute）の `rag_search`／`reasoning` ステップ構成を決定する。
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+`s2_plan.py` そのものの呼び出し構造を以下に示す。`main()` を起点に、`_trace.py`（見出し・IPO 整形・鍵有無判定）、
+`grace`（設定取得・Planner 生成・計画生成）、`agent_support_example.py`（`PROFILES` / `DEFAULT_QUERY`）へ配線する。
+`have_key()` が真（`ANTHROPIC_API_KEY` あり）なら `create_planner()` → `planner.create_plan(query)` を実呼び出しし、
+偽（鍵なし）なら `note_no_key()` で代表例（gov 2 ステップ / `complexity=0.35`）の構造のみを提示する。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S2["s2_plan.py"]
+        MAIN["main()"]
+        WIRE["config.qdrant.allowed_collections 配線"]
+        NK["have_key() 分岐:<br>代表例 or 実呼び出し"]
+        OUTP["ipo()/banner() で表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+        NN["note_no_key()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+        CP["create_planner()"]
+        PLAN["planner.create_plan(query)"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        PROF["PROFILES"]
+        DQ["DEFAULT_QUERY"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> PROF
+    MAIN --> DQ
+    MAIN --> WIRE
+    MAIN --> NK
+    NK --> HK
+    HK -->|鍵あり| CP --> PLAN
+    HK -.->|鍵なし| NN
+    MAIN --> OUTP
+    OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,WIRE,NK,OUTP,BAN,HK,IPO,NN,CFG,CP,PLAN,PROF,DQ default
+style MOD_S2 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
+```
 
 ---
 
@@ -205,3 +260,4 @@ uv run python grace/step_trace/s2_plan.py --vertical ec "注文のキャンセ�
 | 版 | 日付 | 内容 |
 |----|------|------|
 | 1.0 | 2026-07-09 | 初版作成（`s2_plan.py` の S2. ① Plan トレースを IPO・CLI・フロー図で文書化） |
+| 1.1 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

@@ -1,6 +1,6 @@
 # s8_action.py - S8 ⑥ Action（本人確認 → HITL CONFIRM → ActionTool 実行）トレース ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,6 +9,7 @@
 1. [概要](#概要)
 2. [責務](#責務)
 3. [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+   - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 4. [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 5. [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
 6. [8. CLI 仕様](#8-cli-仕様)
@@ -86,6 +87,77 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 
 > **本モジュール ＝ `ACT`（S8）に対応**。answer 確定後の「要対応アクション？」判定と、
 > 必要時の 本人確認 → CONFIRM → 実行 の段を取り出してトレースする。
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上の共通フロー図とは別に、**`s8_action.py` そのものの関数呼び出し構造**を示す。
+`main()` は `_trace`（`banner`/`have_key`/`ipo`）と `grace`（`get_config`/
+`create_intervention_handler`）を土台に、`agent_support_example`（`create_intent_classifier`/
+`_decide_action`/`_perform_action`/`_AUTO_PROCEED`）と `support_actions`
+（`create_action_backend`/`create_identity_verifier`、いずれも `dry_run=True`）を配線する。
+`_decide_action()` の結果 `action` が `None` なら ⑥ に入らず起票しない。`action` があれば
+`profile.require_identity` に応じて本人確認器を組み、`_perform_action()` に
+本人確認 → CONFIRM → `backend.execute` を委譲する。
+
+```mermaid
+flowchart TB
+    subgraph MOD_S8["s8_action.py"]
+        MAIN["main()"]
+        DEC{"action is None?"}
+        NONE["⑥に入らない（起票せず）"]
+        OUTP["ipo()/実行メッセージ表示"]
+    end
+    subgraph TR["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+    end
+    subgraph GR["grace"]
+        CFG["get_config()"]
+        CIH["create_intervention_handler()"]
+    end
+    subgraph ASE["agent_support_example.py"]
+        CIC["create_intent_classifier()"]
+        DA["_decide_action()"]
+        PA["_perform_action()"]
+        AP["_AUTO_PROCEED"]
+    end
+    subgraph SA["support_actions.py"]
+        BK["create_action_backend(dry_run=True)"]
+        IV["create_identity_verifier(dry_run=True)"]
+    end
+    __main__["__main__"] --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> HK -->|鍵あり| CIC
+    MAIN --> DA
+    DA --> DEC
+    DEC -->|None| NONE
+    DEC -->|action あり| CIH
+    DEC --> BK
+    DEC -->|require_identity| IV
+    CIH --> PA
+    BK --> PA
+    IV --> PA
+    PA -.-> AP
+    MAIN --> OUTP
+    OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class MAIN,DEC,NONE,OUTP,BAN,HK,IPO,CFG,CIH,CIC,DA,PA,AP,BK,IV,__main__ default
+style MOD_S8 fill:#1a1a1a,stroke:#fff,color:#fff
+style TR fill:#1a1a1a,stroke:#fff,color:#fff
+style GR fill:#1a1a1a,stroke:#fff,color:#fff
+style ASE fill:#1a1a1a,stroke:#fff,color:#fff
+style SA fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+> `_decide_action` が `None` を返すと ⑥ ブロックに入らず起票しない。`action` があるときのみ
+> `create_intervention_handler` の HITL ハンドラ・`create_action_backend(dry_run=True)`・
+> （`require_identity=True` の profile では）`create_identity_verifier(dry_run=True)` を
+> `_perform_action()` に渡し、本人確認 → CONFIRM（`_AUTO_PROCEED`）→ `backend.execute` を実施する。
 
 ---
 
@@ -260,3 +332,4 @@ class S8,TRACE,ASE,GRACE,ACT default
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
 | 1.0 | 2026-07-09 | 初版作成。S8 ⑥ Action トレーススタブ（`_decide_action` → `_perform_action`、本人確認 → CONFIRM → dry-run）を IPO・CLI・依存関係で記述 |
+| 1.1 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

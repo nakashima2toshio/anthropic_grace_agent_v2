@@ -1,6 +1,6 @@
 # s3_execute.py - S3. ② Execute（内部 RAG → reasoning）トレースドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,6 +9,7 @@
 - [概要](#概要)
 - [責務](#責務)
 - [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+  - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 - [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 - [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
   - [7.6 クラス・関数 IPO 詳細](#76-クラス関数-ipo-詳細)
@@ -83,6 +84,78 @@ class Q,PROF,CLS,RAG,GND,GATE,ANS,WEB,NOINFO,ACT,OUT default
 本モジュール（`s3_execute.py`）は上図の **`RAG`（S3: ② Execute 内部RAG→reasoning）** に対応する。
 S2 が生成した `ExecutionPlan` を入力に取り、`RAGSearchTool`（限定検索）→（スコア不足なら `web_search` 動的挿入）→ `ReasoningTool`（`prompt_addendum` 注入）で `internal_answer` と `internal_citations` を生成する。
 ここで付けた出典（`[社内]`／`[Web]`）が、後続 S4（③ Confidence）の支持率評価の入力になる。
+
+---
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+前節の共通フロー図が GRACE-Support **全体**の位置づけ（本モジュール＝`RAG`/S3）を示すのに対し、
+本節は `grace/step_trace/s3_execute.py` **そのもの**の呼び出し構造（実コードの `main()` が何を呼ぶか）を示す。
+`main()` は `get_config()` で設定を取り、`ase.PROFILES[vertical]` を `config.qdrant.allowed_collections` /
+`config.llm.prompt_addendum` へ配線したうえで、`have_key()` の結果に応じて分岐する。
+鍵ありなら `create_tool_registry` / `create_planner` / `create_executor` を生成して
+`planner.create_plan()` → `executor.execute()` → `ase._collect_citations()` を実行し、
+`used_dynamic_web`（`[Web]` ラベルの有無）を判定して `ipo()` で表示する。
+鍵なしなら `note_no_key()` を出力し、実呼び出しをスキップして代表例の構造だけを `ipo()` で示す。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S3["s3_execute.py"]
+        MAIN["main()"]
+        WIRE["allowed_collections / prompt_addendum 配線"]
+        NK["have_key() 分岐"]
+        CIT["used_dynamic_web 判定"]
+        OUTP["ipo() で表示 / step_results 出力"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+        NN["note_no_key()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+        CTR["create_tool_registry()"]
+        CP["create_planner()"]
+        CE["create_executor()"]
+        PLAN["planner.create_plan()"]
+        EXE["executor.execute()"]
+    end
+    subgraph MOD_ASE["agent_support_example.py"]
+        PROF["PROFILES"]
+        COL["_collect_citations()"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> PROF
+    MAIN --> WIRE
+    MAIN --> HK
+    HK -->|"鍵あり"| CTR
+    HK --> CP
+    CP --> PLAN
+    PLAN --> CE
+    CE --> EXE
+    EXE --> COL
+    COL --> CIT
+    HK -.->|"鍵なし"| NN
+    CIT --> OUTP
+    MAIN --> OUTP
+    OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,WIRE,NK,CIT,OUTP,BAN,HK,IPO,NN,CFG,CTR,CP,CE,PLAN,EXE,PROF,COL default
+style MOD_S3 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_ASE fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+- `s3_execute.py`: `main()` が引数解釈・配線・分岐・出力を統括する唯一の関数。
+- `_trace.py`: `banner`（見出し）／`have_key`（鍵有無）／`ipo`（IN/Process/OUT 整形）／`note_no_key`（鍵なし注記）。
+- `grace`: `get_config` / `create_tool_registry` / `create_planner` / `create_executor` と、`planner.create_plan` / `executor.execute`。
+- `agent_support_example.py`: `PROFILES`（業界プロファイル）と `_collect_citations`（`[社内]`／`[Web]` ラベル付け）。
 
 ---
 
@@ -220,3 +293,4 @@ uv run python grace/step_trace/s3_execute.py --vertical ec "注文のキャン�
 | 版 | 日付 | 内容 |
 |----|------|------|
 | 1.0 | 2026-07-09 | 初版作成（`s3_execute.py` の S3. ② Execute トレースを IPO・CLI・フロー図で文書化） |
+| 1.1 | 2026-07-09 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |

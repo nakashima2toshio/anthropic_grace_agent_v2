@@ -1,6 +1,6 @@
 # s4_confidence.py - S4. ③ Confidence（支持率評価）トレースドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-09
+**Version 1.1** | 最終更新: 2026-07-09
 
 ---
 
@@ -9,6 +9,7 @@
 - [概要](#概要)
 - [責務](#責務)
 - [1. アーキテクチャ構成図（回答判定フロー）](#1-アーキテクチャ構成図回答判定フロー)
+  - [1.1 ソース構成図（本モジュールの呼び出し構造）](#11-ソース構成図本モジュールの呼び出し構造)
 - [2. 回答ポリシー（groundedness ゲート）](#2-回答ポリシーgroundedness-ゲート)
 - [7. プログラム構成（実装済み関数 ＋ IPO 詳細）](#7-プログラム構成実装済み関数--ipo-詳細)
   - [7.6 クラス・関数 IPO 詳細](#76-クラス関数-ipo-詳細)
@@ -94,6 +95,62 @@ S3 が生成した `internal_answer` と出典（`internal_citations`）を入�
 回答を主張に分解し、各主張を出典に照らして 3 値判定し、支持率（`support_rate`）を集計する。
 ここで得た `support_rate` / `verified` / 出典数が、後続 S5（④ 回答ゲート `_answer_gate()`）の主入力となり、
 自動回答するか／エスカレするかを分岐させる。
+
+### 1.1 ソース構成図（本モジュールの呼び出し構造）
+
+上図が GRACE-Support 全体の共通フローであるのに対し、本節は **`s4_confidence.py` 単体の呼び出し構造**を示す。
+`main()` は `_trace.py` のヘルパ（`banner` / `have_key` / `ipo` / `note_no_key`）で整形しつつ、`grace.get_config()` で
+設定を取得し、`grace.confidence.create_groundedness_verifier()` で `GroundednessVerifier` を生成する。鍵があれば
+代表サンプル（`SAMPLE_ANSWER` / `SAMPLE_SOURCES`）を渡して `verifier.verify(query, answer, sources)` を実呼び出しし、
+鍵が無ければ `note_no_key()` 経由で構造だけを提示する。いずれの分岐でも結果は `ipo()` で `GroundednessResult` として表示する。
+
+```mermaid
+flowchart TB
+    ENTRY(["__main__"])
+    subgraph MOD_S4["s4_confidence.py"]
+        MAIN["main()"]
+        NK["have_key() 分岐:<br>代表例 or 実 verify"]
+        SA["SAMPLE_ANSWER"]
+        SS["SAMPLE_SOURCES"]
+        OUTP["ipo() で<br>GroundednessResult 表示"]
+    end
+    subgraph MOD_TRACE["_trace.py"]
+        BAN["banner()"]
+        HK["have_key()"]
+        IPO["ipo()"]
+        NN["note_no_key()"]
+    end
+    subgraph MOD_GRACE["grace"]
+        CFG["get_config()"]
+    end
+    subgraph MOD_CONF["grace.confidence"]
+        CGV["create_groundedness_verifier()"]
+        VER["verifier.verify(query, answer, sources)"]
+    end
+    ENTRY --> MAIN
+    MAIN --> BAN
+    MAIN --> CFG
+    MAIN --> HK
+    HK --> NK
+    NK -->|"鍵あり"| CGV
+    CGV --> VER
+    VER -.-> SA
+    VER -.-> SS
+    NK -.->|"鍵なし"| NN
+    MAIN --> OUTP
+    OUTP --> IPO
+classDef default fill:#000,stroke:#fff,color:#fff
+classDef subgraphStyle fill:#1a1a1a,stroke:#fff,color:#fff
+class ENTRY,MAIN,NK,SA,SS,OUTP,BAN,HK,IPO,NN,CFG,CGV,VER default
+style MOD_S4 fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_TRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_GRACE fill:#1a1a1a,stroke:#fff,color:#fff
+style MOD_CONF fill:#1a1a1a,stroke:#fff,color:#fff
+```
+
+> `create_groundedness_verifier` は `grace.confidence` から、`banner` / `have_key` / `ipo` / `note_no_key` は
+> `_trace` から、`get_config` は `grace` から import する。`SAMPLE_ANSWER` / `SAMPLE_SOURCES` はモジュール定数で、
+> 鍵あり分岐でのみ `verifier.verify()` の引数として渡される（Qdrant 非依存）。
 
 ---
 
@@ -235,3 +292,4 @@ uv run python grace/step_trace/s4_confidence.py --vertical ec "返品したい"
 | 版 | 日付 | 内容 |
 |----|------|------|
 | 1.0 | 2026-07-09 | 初版作成（`s4_confidence.py` の S4. ③ Confidence トレースを IPO・CLI・フロー図で文書化） |
+| 1.1 | 「1.1 ソース構成図」（本モジュールの呼び出し構造の Mermaid）を追加 |
