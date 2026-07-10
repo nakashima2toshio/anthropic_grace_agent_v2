@@ -184,7 +184,6 @@ spacy-loggers==1.0.5
 srsly==2.5.2
 stack-data==0.6.3
 streamlit==1.52.1
-streamlit-mermaid==0.3.0
 sympy==1.14.0
 tenacity==9.1.2
 terminado==0.18.1
