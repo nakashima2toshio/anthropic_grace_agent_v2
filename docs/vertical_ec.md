@@ -1,6 +1,6 @@
 # 業界特化・EC ドキュメント
 
-**Version 1.1** | 最終更新: 2026-07-04
+**Version 1.2** | 最終更新: 2026-07-10
 
 GRACE-Support の業界特化（`--vertical ec`）のうち、**EC プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -78,6 +78,10 @@ style Profile fill:#1a1a1a,stroke:#fff,color:#fff
 style Pipeline fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
+> パイプライン全体（①〜⑦と ④-救済／④' 情報なし検知／⑤ Web 再利用の 3 ゲート）と、
+> プロファイル項目 → 効く関数の対応（コード読解マップ）は
+> [`docs/vertical_comparison.md` §9](./vertical_comparison.md) を参照。
+
 ## 2. プロファイル定義（実コード）
 
 `agent_support_example.py` の `PROFILES["ec"]`（`VerticalProfile`）:
@@ -130,14 +134,9 @@ ec は**アクション語（返品・解約）とエスカレ語（返金）が
 - **第 2 段（意図分類）**: 軽量モデル（`claude-haiku-4-5-20251001`）で `question` / `request` / `incident` に
   1 語分類（メモ化・エスカレ判定と action_map 判定で共有）
 
-**判定ルール**（`_should_force_escalate` / `_decide_action`）:
-
-| 第 1 段 | 第 2 段（意図） | 結果 |
-|---|---|---|
-| 不一致 | （呼ばれない） | 通常フロー |
-| 一致 | `question` | **誤爆抑止** — 強制エスカレしない／起票しない |
-| 一致 | `request` / `incident` | 強制エスカレ／起票 |
-| 一致 | `None`（分類失敗） | **安全側** — 従来どおり強制エスカレ／起票 |
+**判定ルール**（`_should_force_escalate` / `_decide_action`）は 3 業界共通 — 正は
+[`docs/vertical_comparison.md` §4](./vertical_comparison.md) の表を参照
+（一致×question=誤爆抑止／一致×request・incident=発動／分類失敗=安全側）。
 
 ec の具体例:
 
@@ -153,7 +152,7 @@ ec の具体例:
 ## 5. prompt_addendum の reasoning 注入
 
 `PROFILES["ec"].prompt_addendum` は `config.llm.prompt_addendum` を経由して
-`ReasoningTool._build_prompt()`（`grace/tools.py:525-528`）のシステム指示直後に
+`grace/tools.py::ReasoningTool._build_prompt()`（「業務方針」注入口）のシステム指示直後に
 **「### 【業務方針（遵守）】」**として注入される（executor 経由・⑤ Web フォールバック経由の両方に有効）。
 
 ec の方針文とその狙い:
@@ -226,3 +225,4 @@ uv run python -m eval.vertical.run --vertical ec --limit 3     # スモーク
 |-----------|---------|
 | 1.0 | 初版。ec プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと ec 実例＝返品/返金/解約 trap・自社規定へのスコープ限定の意図・prompt_addendum と本人確認フロー（require_identity=True・support_actions 連携）・TODO(b) 結論＝合成第一候補と投入手順・KPI 9 ケースと直近計測 9/9）を整理 |
 | 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |
+| 1.2 | **P1 改善（docs/vertical_docs_todo.md）**: §1 に comparison §9（①〜⑦フロー図＋コード読解マップ）への参照を追加（P1-1/P1-2）。§4 の判定ルール表を comparison §4 の「共通の正」への参照に置換（P1-4・重複解消）。§5 の行番号アンカー（tools.py:525-528）を関数名参照に変更（drift 対策） |
