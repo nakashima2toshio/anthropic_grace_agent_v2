@@ -1,6 +1,6 @@
 # 業界特化・自治体（gov）ドキュメント
 
-**Version 1.1** | 最終更新: 2026-07-04
+**Version 1.2** | 最終更新: 2026-07-10
 
 GRACE-Support の業界特化（`--vertical gov`）のうち、**自治体プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -72,6 +72,10 @@ style Profile fill:#1a1a1a,stroke:#fff,color:#fff
 style Pipeline fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
+> パイプライン全体（①〜⑦と ④-救済／④' 情報なし検知／⑤ Web 再利用の 3 ゲート）と、
+> プロファイル項目 → 効く関数の対応（コード読解マップ）は
+> [`docs/vertical_comparison.md` §9](./vertical_comparison.md) を参照。
+
 ## 2. プロファイル定義（実コード）
 
 `agent_support_example.py` の `PROFILES["gov"]`（`VerticalProfile`）:
@@ -116,14 +120,9 @@ gov の強制エスカレ語（減免・不服 等）は**FAQ 質問にも普通
   問い合わせを `question`（FAQ 質問）/ `request`（操作・手続きの依頼）/ `incident`（障害・被害の報告）に
   1 語分類。同一クエリの分類はメモ化され、エスカレ判定とアクション判定（`action_map` にも同じ二段判定）で共有
 
-**判定ルール**（`_should_force_escalate` / `_decide_action`）:
-
-| 第 1 段 | 第 2 段（意図） | 結果 |
-|---|---|---|
-| 不一致 | （呼ばれない） | 通常フロー |
-| 一致 | `question` | **誤爆抑止** — 強制エスカレしない／起票しない（回答のみ） |
-| 一致 | `request` / `incident` | 強制エスカレ（escalate_keywords）／起票（action_map） |
-| 一致 | `None`（分類失敗） | **安全側** — 従来どおり強制エスカレ／起票 |
+**判定ルール**（`_should_force_escalate` / `_decide_action`）は 3 業界共通 — 正は
+[`docs/vertical_comparison.md` §4](./vertical_comparison.md) の表を参照
+（一致×question=誤爆抑止／一致×request・incident=発動／分類失敗=安全側）。
 
 gov の具体例:
 
@@ -137,7 +136,7 @@ gov の具体例:
 ## 5. prompt_addendum の reasoning 注入
 
 `PROFILES["gov"].prompt_addendum` は `config.llm.prompt_addendum` を経由して
-`ReasoningTool._build_prompt()`（`grace/tools.py:525-528`）のシステム指示直後に
+`grace/tools.py::ReasoningTool._build_prompt()`（「業務方針」注入口）のシステム指示直後に
 **「### 【業務方針（遵守）】」**として注入される。executor 経由（② Execute）と
 ⑤ Web フォールバック経由の**両方の reasoning に効く**。
 
@@ -211,3 +210,4 @@ force_judge＋将来予測基準で escalate）・keyword-trap 2/2 誤爆なし�
 |-----------|---------|
 | 1.0 | 初版。gov プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと gov 実例・allowed_collections の暫定代替 wikipedia_ja・prompt_addendum の方針と狙い・TODO(b) 検証結論と e-Gov 投入手順・KPI 7 ケースと直近計測 7/7）を整理 |
 | 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |
+| 1.2 | **P1 改善（docs/vertical_docs_todo.md）**: §1 に comparison §9（①〜⑦フロー図＋コード読解マップ）への参照を追加（P1-1/P1-2）。§4 の判定ルール表を comparison §4 の「共通の正」への参照に置換（P1-4・重複解消）。§5 の行番号アンカー（tools.py:525-528）を関数名参照に変更（drift 対策） |

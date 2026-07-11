@@ -1,6 +1,6 @@
 # 業界特化 テストデータ準備ガイド ＋ 成果物一覧
 
-**Version 2.1** | 最終更新: 2026-07-10
+**Version 2.2** | 最終更新: 2026-07-10
 
 本書は GRACE-Support 業界特化（自治体 / SaaS / EC）の**テストデータ（RAG コレクション＋テスト質問）の考え方・無料データ候補**をまとめ、あわせて本取り組みで作成した**仕様書・ドキュメント・プログラムの一覧**を先頭に掲げる。
 
@@ -31,13 +31,13 @@
 | パス | 種別 | 内容 | 状態 |
 |---|---|---|---|
 | [`docs/migration_and_update.md`](./migration_and_update.md) | 計画 | 需要分析・GRACE-Support 採用方針・全体ロードマップ | v1.0 |
-| `docs/vertical_test_data.md` | ガイド | 本書（テストデータ準備＋成果物一覧） | v2.1 |
+| `docs/vertical_test_data.md` | ガイド | 本書（テストデータ準備＋成果物一覧） | v2.2 |
 | [`docs/vertical_spec_review.md`](./vertical_spec_review.md) | レビュー | 業界特化の仕様レビュー・改善提案（不整合の検証／残タスク再見積もり／KPI 評価設計／ロードマップ） | v1.2 |
-| [`docs/vertical_gov.md`](./vertical_gov.md) | 業界別説明 | 自治体（gov）プロファイルの特化部分（7 機構の割り当て・二段判定・スコープ・prompt_addendum・TODO(b)・KPI） | v1.1 |
-| [`docs/vertical_saas.md`](./vertical_saas.md) | 業界別説明 | SaaS プロファイルの特化部分（同上・課金/障害 trap・OSS docs 投入） | v1.1 |
-| [`docs/vertical_ec.md`](./vertical_ec.md) | 業界別説明 | EC プロファイルの特化部分（同上・本人確認フロー・合成/自社データ投入） | v1.1 |
-| [`docs/vertical_comparison.md`](./vertical_comparison.md) | 業界比較 | 3 業界の横並び対比（性格・7 機構・6 軸・二段判定・スコープ・データ戦略・KPI の 8 観点） | v1.0 |
-| [`docs/vertical_docs_todo.md`](./vertical_docs_todo.md) | TODO | 業界特化ドキュメント再チェック結果と改善 TODO（P0〜P2） | v1.0 |
+| [`docs/vertical_gov.md`](./vertical_gov.md) | 業界別説明 | 自治体（gov）プロファイルの特化部分（7 機構の割り当て・二段判定・スコープ・prompt_addendum・TODO(b)・KPI） | v1.2 |
+| [`docs/vertical_saas.md`](./vertical_saas.md) | 業界別説明 | SaaS プロファイルの特化部分（同上・課金/障害 trap・OSS docs 投入） | v1.2 |
+| [`docs/vertical_ec.md`](./vertical_ec.md) | 業界別説明 | EC プロファイルの特化部分（同上・本人確認フロー・合成/自社データ投入） | v1.2 |
+| [`docs/vertical_comparison.md`](./vertical_comparison.md) | 業界比較 | 3 業界の横並び対比（性格・7 機構・6 軸・二段判定・スコープ・データ戦略・KPI の 8 観点）＋①〜⑦フロー図・コード読解マップ（§9） | v1.1 |
+| [`docs/vertical_docs_todo.md`](./vertical_docs_todo.md) | TODO | 業界特化ドキュメント再チェック結果と改善 TODO（P0〜P2） | v1.1 |
 
 > 📌 「状態」列の版数はリンク先ヘッダーの `**Version X.X**` が正。本表の版数はチェック時点
 > （2026-07-10）のスナップショットであり、更新時はリンク先の版上げと同時にこの表も同期すること。
@@ -218,6 +218,21 @@ keyword-trap : 「返金ポリシーを教えて」「解約手続きの流れ�
    in-scope の decision 一致率はコレクションのカバレッジに依存するため、
    専用コレクション登録後に再計測してベースラインとする。
 
+   **`SupportResult` フィールド → KPI 指標の対応**（`run.py` が `CaseResult` に抽出し
+   `metrics.py::compute_metrics()` が集計する）:
+
+   | `SupportResult` フィールド | 流れる KPI 指標 | 備考 |
+   |---|---|---|
+   | `decision` | decision_accuracy / false_escalate_rate / escalate_recall | 期待ラベル（expected_decision）と照合。分母はカテゴリで層別 |
+   | `forced_escalate` | forced_escalate_misfire_rate | 分母は in-scope＋keyword-trap（誤発火 0 目標） |
+   | `citations`（件数） | citation_rate | answer のうち出典 1 件以上の割合 |
+   | `groundedness` ＋ `groundedness_decided` | ungrounded_answer_rate / groundedness_neutral_rate | decided>0 かつ支持率<confirm_th が「根拠なし」、decided=0 は「判定不能」として分離 |
+   | `action.action_type` | action_accuracy | expected_action と照合（None 同士の一致を含む） |
+   | `identity_checked` | identity_check_rate | 分母は `expect_identity_check: true` のケースのみ |
+   | （実行時間・`run.py` が計測） | mean_latency_ms | — |
+   | `intent` | —（レポートに記録のみ） | 二段判定の分岐確認用 |
+   | `no_info_detected` / `web_reused` | —（KPI 集計には未使用） | `--show-agent-output` でゲート発火・⑤最適化の確認に使う |
+
 ---
 
 ## 6. TODO と進め方
@@ -291,3 +306,4 @@ python agent_support_example.py --vertical gov "固定資産税の減免を個�
 | 1.9 | **業界別説明ドキュメントを追加**: `docs/vertical_gov.md` / `vertical_saas.md` / `vertical_ec.md`（各業界の特化部分＝7 機構の割り当て・二段判定・collections 実検索限定・prompt_addendum 注入・実コレクション命名＋TODO(b)・KPI 評価ハーネス）。§0 ドキュメント一覧に追記 |
 | 2.0 | **業界比較ドキュメントを追加**: `docs/vertical_comparison.md`（3 業界の横並び対比＝性格・7 機構・6 軸・二段判定の衝突語彙・検索スコープ設計・prompt_addendum・データ戦略・KPI の 8 観点＋全体対比図）。§0 ドキュメント一覧に追記 |
 | 2.1 | **P0 是正（docs/vertical_docs_todo.md）**: §0 の KPI ケース数を実数（gov 7 / saas 8 / ec 9。jsonl 1 行目はコメント行のため行数≠ケース数）へ修正、成果物一覧の版数をリンク先ヘッダーに同期（agent_support_verticals v1.4 / agent_support_example v1.2 / vertical_gov・saas・ec v1.1 等）＋版数同期の運用注記を追加、変更履歴を昇順に並べ替え |
+| 2.2 | **P1 改善（docs/vertical_docs_todo.md P1-3）**: §5 手順 4 に「SupportResult フィールド → KPI 指標」対応表を追加（intent は記録のみ・no_info_detected / web_reused は KPI 集計未使用、の区別を明記）。§0 の版数スナップショットを P1 反映後（gov/saas/ec v1.2・comparison v1.1・todo v1.1）に同期 |

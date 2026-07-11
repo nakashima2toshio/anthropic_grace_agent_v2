@@ -1,6 +1,6 @@
 # 業界特化 3 業界比較（gov / SaaS / EC）ドキュメント
 
-**Version 1.0** | 最終更新: 2026-07-04
+**Version 1.1** | 最終更新: 2026-07-10
 
 GRACE-Support の業界特化 3 プロファイルを**横並びで対比**する資料。各業界の詳細は
 [`docs/vertical_gov.md`](./vertical_gov.md) / [`docs/vertical_saas.md`](./vertical_saas.md) /
@@ -19,8 +19,9 @@ GRACE-Support の業界特化 3 プロファイルを**横並びで対比**す�
 6. [prompt_addendum（語り口）の対比](#6-prompt_addendum語り口の対比)
 7. [データ戦略の対比（TODO(b) の結論）](#7-データ戦略の対比todob-の結論)
 8. [KPI の対比 — 何を最重視し、いまどこまで来たか](#8-kpi-の対比--何を最重視しいまどこまで来たか)
-9. [全体対比図](#9-全体対比図)
-10. [変更履歴](#10-変更履歴)
+9. [パイプライン全体フロー（①〜⑦と 3 つのゲート）＋コード読解マップ](#9-パイプライン全体フロー①〜⑦と-3-つのゲートコード読解マップ)
+10. [全体対比図](#10-全体対比図)
+11. [変更履歴](#11-変更履歴)
 
 ---
 
@@ -62,6 +63,17 @@ GRACE-Support の業界特化 3 プロファイルを**横並びで対比**す�
 
 判定ルール自体（第 1 段キーワード候補検出 → 第 2 段 haiku 意図分類、question=誤爆抑止・
 request/incident=発動・分類失敗=安全側）は 3 業界共通。**業界ごとに違うのは「何と何が衝突するか」**である。
+
+**判定ルール（3 文書共通の正）** — `_should_force_escalate()` / `_decide_action()`。
+`docs/vertical_gov.md` / `vertical_saas.md` / `vertical_ec.md` の §4 はこの表を参照する
+（変更時はここだけを更新する）:
+
+| 第 1 段（キーワード候補） | 第 2 段（意図分類） | 結果 |
+|---|---|---|
+| 不一致 | （呼ばれない） | 通常フロー |
+| 一致 | `question` | **誤爆抑止** — 強制エスカレしない／起票しない（回答のみ） |
+| 一致 | `request` / `incident` | 強制エスカレ（`escalate_keywords`）／起票（`action_map`） |
+| 一致 | `None`（分類失敗） | **安全側** — 従来どおり強制エスカレ／起票 |
 
 | | gov | saas | ec |
 |---|---|---|---|
@@ -121,7 +133,50 @@ uv run python -m eval.vertical.run --vertical saas  --report logs/vertical_saas.
 uv run python -m eval.vertical.run --vertical ec    --report logs/vertical_ec.json
 ```
 
-## 9. 全体対比図
+## 9. パイプライン全体フロー（①〜⑦と 3 つのゲート）＋コード読解マップ
+
+### 9.1 パイプライン全体フロー
+
+`run_support_agent()`（`agent_support_example.py`）の実行順を、プロファイルに依らない共通フローとして示す。
+④（回答ゲート）・**④-救済**・**④'（情報なし回答検知）** の 3 つのゲートと、
+⑤ の **Web 再利用最適化（web_reused）** の適用順序が読みどころ。
+④' は ⑤ の**後**に、decision=answer の回答すべて（内部回答・Web 回答とも）へ適用される。
+
+```mermaid
+flowchart TB
+    Q["問い合わせ query"] --> S1["① Plan: planner.create_plan()"]
+    S1 --> S2["② Execute: executor.execute()<br>内部 RAG → reasoning<br>（RAG スコア不足時は web_search を動的挿入）"]
+    S2 --> S3["③ Confidence: GroundednessVerifier.verify()<br>内部回答の裏付け（支持率・判定可能主張数）"]
+    S3 --> S4["④ 回答ゲート: _answer_gate()<br>＋ 強制エスカレ: _should_force_escalate()（二段判定）"]
+    S4 -->|"answer"| S4D
+    S4 -->|"escalate だが 矛盾なし・出典あり・実質回答"| S4R["④-救済: _should_rescue_unaffirmed()<br>answer（未確認注記）に復帰・⑤ を省略"]
+    S4R --> S4D
+    S4 -->|"強制エスカレ"| S6
+    S4 -->|"escalate（強制でない）"| S5["⑤ Web フォールバック<br>web_search → reasoning → 相互検証<br>（executor が Web 使用済みなら内部回答を<br>本文スニペットで再検証のみ = web_reused）"]
+    S5 -->|"answer 化"| S4D["④' 情報なし回答検知: _detect_no_info_answer()<br>定型句 NO_INFO_MARKERS ＋ LLM の二段判定<br>（出典が Web のみは force_judge で必須判定）"]
+    S5 -->|"なお escalate"| S6
+    S4D -->|"no_info → escalate へ"| S6
+    S4D -->|"answered → answer 維持"| S6["⑥ Action: _decide_action()（二段判定）<br>→ 本人確認（require_identity 時）→ CONFIRM → ActionBackend<br>（escalate 時は escalate_to_human）"]
+    S6 --> S7["⑦ 応答: _render()"]
+classDef default fill:#000,stroke:#fff,color:#fff
+class Q,S1,S2,S3,S4,S4R,S5,S4D,S6,S7 default
+```
+
+### 9.2 コード読解マップ（プロファイル項目 → 効く関数）
+
+`VerticalProfile` の各フィールドが `agent_support_example.py` のどの関数で効くかの対応。
+コードを読むときはこの表から該当関数へ入るとよい。
+
+| プロファイル項目（機構） | 配線（`run_support_agent()` 内） | 効く場所（実装） |
+|---|---|---|
+| `collections` | `config.qdrant.allowed_collections` へ設定 | `grace/tools.py::RAGSearchTool._apply_allowed_collections()` — 明示指定・フォールバック連鎖を含む全検索候補へ許可リストを適用（②） |
+| `notify_th` / `confirm_th` | ゲートしきい値を上書き | `_answer_gate()`（④）。`confirm_th` は ⑤ の相互検証の矛盾判定（内部×Web 一致度 < confirm_th）にも使用 |
+| `escalate_keywords` | — | `_should_force_escalate()`（④）— 第 1 段 `_match_keyword()` ＋ 第 2 段 `create_intent_classifier()`（意図分類はメモ化） |
+| `action_map` | — | `_decide_action()`（⑥）— 同じ二段判定を使用（メモ化した意図分類を共有） |
+| `require_identity` | — | `_perform_action()` ＋ `support_actions.create_identity_verifier()`（⑥・CONFIRM の**前**に照合。未確認なら実行せず有人へ） |
+| `prompt_addendum` | `config.llm.prompt_addendum` へ設定 | `grace/tools.py::ReasoningTool._build_prompt()` — 「###【業務方針（遵守）】」として注入（② と ⑤ の両方の reasoning に有効） |
+
+## 10. 全体対比図
 
 共通エンジン（GRACE-Support パイプライン）は 1 つで、業界ごとに差し替わるのはプロファイルの 6 項目だけ、
 という構造を対比で示す。
@@ -164,8 +219,9 @@ style EC fill:#1a1a1a,stroke:#fff,color:#fff
 style CORE fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
-## 10. 変更履歴
+## 11. 変更履歴
 
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。業界別ドキュメント 3 本（vertical_gov / vertical_saas / vertical_ec 各 v1.0）を元に、性格・7 機構・6 軸・二段判定の衝突語彙・検索スコープ設計・prompt_addendum・データ戦略・KPI（重視指標と直近計測）の 8 観点で横並び比較表を作成。全体対比図（共通エンジン×プロファイル差し替え）を追加 |
+| 1.1 | **P1 改善（docs/vertical_docs_todo.md）**: §9 を新設し、①〜⑦パイプライン全体フロー図（④-救済・④' 情報なし検知・⑤ Web 再利用 = 3 つのゲートの適用順序）とコード読解マップ（プロファイル項目 → 効く関数）を追加（P1-1/P1-2）。§4 に二段判定の判定ルール表を「3 文書共通の正」として集約（P1-4。gov/saas/ec 各書は本表を参照） |

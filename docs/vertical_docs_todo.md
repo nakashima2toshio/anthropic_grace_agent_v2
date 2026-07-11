@@ -1,6 +1,9 @@
 # 業界特化ドキュメント 再チェック結果と改善 TODO
 
-**Version 1.0** | 最終更新: 2026-07-10
+**Version 1.1** | 最終更新: 2026-07-10
+
+> **進捗**: P0（3 件）は ✅ 完了（PR #160）。P1（4 件）は ✅ 完了（本更新と同じ PR）。
+> 残りは **P2 のライブ計測のみ**（ユーザー環境で実施）。
 
 `agent_support_example.py`（業界特化 GRACE-Support）の**理解を目的として**、下記 5 ドキュメントを実コード・実データと突合して再チェックした結果と、改善 TODO をまとめる。
 
@@ -28,12 +31,12 @@
 | KPI 10 指標名（`eval/vertical/metrics.py`） | ✅ 一致 |
 | 合成データ「各 10 件」（`eval/vertical/data/*.csv` = ヘッダー＋10 行） | ✅ 一致 |
 | Mermaid 黒背景規約（CLAUDE.md §7） | ✅ 全図適用済み |
-| KPI ケース数・成果物一覧の版数・変更履歴の並び | ❌ **P0 の 3 件**（下記） |
-| 「プログラム理解」観点の構成 | 🔶 **P1 の改善余地**（下記） |
+| KPI ケース数・成果物一覧の版数・変更履歴の並び | ✅ **P0 の 3 件を是正済み**（PR #160） |
+| 「プログラム理解」観点の構成 | ✅ **P1 の 4 件を適用済み**（comparison §9 新設ほか） |
 
 ---
 
-## P0: 事実誤りの是正（すぐ直す・実害あり）
+## P0: 事実誤りの是正（すぐ直す・実害あり）— ✅ 完了（PR #160・vertical_test_data.md v2.1）
 
 ### P0-1. `vertical_test_data.md` §0 のテストケース件数が誤り
 
@@ -70,7 +73,11 @@
 
 ---
 
-## P1: 「プログラム理解」観点の改善（提案・中優先）
+## P1: 「プログラム理解」観点の改善（提案・中優先）— ✅ 完了（2026-07-10 適用）
+
+> 適用先: P1-1/P1-2 = `vertical_comparison.md` §9 新設（①〜⑦フロー図＋コード読解マップ・v1.1）、
+> P1-3 = `vertical_test_data.md` §5 手順 4（SupportResult→KPI 対応表・v2.2）、
+> P1-4 = 判定ルール表を comparison §4 に集約し gov/saas/ec §4 は参照化＋行番号アンカーを関数名参照へ（各 v1.2）。
 
 ### P1-1. ①〜⑦パイプライン全体図に「3 つのゲート」を反映
 
@@ -124,7 +131,57 @@
 
 ---
 
-## P2: ライブ計測・運用（コード変更なし・ユーザー環境で実施）
+## P2: ライブ計測・運用（コード変更なし・ユーザー環境で実施）— ⏳ 未実施
+
+### P2-0. 実施手順（ローカル・ランブック）
+
+**前提（1 回だけ）**:
+
+1. `.env` に `ANTHROPIC_API_KEY`（LLM）と `GOOGLE_API_KEY`（Embedding）を設定
+2. Qdrant 起動: `docker-compose -f docker-compose/docker-compose.yml up -d`
+   （確認: `curl http://localhost:6333/health`）
+3. 依存同期: `uv sync`
+4. 専用コレクション登録（6 個×各 10 件・Embedding 課金あり）:
+   ```bash
+   uv run python -m eval.vertical.register_test_collections --recreate
+   ```
+   期待: `gov_faq_anthropic` 〜 `ec_faq_anthropic` の 6 コレクションの登録ログ。
+   存在確認: `uv run python -m qa_qdrant.command.list_collections`
+
+**計測（P2-1 を含む 3 業種）**:
+
+```bash
+# スモーク（2 ケースだけ流して疎通確認）
+uv run python -m eval.vertical.run --vertical gov --limit 2
+
+# 本計測（1 業種 5〜7 分・逐次実行）
+uv run python -m eval.vertical.run --vertical gov  --report logs/vertical_gov.json
+uv run python -m eval.vertical.run --vertical saas --report logs/vertical_saas.json
+uv run python -m eval.vertical.run --vertical ec   --report logs/vertical_ec.json
+```
+
+**期待する結果（前回ベースライン: 2026-07-03・agent_support_verticals.md §9.1）**:
+
+| 業種 | decision_accuracy | 主眼 |
+|---|---|---|
+| gov | 1.000（7/7）維持 | false_escalate=0・ungrounded=0 の維持 |
+| saas | **8/8 到達（前回 7/8）** | 唯一の不一致「500 エラー報告」が #12（web_search リトライ＋fallback_backend）で解消したことの確認 — **P2-1 の主目的** |
+| ec | 1.000（9/9）維持 | identity_check_rate=1.000・keyword-trap 誤爆 0 の維持 |
+
+共通: citation_rate=1.00 / ungrounded_answer_rate=0.00 / forced_escalate_misfire_rate=0 /
+mean_latency ≈ 38〜44 秒/ケース。
+
+**失敗時の切り分け**:
+
+- 失敗ケースは `--show-agent-output` で再実行し、どのゲート（④/④-救済/④'/強制エスカレ）で
+  倒れたかをログで確認する
+- ③ groundedness（Haiku）は**非決定的**なため、1 回の失敗で回帰と断定しない（同ケースを再実行）
+- web_search 起因（検索 0 件→情報なし化）なら #12 の設定（リトライ・fallback_backend）を確認
+- API キー・Qdrant 未起動系のエラーは実行冒頭で分かる（`ANTHROPIC_API_KEY 未設定` / 接続エラー）
+
+**結果の反映（3 箇所同期）**: `vertical_saas.md` §7・`vertical_comparison.md` §8・
+`agent_support_verticals.md` §9.1 に計測 ID（例: vertical_saas5）と数値を追記。
+反復計測が高コストな場合は先に P2-2 の (d)（record/replay キャッシュ）を導入する。
 
 ### P2-1. saas 再計測（#12 対策後の 8/8 確認）— 未実施のまま
 
@@ -145,13 +202,14 @@
 
 ## 対応順の目安
 
-1. **P0-1〜P0-3**（`vertical_test_data.md` の 3 是正）— 数分で完了・誤情報の除去が最優先
-2. **P1-1 → P1-2 → P1-3**（理解性の改善）— comparison を起点に追加し、業界別 3 本から参照
-3. **P1-4**（重複の参照化 or 同期注記）— P1-1/P1-2 の構成変更と同時に行うと手戻りがない
-4. **P2-1 / P2-2**（ライブ計測）— ユーザー環境で実施し、結果を各ドキュメントへ反映
+1. ~~**P0-1〜P0-3**（`vertical_test_data.md` の 3 是正）~~ — ✅ 完了（PR #160）
+2. ~~**P1-1 → P1-2 → P1-3**（理解性の改善）~~ — ✅ 完了（comparison §9 新設・test_data §5 対応表）
+3. ~~**P1-4**（重複の参照化）~~ — ✅ 完了（判定ルール表を comparison §4 に集約・3 本を参照化）
+4. **P2-1 / P2-2**（ライブ計測）— ⏳ ユーザー環境で P2-0 のランブックに従って実施し、結果を各ドキュメントへ反映
 
 ## 変更履歴
 
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.0 | 初版。業界特化ドキュメント 5 本を実コード・実データと突合し、P0（件数誤記・版ずれ・変更履歴の並び）／P1（ゲート反映のフロー図・コード読解マップ・KPI 対応表・重複の同期ルール）／P2（saas 再計測・既存 TODO 引き継ぎ）を整理 |
+| 1.1 | **P0/P1 完了を反映＋P2 ランブック追加**: P0 は PR #160、P1 は comparison v1.1（§9 フロー図＋コード読解マップ・§4 判定ルール集約）／gov・saas・ec v1.2（参照化・関数名アンカー）／test_data v2.2（SupportResult→KPI 対応表）で適用。P2-0 として実施手順（前提・計測コマンド・期待結果・失敗時の切り分け・結果反映先）を追記 |
