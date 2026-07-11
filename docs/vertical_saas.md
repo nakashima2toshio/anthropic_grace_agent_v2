@@ -1,6 +1,6 @@
 # 業界特化・SaaS ドキュメント
 
-**Version 1.2** | 最終更新: 2026-07-10
+**Version 1.3** | 最終更新: 2026-07-11
 
 GRACE-Support の業界特化（`--vertical saas`）のうち、**SaaS プロファイルの特化部分**を説明する。
 共通アーキテクチャ（7 つの機構・6 軸の定義）は [`grace/doc/agent_support_verticals.md`](../grace/doc/agent_support_verticals.md)、
@@ -190,11 +190,13 @@ uv run python -m eval.vertical.run --vertical saas --report logs/vertical_saas.j
 uv run python -m eval.vertical.run --vertical saas --show-agent-output   # ゲート発火の確認
 ```
 
-**直近計測**（2026-07-03・vertical_saas4。詳細: [`agent_support_verticals.md` §9.1](../grace/doc/agent_support_verticals.md)）:
-**0.875（7/8）**。唯一の不一致は action「500 エラー報告」— web_search のタイムアウトで検索 0 件 →
-情報なし回答 → ④' で escalate（期待は answer＋起票）。この連鎖は **#12（リトライ設定化＋
-fallback_backend）で対策済み**であり、再計測で 8/8 到達を確認すること。keyword-trap 2/2・
-escalate-keyword 2/2 は達成済み。
+**直近計測**（2026-07-11・#11〜#14 実装後。詳細: [`agent_support_verticals.md` §9.1](../grace/doc/agent_support_verticals.md)）:
+**1.000（8/8）**。前回（2026-07-03・vertical_saas4）唯一の不一致だった action「500 エラー報告」は、
+**#12（リトライ設定化＋fallback_backend）実装後の再計測で期待どおり通過**（RAG ヒット → 意味関連性 NO →
+動的 Web 検索（SerpAPI 正常応答）→ answer＋create_ticket・intent=incident）。
+escalate_recall 1.000・forced_escalate_misfire_rate 0.000・citation_rate 1.000・
+ungrounded_answer_rate 0.000（#11 の計測是正が効き、判定不能ぶんは groundedness_neutral_rate 0.600 に分離）・
+mean_latency 42.4 秒/ケース。saas が最重視する 2 指標（escalate_recall=1.0・misfire=0）も引き続き達成。
 
 ## 8. 変更履歴
 
@@ -203,3 +205,4 @@ escalate-keyword 2/2 は達成済み。
 | 1.0 | 初版。saas プロファイルの特化部分（7 機構の割り当て・二段判定の判定ルールと saas 実例＝課金/障害 trap・専用コレクション限定と「暫定代替なし」の設計・prompt_addendum の技術回答様式・TODO(b) 結論＝OSS docs 現実解と投入手順・KPI 8 ケースと直近計測 7/8＋#12 対策の再計測観点）を整理 |
 | 1.1 | §1 適用ポイント図のノード配置を縦並びに変更（`direction TB`＋不可視リンク `~~~` でサブグラフ内を縦一列化。横並びでノード内の文字が小さく読みにくかったため） |
 | 1.2 | **P1 改善（docs/vertical_docs_todo.md）**: §1 に comparison §9（①〜⑦フロー図＋コード読解マップ）への参照を追加（P1-1/P1-2）。§4 の判定ルール表を comparison §4 の「共通の正」への参照に置換（P1-4・重複解消）。§5 の行番号アンカー（tools.py:525-528）を関数名参照に変更（drift 対策） |
+| 1.3 | **#12 実装後の再計測結果を反映（2026-07-11）**: §7 直近計測を **8/8（1.000）** に更新。前回不一致の「500 エラー報告」が動的 Web 検索経由で answer＋create_ticket を達成し #12 の効果を確認。#11 の計測是正（ungrounded_answer_rate 0.000／groundedness_neutral_rate 0.600）と mean_latency 42.4 秒/ケースも記録 |
