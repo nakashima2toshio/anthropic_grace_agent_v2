@@ -1,6 +1,6 @@
 # 業界特化 3 業界比較（gov / SaaS / EC）ドキュメント
 
-**Version 1.1** | 最終更新: 2026-07-10
+**Version 1.2** | 最終更新: 2026-07-11
 
 GRACE-Support の業界特化 3 プロファイルを**横並びで対比**する資料。各業界の詳細は
 [`docs/vertical_gov.md`](./vertical_gov.md) / [`docs/vertical_saas.md`](./vertical_saas.md) /
@@ -121,9 +121,10 @@ request/incident=発動・分類失敗=安全側）は 3 業界共通。**業界
 | **ケース数** | 7 | 8 | 9（最多） |
 | **業界固有のケース設計** | 将来予測質問（税制改正）を out-of-scope に配置 | 障害・課金の incident を 2 件配置 | `expect_identity_check` ケースを 2 件配置（**唯一**） |
 | **最重視の指標** | false_escalate_rate=0・ungrounded_answer_rate=0 | escalate_recall=1.0・forced_escalate_misfire_rate=0 | identity_check_rate=1.0・action_accuracy |
-| **直近計測（2026-07-03）** | **7/7（1.000）**・escalate_recall 0.500→1.000 | **7/8（0.875）** | **9/9（全指標 1.000）**・escalate_recall 0.667→1.000 |
-| **残課題** | なし（再計測で確認済み） | 「500 エラー報告」1 件 — web_search タイムアウト起因。**#12 で対策済み・再計測待ち** | なし（identity_check_rate 1.000 も達成） |
-| **mean_latency** | 41.0 秒/ケース | 44 秒前後（前回計測） | 38.0 秒/ケース |
+| **前回計測（2026-07-03）** | **7/7（1.000）**・escalate_recall 0.500→1.000 | **7/8（0.875）** | **9/9（全指標 1.000）**・escalate_recall 0.667→1.000 |
+| **直近計測（2026-07-11・#11〜#14 実装後）** | **7/7（1.000）**（vertical_gov4） | **8/8（1.000）**・「500 エラー報告」が answer＋create_ticket で通過（**#12 効果確認**） | **9/9（1.000）**・identity_check_rate 1.000 維持 |
+| **残課題** | なし | なし（#12 効果確認済み。ungrounded 0.000＝#11 是正も確認） | なし |
+| **mean_latency（2026-07-11）** | 42.9 秒/ケース | 42.4 秒/ケース | 38.6 秒/ケース |
 
 実行コマンドは共通で `--vertical` だけが変わる:
 
@@ -225,3 +226,4 @@ style CORE fill:#1a1a1a,stroke:#fff,color:#fff
 |-----------|---------|
 | 1.0 | 初版。業界別ドキュメント 3 本（vertical_gov / vertical_saas / vertical_ec 各 v1.0）を元に、性格・7 機構・6 軸・二段判定の衝突語彙・検索スコープ設計・prompt_addendum・データ戦略・KPI（重視指標と直近計測）の 8 観点で横並び比較表を作成。全体対比図（共通エンジン×プロファイル差し替え）を追加 |
 | 1.1 | **P1 改善（docs/vertical_docs_todo.md）**: §9 を新設し、①〜⑦パイプライン全体フロー図（④-救済・④' 情報なし検知・⑤ Web 再利用 = 3 つのゲートの適用順序）とコード読解マップ（プロファイル項目 → 効く関数）を追加（P1-1/P1-2）。§4 に二段判定の判定ルール表を「3 文書共通の正」として集約（P1-4。gov/saas/ec 各書は本表を参照） |
+| 1.2 | **3 業界そろい踏みの再計測結果を反映（2026-07-11）**: §8 に直近計測行を追加 — gov **7/7** / saas **8/8** / ec **9/9**（decision_accuracy すべて 1.000）。saas は #12（web_search リトライ＋fallback_backend）の効果確認により前回唯一の不一致「500 エラー報告」を解消。mean_latency（gov 42.9s / saas 42.4s / ec 38.6s）と残課題欄を更新 |
