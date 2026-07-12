@@ -10,7 +10,7 @@
 > `ec_policy_anthropic` / `ec_faq_anthropic`、gov 暫定代替 `wikipedia_ja`）を割り当て、
 > 不整合 D3 も解消。テスト: `tests/grace/test_vertical_scope.py`。
 >
-> ✅ **実装反映（v1.1）**: §4-A の誤発火対策（二段判定・P5-1）と §6 の KPI 評価スクリプト（P3）は
+> ✅ **実装反映（v1.1）**: §4-A の誤検知対策（二段判定・P5-1）と §6 の KPI 評価スクリプト（P3）は
 > **実装済み**。二段判定は `agent_support_example.py`（`_should_force_escalate` / `_decide_action` /
 > `create_intent_classifier`）、KPI 評価は `eval/vertical/`（`run.py` / `metrics.py` /
 > `cases/{gov,saas,ec}.jsonl`）、単体テストは `tests/test_agent_support_vertical.py` /
@@ -55,7 +55,7 @@
      `RAGSearchTool.execute(collection=...)`（`grace/tools.py:93-99`）、
      `config.qdrant.restrict_to_collection`（`grace/config.py:159`）が既に存在する。
      不足しているのは「複数コレクションの許可リスト」1 点だけで、これも小規模改修で済む。
-2. **最大の品質リスクは「キーワード部分一致」の誤発火である。**
+2. **最大の品質リスクは「キーワード部分一致」の誤検知である。**
    `escalate_keywords` / `action_map` は `keyword in query` の部分一致であり、
    「課金プランの違いを教えて」（SaaS・in-scope の FAQ 質問）が「課金」で強制エスカレ、
    「解約方法を教えて」（情報質問）が「解約」でチケット起票される。
@@ -173,10 +173,10 @@ style SCOPE fill:#1a1a1a,stroke:#fff,color:#fff
 
 ## 4. 検証結果③: 現行仕様の設計上の懸念点
 
-### (A) キーワード部分一致の誤発火 — **最重要**
+### (A) キーワード部分一致の誤検知 — **最重要**
 
 `escalate_keywords` / `action_map` はいずれも `keyword in query` の**部分一致**である
-（`agent_support_example.py:182-184, 350`）。具体的な誤発火例:
+（`agent_support_example.py:182-184, 350`）。具体的な誤検知例:
 
 | プロファイル | クエリ（本来 in-scope の FAQ 質問） | 一致語 | 現行の挙動 | 期待 |
 |---|---|---|---|---|
@@ -189,7 +189,7 @@ style SCOPE fill:#1a1a1a,stroke:#fff,color:#fff
 「返金」は話題としては in-scope だが、「返金されない・二重請求」なら深刻度が高い。
 「解約」も「したい（依頼）」と「方法を知りたい（質問）」で必要なアクションが異なる。
 改善案は §5-P5-1（二段判定）を参照。なお強制エスカレは deflection（自己解決率）KPI を
-直接押し下げるため、誤発火率は §6 のメトリクスで常時計測すべきである。
+直接押し下げるため、誤検知率は §6 のメトリクスで常時計測すべきである。
 
 ### (B) 強制エスカレ判定の位置 — LLM コストの浪費
 
@@ -238,7 +238,7 @@ intervention ハンドラを使い、「注文 ID 等の提示 → 検証不能�
 `tests/` に `agent_support_example` / `VerticalProfile` のテストが**1 件もない**。
 `_answer_gate()`・`_decide_action()`・`_perform_action()`・エスカレ語判定は
 純関数または軽量関数で、**API キー・Qdrant なしでテスト可能**である。
-特に (A) の誤発火例は、まず失敗するテストとして固定してから直すのが安全。
+特に (A) の誤検知例は、まず失敗するテストとして固定してから直すのが安全。
 
 ---
 
@@ -252,7 +252,7 @@ intervention ハンドラを使い、「注文 ID 等の提示 → 検証不能�
 | P1-2 | Web 経路への `prompt_addendum` 注入 | `tool_registry.execute("reasoning", query=query, sources=web_output, context=profile.prompt_addendum)`（§3.1） |
 | P1-3 | `VerticalProfile` に評価用フィールド追加 | `sample_queries: List[EvalCase]`（期待ラベル付き・§6 スキーマ）と `kpi: List[str]` を追加し、設計 §6 と一致させる |
 | P1-4 | 強制エスカレの前倒し | エスカレ語判定を ①Plan の前へ移動（§4-B）。引き継ぎ要約は haiku で任意生成 |
-| P1-5 | 純関数の単体テスト追加 | `_answer_gate` / `_decide_action` / エスカレ語判定（誤発火例を含む）を `tests/` に追加 |
+| P1-5 | 純関数の単体テスト追加 | `_answer_gate` / `_decide_action` / エスカレ語判定（誤検知例を含む）を `tests/` に追加 |
 
 ### P2: 小規模コア改修（数十行規模）
 
@@ -286,7 +286,7 @@ used_web / action / vertical）を返すため、評価ランナーは同関数�
 
 ### 6.1 テストケース・スキーマ（JSONL）
 
-`docs/vertical_test_data.md` §4 の 4 カテゴリに、§4-A の誤発火を計測する
+`docs/vertical_test_data.md` §4 の 4 カテゴリに、§4-A の誤検知を計測する
 **第 5 カテゴリ `keyword-trap`** を追加する。
 
 ```json
@@ -371,5 +371,5 @@ used_web / action / vertical）を返すため、評価ランナーは同関数�
 | バージョン | 変更内容 |
 |-----------|---------|
 | 1.2 | P2-1（`allowed_collections` 実検索限定）・P2-2（`prompt_addendum` 注入）の実装完了を反映。実コレクション名の割り当て（D3 解消）と TODO(b) データ検証完了（`vertical_test_data.md` v1.3）を追記 |
-| 1.1 | P5-1（二段判定・誤発火抑止）と P3（KPI 評価スクリプト `eval/vertical/`）の実装完了を反映。ヘッダに実装状況注記（抑止対象を question のみとした設計判断を含む）を追加 |
-| 1.0 | 初版作成。成果物（設計書 v0.4・テストデータガイド v1.0・実装）と grace コアの突合レビュー。主要結論 3 点（残タスク 2 件は既存フックでほぼ実現可能／キーワード部分一致の誤発火が最大リスク／KPI 評価は eval/ 再利用）、不整合 D1〜D4、懸念点 A〜G、改善提案 P1〜P5、KPI 評価設計（5 カテゴリ・メトリクス定義）、テストデータガイド追補、推奨ロードマップを記載 |
+| 1.1 | P5-1（二段判定・誤検知抑止）と P3（KPI 評価スクリプト `eval/vertical/`）の実装完了を反映。ヘッダに実装状況注記（抑止対象を question のみとした設計判断を含む）を追加 |
+| 1.0 | 初版作成。成果物（設計書 v0.4・テストデータガイド v1.0・実装）と grace コアの突合レビュー。主要結論 3 点（残タスク 2 件は既存フックでほぼ実現可能／キーワード部分一致の誤検知が最大リスク／KPI 評価は eval/ 再利用）、不整合 D1〜D4、懸念点 A〜G、改善提案 P1〜P5、KPI 評価設計（5 カテゴリ・メトリクス定義）、テストデータガイド追補、推奨ロードマップを記載 |

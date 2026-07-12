@@ -3,7 +3,7 @@
 
 API キー・Qdrant 不要。意図分類器はスタブ（Callable）を注入する。
 対象: _answer_gate / _match_keyword / _should_force_escalate / _decide_action。
-特に「キーワード部分一致の誤発火」（docs/vertical_spec_review.md §4-A）が
+特に「キーワード部分一致の誤検知」（docs/vertical_spec_review.md §4-A）が
 二段判定で抑止されることを固定する。
 """
 from types import SimpleNamespace
@@ -98,7 +98,7 @@ class TestShouldForceEscalate:
     """強制エスカレの二段判定（キーワード候補 → 意図分類）。"""
 
     def test_keyword_trap_question_is_not_forced(self):
-        # §4-A の誤発火例: in-scope の FAQ 質問が「課金」で強制エスカレしてはならない
+        # §4-A の誤検知例: in-scope の FAQ 質問が「課金」で強制エスカレしてはならない
         forced, matched, intent = _should_force_escalate(
             "課金プランの違いを教えて", SAAS, classify_as("question")
         )
@@ -149,10 +149,10 @@ class TestShouldForceEscalate:
 
 
 class TestDecideAction:
-    """アクション判定の二段判定（起票の誤発火抑止）。"""
+    """アクション判定の二段判定（起票の誤検知抑止）。"""
 
     def test_faq_question_does_not_fire_profile_action(self):
-        # §4-A の誤発火例: 「解約手続きの流れを教えて」は EC action_map の『解約』に
+        # §4-A の誤検知例: 「解約手続きの流れを教えて」は EC action_map の『解約』に
         # 一致するが、FAQ 質問なので起票しない
         assert _decide_action(
             "解約手続きの流れを教えて", "answer", EC, classify_as("question")
@@ -264,7 +264,7 @@ class TestDetectNoInfoAnswer:
     PLAIN_ANSWER = "住民票の写しはマイナンバーカードがあればコンビニでも取得できます。"
 
     def test_no_marker_returns_false_without_judge_call(self):
-        # 定型句が無ければ LLM 判定は走らない（コスト・誤発火ゼロ）
+        # 定型句が無ければ LLM 判定は走らない（コスト・誤検知ゼロ）
         no_info, marker = _detect_no_info_answer(
             "住民票の取り方は？", self.PLAIN_ANSWER, judge_must_not_be_called
         )

@@ -24,7 +24,7 @@
 > |---|---|---|
 > | 1 | [docs/agent_support_example.md](docs/agent_support_example.md) | GRACE-Support 本体（`agent_support_example.py`）の IPO 仕様 — 全体アーキテクチャ・①Plan〜⑦応答のデータフロー・クラス/関数詳細・CLI/プログラム使用例 |
 > | 2 | [docs/vertical_comparison.md](docs/vertical_comparison.md) | **3 業界の横並び比較** — 性格・7 つの機構・6 軸・二段判定の衝突語彙・検索スコープ設計・データ戦略・KPI の 8 観点対比＋全体対比図 |
-> | 3 | [docs/vertical_gov.md](docs/vertical_gov.md) | **Gov・自治体プロファイル** — 「間違えるくらいなら窓口へ」。唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤発火抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
+> | 3 | [docs/vertical_gov.md](docs/vertical_gov.md) | **Gov・自治体プロファイル** — 「間違えるくらいなら窓口へ」。唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤検知抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
 > | 4 | [docs/vertical_saas.md](docs/vertical_saas.md) | **SaaS プロファイル** — 「技術 FAQ は自動・障害/課金は即・人へ」。エスカレ語 7 語（最多）・課金/SLA trap・不具合の起票・OSS docs 投入・KPI 7/8 |
 > | 5 | [docs/vertical_ec.md](docs/vertical_ec.md) | **EC プロファイル** — 「手続きは自動化・注文情報には本人確認」。唯一の `require_identity=True`（本人確認フロー）・返品/返金/解約 trap・KPI 9/9 |
 

@@ -52,7 +52,7 @@ published: false
 |---|---|---|
 | 1 | [docs/agent_support_example.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/agent_support_example.md) | GRACE-Support 本体の IPO 仕様 — 全体アーキテクチャ・①Plan〜⑦応答のデータフロー・クラス/関数詳細・CLI/プログラム使用例 |
 | 2 | [docs/vertical_comparison.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_comparison.md) | **3 業界の横並び比較** — 性格・7 機構・6 軸・二段判定の衝突語彙・検索スコープ設計・データ戦略・KPI の 8 観点対比＋全体対比図 |
-| 3 | [docs/vertical_gov.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_gov.md) | **Gov・自治体プロファイル** — 唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤発火抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
+| 3 | [docs/vertical_gov.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_gov.md) | **Gov・自治体プロファイル** — 唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤検知抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
 | 4 | [docs/vertical_saas.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_saas.md) | **SaaS プロファイル** — エスカレ語 7 語（最多）・課金/SLA trap・不具合の起票・OSS docs 投入・KPI 7/8 |
 | 5 | [docs/vertical_ec.md](https://github.com/nakashima2toshio/anthropic_grace_agent_v2/blob/master/docs/vertical_ec.md) | **EC プロファイル** — 唯一の `require_identity=True`（本人確認フロー）・返品/返金/解約 trap・KPI 9/9 |
 
@@ -264,7 +264,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 | 第 1 段 | 第 2 段（意図） | 結果 |
 |---|---|---|
 | 不一致 | （呼ばれない） | 通常フロー |
-| 一致 | `question` | **誤発火抑止** — エスカレしない／起票しない |
+| 一致 | `question` | **誤検知抑止** — エスカレしない／起票しない |
 | 一致 | `request` / `incident` | 強制エスカレ／起票 |
 | 一致 | `None`（分類失敗） | **安全側** — 従来どおりエスカレ／起票 |
 
@@ -284,7 +284,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 | 問い合わせ | 業種 | 意図 | 結果 |
 |---|---|---|---|
 | 「減免を個別に判断してほしい」 | gov | request | 強制エスカレ（Web 検索もスキップ） |
-| 「減免制度の概要を教えて」 | gov | question | 回答（誤発火抑止） |
+| 「減免制度の概要を教えて」 | gov | question | 回答（誤検知抑止） |
 | 「課金が二重になっています」 | saas | incident | 強制エスカレ |
 | 「課金プランの違いを教えて」 | saas | question | 回答 |
 | 「返品したい」 | ec | request | 本人確認 → 起票 |
@@ -302,7 +302,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 
 **対策 1: 定型句検出＋実質回答判定。** 「見つかりません」「確認できません」等の定型句を候補検出し、一致したときだけ軽量 LLM で「この回答は質問に実質的に答えているか（`answered` / `no_info`）」を判定するゲート（④'）を追加。二段判定と同じ「候補検出 → LLM 判定」の再利用です。
 
-**対策 2: 判定が厳しすぎた（失敗と是正）。** ④' を入れると逆の誤発火が起きました。「弊社固有の規定は見当たりませんでしたが、一般には〜」という**断り書きつきの実質回答**まで `no_info` と判定され、答えられる質問が人に回ってしまったのです。判定基準を具体化し、few-shot の判定例をプロンプトに追加して是正しました。一時期 KPI が悪化してから回復しており、「**安全装置は入れれば終わりではなく、それ自体の誤発火も測って直す**」という教訓になりました。
+**対策 2: 判定が厳しすぎた（失敗と是正）。** ④' を入れると逆の誤検知が起きました。「弊社固有の規定は見当たりませんでしたが、一般には〜」という**断り書きつきの実質回答**まで `no_info` と判定され、答えられる質問が人に回ってしまったのです。判定基準を具体化し、few-shot の判定例をプロンプトに追加して是正しました。一時期 KPI が悪化してから回復しており、「**安全装置は入れれば終わりではなく、それ自体の誤検知も測って直す**」という教訓になりました。
 
 **対策 3: 出典が Web のみなら判定を必須化（`force_judge`）。** それでも取りこぼしが残りました。定型句を含まない実質回答風の文面（例: 税制改正の「見通し」を検討段階の情報で紹介する回答）です。そこで「**出典が Web のみ＝社内根拠ゼロ**の回答は、定型句がなくても ④' 判定を必ず実施する」を追加しました。
 
@@ -311,7 +311,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 - 「**質問された事柄そのもの**」と「**それをどこで確認できるかの案内**」を区別する。案内だけの回答は、どれほど丁寧でも `no_info`
 - 将来の予測を問う質問に、確定情報ではなく要望・検討段階の情報の紹介で答えている場合も `no_info`
 
-一方で、一般知識の質問に公的情報を根拠として定義・特徴を説明する回答（例: 「行政不服審査制度とはどんな制度ですか？」）は `answered` として保護する例も併記し、誤発火の再発を防いでいます。
+一方で、一般知識の質問に公的情報を根拠として定義・特徴を説明する回答（例: 「行政不服審査制度とはどんな制度ですか？」）は `answered` として保護する例も併記し、誤検知の再発を防いでいます。
 
 ---
 
@@ -327,7 +327,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 | out-of-scope | ナレッジ外の質問を人に渡せるか | escalate |
 | action | 依頼を起票などに繋げられるか | answer＋起票 |
 | escalate-keyword | 障害・決済等で即時エスカレするか | escalate |
-| **keyword-trap** | エスカレ語・アクション語を含む**質問**で誤発火しないか | answer（起票なし） |
+| **keyword-trap** | エスカレ語・アクション語を含む**質問**で誤検知しないか | answer（起票なし） |
 
 計測メトリクスは 10 種（`eval/vertical/metrics.py`）で、業種ごとに「最重視の指標」が異なります。
 
@@ -335,7 +335,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 |---|---|---|
 | `decision_accuracy` | answer/escalate の分岐一致率 | 全業種 |
 | `false_escalate_rate` | FAQ を誤って人へ回した率 | **gov** |
-| `forced_escalate_misfire_rate` | trap 誤発火率 | saas |
+| `forced_escalate_misfire_rate` | trap 誤検知率 | saas |
 | `escalate_recall` | 渡すべきものを渡せた率 | **saas** |
 | `citation_rate` / `ungrounded_answer_rate` | 出典付与率／根拠なし回答率 | **gov** |
 | `action_accuracy` | 起票要否の正しさ | ec |
@@ -362,7 +362,7 @@ EC の「返品規定を他社ポリシーや Web の一般論で答えてしま
 
 **SaaS の残り 1 件（7/8）**も原因を特定済みです。「500 エラーが出る不具合を報告したい」で Web 検索がタイムアウトし、検索 0 件 → 情報なし回答 → ④' がエスカレ、という連鎖でした（期待は回答＋起票）。Web 検索側にリトライの設定化とフォールバックバックエンドを実装済みで、**再計測で 8/8 到達を確認する段階**です。
 
-このプロセスを通じて実感したのは、**KPI 計測は失敗パターンの発見装置**だということです。「out-of-scope × 動的 Web 検索」という共通パターンも、「④' の判定が厳しすぎる」という安全装置自体の誤発火も、数値の低下として先に現れ、ログを追うことで原因に到達できました。
+このプロセスを通じて実感したのは、**KPI 計測は失敗パターンの発見装置**だということです。「out-of-scope × 動的 Web 検索」という共通パターンも、「④' の判定が厳しすぎる」という安全装置自体の誤検知も、数値の低下として先に現れ、ログを追うことで原因に到達できました。
 
 ---
 
