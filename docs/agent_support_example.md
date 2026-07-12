@@ -31,7 +31,7 @@
 
 `agent_support_example.py`（**GRACE-Support**）は、日本語 RAG 自律エージェント（GRACE）を土台にした**カスタマーサポート／社内ナレッジ・コパイロット**の応用サンプルである。内部 RAG で回答して**出典を必ず提示**し、根拠が不足すれば **Web フォールバック**で裏取りして内部×Web を**相互検証**する。問い合わせが「対応（アクション）」を要する場合は、**擬似 ActionTool** を **HITL（CONFIRM 承認）** を通してから実行する（既定はドライラン＝実行せずログのみ）。根拠不足なら「わかりません」と誠実に答え、**有人対応へエスカレーション**する。
 
-`--vertical {gov|saas|ec}` で **業界プロファイル（VerticalProfile）** を適用し、検索スコープ・エスカレ語・回答しきい値・アクション対応・本人確認を切り替える。誤爆抑止のため、キーワード一致は候補検出（第 1 段）に留め、一致時のみ軽量 LLM で意図分類（第 2 段）する**二段判定**を採用する。
+`--vertical {gov|saas|ec}` で **業界プロファイル（VerticalProfile）** を適用し、検索スコープ・エスカレ語・回答しきい値・アクション対応・本人確認を切り替える。誤発火抑止のため、キーワード一致は候補検出（第 1 段）に留め、一致時のみ軽量 LLM で意図分類（第 2 段）する**二段判定**を採用する。
 
 LLM は **Anthropic Claude**（意図分類・情報なし判定は軽量 `claude-haiku-4-5-20251001`）を用い、`ANTHROPIC_API_KEY` を必須とする。Embedding（RAG 検索側）は **Gemini**（`gemini-embedding-001`）で `GOOGLE_API_KEY` を用いる。
 
@@ -40,7 +40,7 @@ LLM は **Anthropic Claude**（意図分類・情報なし判定は軽量 `claud
 - 問い合わせの計画立案と内部 RAG 実行を GRACE コア（planner/executor）へ委譲する
 - 支持率（groundedness）と出典数で**回答ゲート**を判定し、`answer` / `escalate` を決める
 - 根拠不足時に **Web フォールバック**で裏取りし、内部×Web を**相互検証**する
-- エスカレ語・アクション意図の**二段判定**（キーワード候補検出＋軽量 LLM 意図分類）で誤爆を抑止する
+- エスカレ語・アクション意図の**二段判定**（キーワード候補検出＋軽量 LLM 意図分類）で誤発火を抑止する
 - 「情報なし回答」を二段判定で検知し、範囲外質問を有人対応へ倒す
 - 副作用のあるアクションを**本人確認 → HITL（CONFIRM）→ ドライラン実行**の順で安全に扱う
 - 業界プロファイル（`--vertical`）で検索スコープ・しきい値・方針を切り替える
@@ -595,13 +595,13 @@ def _should_force_escalate(
 | 項目 | 内容 |
 |------|------|
 | **Input** | `query`, `profile`, `classify` |
-| **Process** | 1. `escalate_keywords` の候補検出（第 1 段）<br>2. 一致時のみ意図分類（第 2 段）<br>3. `question`（FAQ）なら誤爆とみなし非エスカレ、`request`/`incident` はエスカレ<br>4. 分類器無し・失敗（None）なら安全側でエスカレ |
+| **Process** | 1. `escalate_keywords` の候補検出（第 1 段）<br>2. 一致時のみ意図分類（第 2 段）<br>3. `question`（FAQ）なら誤発火とみなし非エスカレ、`request`/`incident` はエスカレ<br>4. 分類器無し・失敗（None）なら安全側でエスカレ |
 | **Output** | `tuple[bool, Optional[str], Optional[Intent]]`: `(forced, matched_keyword, intent)` |
 
 **戻り値例**:
 ```python
 (True, "減免", "request")    # エスカレ語 × 依頼 → 強制エスカレ
-(False, "課金", "question")  # エスカレ語 × FAQ質問 → 誤爆抑止
+(False, "課金", "question")  # エスカレ語 × FAQ質問 → 誤発火抑止
 (False, None, None)          # 候補不一致
 ```
 

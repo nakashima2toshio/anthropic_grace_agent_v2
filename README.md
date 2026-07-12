@@ -24,7 +24,7 @@
 > |---|---|---|
 > | 1 | [docs/agent_support_example.md](docs/agent_support_example.md) | GRACE-Support 本体（`agent_support_example.py`）の IPO 仕様 — 全体アーキテクチャ・①Plan〜⑦応答のデータフロー・クラス/関数詳細・CLI/プログラム使用例 |
 > | 2 | [docs/vertical_comparison.md](docs/vertical_comparison.md) | **3 業界の横並び比較** — 性格・7 つの機構・6 軸・二段判定の衝突語彙・検索スコープ設計・データ戦略・KPI の 8 観点対比＋全体対比図 |
-> | 3 | [docs/vertical_gov.md](docs/vertical_gov.md) | **Gov・自治体プロファイル** — 「間違えるくらいなら窓口へ」。唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤爆抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
+> | 3 | [docs/vertical_gov.md](docs/vertical_gov.md) | **Gov・自治体プロファイル** — 「間違えるくらいなら窓口へ」。唯一の厳格しきい値（0.8/0.5）・減免/不服 trap の誤発火抑止・e-Gov 法令 API 投入手順・KPI 7/7 |
 > | 4 | [docs/vertical_saas.md](docs/vertical_saas.md) | **SaaS プロファイル** — 「技術 FAQ は自動・障害/課金は即・人へ」。エスカレ語 7 語（最多）・課金/SLA trap・不具合の起票・OSS docs 投入・KPI 7/8 |
 > | 5 | [docs/vertical_ec.md](docs/vertical_ec.md) | **EC プロファイル** — 「手続きは自動化・注文情報には本人確認」。唯一の `require_identity=True`（本人確認フロー）・返品/返金/解約 trap・KPI 9/9 |
 
@@ -1888,7 +1888,7 @@ Step 3: ✅ success (信頼度: 0.85)
 | **3.0**    | **2026-02-17** | **ドキュメント体系の整備**。主な変更: (1) 冒頭ドキュメント一覧表を5件に拡張（readme_rag.md / readme_react_reflection.md / readme_autonomous_agent.md を追加）、(2) 番号付きリンク表で参照順を明示 |
 | **4.0**    | **2026-06-16** | **技術スタック統一とドキュメント再構築**。主な変更: (1) LLM プロバイダー表記を Gemini → Anthropic Claude に統一（タイトル / 設定クラス `GeminiConfig`→`ModelConfig` / デフォルト `claude-sonnet-4-6`・軽量 `claude-haiku-4-5-20251001` / LLM用APIキー `ANTHROPIC_API_KEY`）。**Embedding は Gemini（`gemini-embedding-001`・3072次元）のまま維持**、(2) アーカイブ済みドキュメント（移行計画 v2・各種 API 移行ガイド・benchmark_todo・grace_react_refactor_todo）を docs/archive/ へのリンクに整理し、壊れた R3 リンク（plan_for_migration.md）を削除、(3) 全 Mermaid 図を黒背景・白文字スタイルに統一（classDef/class/style 付与、sequenceDiagram は init ヘッダー付与） |
 | **4.1**    | **2026-06-17** | **現行コードとの整合更新**。主な変更: (1) UI エントリポイントを `streamlit run agent_rag.py` と明記し、`agent_rag.py::main()` の実際の `st.radio` メニュー（explanation / qdrant_search / agent_chat / grace_chat / log_viewer / rag_data_creation / qdrant_crud）に合わせて付録A.1ページ一覧を修正（旧 `rag_download` / `qa_generation` / `qdrant_registration` / `show_qdrant` は `ui/pages/` に在るが未接続である旨を注記）、(2) RAGデータ作成パイプライン（チャンク分割 → Q/A生成＋Qdrant登録）の CLI コマンドと冒頭技術スタック表を追加（LLM=Anthropic Claude `claude-sonnet-4-6`、ルーティング `grace/llm_compat.py`、Embedding=Gemini `gemini-embedding-001` 3072次元）、(3) ドキュメント索引リンクの実在性を再検証 |
-| **4.2**    | **2026-06-17** | **「ドキュメント ↔ 対応コード 対応表」を追加**。10ドキュメント（README 含む）が対象とするソースコードの対応関係を一覧化し、ReAct（`services/agent_service.py`・google-genai 直叩き）と GRACE（`grace/`・`llm_compat` 経由 Anthropic Claude）の系統差、CLI ツールの既定モデル（`gemini-2.5-flash`、`--model` 上書き可）を注記 |
+| **4.2**    | **2026-06-17** | **「ドキュメント ↔ 対応コード 対応表」を追加**。10ドキュメント（README 含む）が対象とするソースコードの対応関係を一覧化し、ReAct（`services/agent_service.py`・google-genai 直接呼び出し）と GRACE（`grace/`・`llm_compat` 経由 Anthropic Claude）の系統差、CLI ツールの既定モデル（`gemini-2.5-flash`、`--model` 上書き可）を注記 |
 
 ---
 

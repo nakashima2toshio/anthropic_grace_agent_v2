@@ -111,7 +111,7 @@
 
 ## 4. すぐ使えるテスト質問セット（②・合成・無料）
 
-各業界で **5 カテゴリ**を用意すると全分岐＋誤爆を検証できる。
+各業界で **5 カテゴリ**を用意すると全分岐＋誤発火を検証できる。
 **機械可読な期待ラベル付きテストケースは [`eval/vertical/cases/*.jsonl`](../eval/vertical/cases/) に収録済み**で、
 KPI 評価ランナー（`uv run python -m eval.vertical.run --vertical gov`）がそのまま読み込む。
 
@@ -121,7 +121,7 @@ KPI 評価ランナー（`uv run python -m eval.vertical.run --vertical gov`）�
 | out-of-scope | 「わからない」→ Web/escalate に倒れるか |
 | action | `action_map` が発火するか（返品/解約/申請 等） |
 | escalate-keyword | `escalate_keywords` で強制エスカレするか（障害/決済/法的 等） |
-| **keyword-trap** | **誤爆検査**: エスカレ語・アクション語を含む FAQ 質問（意図=question）が、強制エスカレ・起票**されない**か（二段判定の効果測定） |
+| **keyword-trap** | **誤発火検査**: エスカレ語・アクション語を含む FAQ 質問（意図=question）が、強制エスカレ・起票**されない**か（二段判定の効果測定） |
 
 ### 自治体（gov）
 ```
@@ -296,7 +296,7 @@ python agent_support_example.py --vertical gov "固定資産税の減免を個�
 |-----------|---------|
 | 1.0 | 初版作成。先頭に成果物一覧（プログラム・ドキュメント）、テストデータの考え方（2 種類のデータ・選定 5 条件）、業界別無料データ候補、すぐ使えるテスト質問セット（gov/saas/ec × 4 カテゴリ）、TODO(a/c/b)、(c) 自治体・最小動作確認キットを整備 |
 | 1.1 | 成果物一覧に仕様レビュー資料（`docs/vertical_spec_review.md`）を追加。同レビュー §7 で本書への追補（実コレクション命名規約・「穴」の設計手順・keyword-trap 第 5 カテゴリ・TODO(b) の進め方）を提案 |
-| 1.2 | §4 に第 5 カテゴリ **keyword-trap**（誤爆検査）と各業界の trap 質問例を追加。期待ラベル付きテストケース（`eval/vertical/cases/*.jsonl`）と KPI 評価ランナー（`eval/vertical/run.py`）の実装に合わせて §5 手順 3 を更新 |
+| 1.2 | §4 に第 5 カテゴリ **keyword-trap**（誤発火検査）と各業界の trap 質問例を追加。期待ラベル付きテストケース（`eval/vertical/cases/*.jsonl`）と KPI 評価ランナー（`eval/vertical/run.py`）の実装に合わせて §5 手順 3 を更新 |
 | 1.3 | **TODO(b) 完了**: §3 に WebSearch 検証結果を反映（e-Gov 法令 API=政府標準利用規約 2.0・商用可 / 横浜市ポータル=CC BY 4.0 だが FAQ 専用 CSV は未確認 / JGLUE 系=CC BY-SA 4.0 / amazon_reviews_multi=配布終了確定→EC は合成を第一候補に）。§5 に**実コレクション名の確定表**（`gov_faq_anthropic` 等）と登録コマンド（`register_to_qdrant.py` / `make_qa_register_qdrant.py`）を追加 |
 | 1.4 | **専用コレクションの合成データ登録を 1 コマンド化**: `eval/vertical/register_test_collections.py` と合成 Q&A（`eval/vertical/data/*.csv`・6 コレクション×各 10 件）を追加（§5 手順 2）。out-of-scope の「穴」を保つ設計をテスト（`tests/eval/test_register_test_collections.py`）で担保。ec.jsonl の keyword-trap に「未登録時は ④' 検知で escalate に倒れ得る（安全側）」ノートを追記 |
 | 1.5 | **進捗最新化**: §0 成果物一覧に「評価・テスト（`eval/vertical/*`・`tests/*`）」を追加。§6 TODO を現況に同期（実装は `agent_support_verticals.md` §8 で 6/6 ✅ 完了／残は登録・KPI 実測のみ）＋ 検証コスト削減 (d)（record/replay キャッシュ）を候補として追記 |
