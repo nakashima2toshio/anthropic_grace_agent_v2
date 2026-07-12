@@ -13,7 +13,7 @@ GRACE-Support の業界特化（`--vertical saas`）のうち、**SaaS プロフ
 1. [概要 — SaaS はどこが「特化」か](#1-概要--saas-はどこが特化か)
 2. [プロファイル定義（実コード）](#2-プロファイル定義実コード)
 3. [検索スコープ: collections 実検索限定（allowed_collections）](#3-検索スコープ-collections-実検索限定allowed_collections)
-4. [二段判定（キーワード誤爆抑止）](#4-二段判定キーワード誤爆抑止)
+4. [二段判定（キーワード誤発火抑止）](#4-二段判定キーワード誤発火抑止)
 5. [prompt_addendum の reasoning 注入](#5-prompt_addendum-の-reasoning-注入)
 6. [実コレクション命名の確定＋データ検証 TODO(b)](#6-実コレクション命名の確定データ検証-todob)
 7. [KPI 評価ハーネス（eval/vertical/・5 カテゴリ）](#7-kpi-評価ハーネスevalvertical5-カテゴリ)
@@ -106,10 +106,10 @@ saas 固有の設計: gov と異なり**暫定代替（wikipedia_ja 等）を含
 答えても正しくならないため、専用コレクション未登録の段階では「社内根拠ゼロ → Web/escalate」に
 倒れることを許容している（out-of-scope 検証の「穴」としても機能）。
 
-## 4. 二段判定（キーワード誤爆抑止）
+## 4. 二段判定（キーワード誤発火抑止）
 
 saas は**エスカレ語と FAQ 語彙の衝突が最も激しい**業界である（「課金プランの違い」「障害時の SLA」は
-FAQ 質問だが、課金・障害はエスカレ語）。二段判定がこの誤爆を抑止する。
+FAQ 質問だが、課金・障害はエスカレ語）。二段判定がこの誤発火を抑止する。
 
 - **第 1 段（候補検出）**: `_match_keyword(query, ...)` — 部分一致。不一致なら LLM は呼ばれない
 - **第 2 段（意図分類）**: 軽量モデル（`claude-haiku-4-5-20251001`）で `question` / `request` / `incident` に
@@ -117,7 +117,7 @@ FAQ 質問だが、課金・障害はエスカレ語）。二段判定がこの�
 
 **判定ルール**（`_should_force_escalate` / `_decide_action`）は 3 業界共通 — 正は
 [`docs/vertical_comparison.md` §4](./vertical_comparison.md) の表を参照
-（一致×question=誤爆抑止／一致×request・incident=発動／分類失敗=安全側）。
+（一致×question=誤発火抑止／一致×request・incident=発動／分類失敗=安全側）。
 
 saas の具体例:
 
@@ -125,8 +125,8 @@ saas の具体例:
 |---|---|---|---|
 | 「サービスが**落ち**ています」 | 落ち | incident | 強制エスカレ（Web もスキップ） |
 | 「**課金**が二重になっています」 | 課金 | incident | 強制エスカレ |
-| 「**課金**プランの違いを教えて」 | 課金 | question | 誤爆抑止 → answer |
-| 「**障害**発生時の SLA について教えて」 | 障害 | question | 誤爆抑止 → answer |
+| 「**課金**プランの違いを教えて」 | 課金 | question | 誤発火抑止 → answer |
+| 「**障害**発生時の SLA について教えて」 | 障害 | question | 誤発火抑止 → answer |
 | 「500 **エラー**が出る**不具合**を報告したい」 | （action_map: エラー・不具合） | request/incident | create_ticket を起票 |
 
 ## 5. prompt_addendum の reasoning 注入
@@ -175,7 +175,7 @@ uv run python qa_qdrant/make_qa_register_qdrant.py \
 | out-of-scope | 1 | 御社の来期の売上見込みは？ | escalate |
 | action | 1 | 500 エラーが出る不具合を報告したい | answer ＋ create_ticket |
 | escalate-keyword | 2 | サービスが落ちています／課金が二重になっています | escalate（incident × 落ち・課金） |
-| keyword-trap | 2 | 課金プランの違いを教えて／障害発生時の SLA について教えて | answer（誤爆しない） |
+| keyword-trap | 2 | 課金プランの違いを教えて／障害発生時の SLA について教えて | answer（誤発火しない） |
 
 **メトリクス**（定義: `eval/vertical/metrics.py`）: decision_accuracy / false_escalate_rate /
 forced_escalate_misfire_rate / escalate_recall / citation_rate / ungrounded_answer_rate /

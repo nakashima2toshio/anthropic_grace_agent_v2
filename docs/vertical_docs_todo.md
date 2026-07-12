@@ -166,7 +166,7 @@ uv run python -m eval.vertical.run --vertical ec   --report logs/vertical_ec.jso
 |---|---|---|
 | gov | 1.000（7/7）維持 | false_escalate=0・ungrounded=0 の維持 |
 | saas | **8/8 到達（前回 7/8）** | 唯一の不一致「500 エラー報告」が #12（web_search リトライ＋fallback_backend）で解消したことの確認 — **P2-1 の主目的** |
-| ec | 1.000（9/9）維持 | identity_check_rate=1.000・keyword-trap 誤爆 0 の維持 |
+| ec | 1.000（9/9）維持 | identity_check_rate=1.000・keyword-trap 誤発火 0 の維持 |
 
 共通: citation_rate=1.00 / ungrounded_answer_rate=0.00 / forced_escalate_misfire_rate=0 /
 mean_latency ≈ 38〜44 秒/ケース。

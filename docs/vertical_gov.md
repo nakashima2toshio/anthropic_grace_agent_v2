@@ -13,7 +13,7 @@ GRACE-Support の業界特化（`--vertical gov`）のうち、**自治体プロ
 1. [概要 — 自治体はどこが「特化」か](#1-概要--自治体はどこが特化か)
 2. [プロファイル定義（実コード）](#2-プロファイル定義実コード)
 3. [検索スコープ: collections 実検索限定（allowed_collections）](#3-検索スコープ-collections-実検索限定allowed_collections)
-4. [二段判定（キーワード誤爆抑止）](#4-二段判定キーワード誤爆抑止)
+4. [二段判定（キーワード誤発火抑止）](#4-二段判定キーワード誤発火抑止)
 5. [prompt_addendum の reasoning 注入](#5-prompt_addendum-の-reasoning-注入)
 6. [実コレクション命名の確定＋データ検証 TODO(b)](#6-実コレクション命名の確定データ検証-todob)
 7. [KPI 評価ハーネス（eval/vertical/・5 カテゴリ）](#7-kpi-評価ハーネスevalvertical5-カテゴリ)
@@ -109,10 +109,10 @@ gov 固有の設計: 専用 2 コレクションに加えて `wikipedia_ja` を*
 公開データが乏しいため（§6）、制度・一般知識系の in-scope 質問（例:「選挙権は何歳から？」）に
 百科事典の根拠で答えられるようにしている。専用コレクション整備後は外してよい。
 
-## 4. 二段判定（キーワード誤爆抑止）
+## 4. 二段判定（キーワード誤発火抑止）
 
 gov の強制エスカレ語（減免・不服 等）は**FAQ 質問にも普通に現れる**ため、キーワード一致だけで
-エスカレすると誤爆する。そこで二段判定を用いる。
+エスカレすると誤発火する。そこで二段判定を用いる。
 
 - **第 1 段（候補検出）**: `_match_keyword(query, profile.escalate_keywords)` — 部分一致で候補を検出。
   一致しなければ第 2 段（LLM 呼び出し）は走らず、追加コストはゼロ
@@ -122,15 +122,15 @@ gov の強制エスカレ語（減免・不服 等）は**FAQ 質問にも普通
 
 **判定ルール**（`_should_force_escalate` / `_decide_action`）は 3 業界共通 — 正は
 [`docs/vertical_comparison.md` §4](./vertical_comparison.md) の表を参照
-（一致×question=誤爆抑止／一致×request・incident=発動／分類失敗=安全側）。
+（一致×question=誤発火抑止／一致×request・incident=発動／分類失敗=安全側）。
 
 gov の具体例:
 
 | 問い合わせ | 第 1 段 | 意図 | 結果 |
 |---|---|---|---|
 | 「固定資産税の**減免**を**個別**に判断してほしい」 | 減免・個別 | request | 強制エスカレ（Web もスキップ） |
-| 「住民税の**減免**制度の概要を教えて」 | 減免 | question | 誤爆抑止 → 通常フローで answer |
-| 「行政**不服**審査制度とはどんな制度ですか？」 | 不服 | question | 誤爆抑止 → answer |
+| 「住民税の**減免**制度の概要を教えて」 | 減免 | question | 誤発火抑止 → 通常フローで answer |
+| 「行政**不服**審査制度とはどんな制度ですか？」 | 不服 | question | 誤発火抑止 → answer |
 | 「保育園の**申請**様式がほしい」 | （action_map: 申請） | request | send_reply を起票（CONFIRM 承認後） |
 
 ## 5. prompt_addendum の reasoning 注入
@@ -185,12 +185,12 @@ uv run python qa_qdrant/make_qa_register_qdrant.py \
 | out-of-scope | 1 | 来年の税制改正の予測は？ | escalate（④' の将来予測×非確定情報基準） |
 | action | 1 | 保育園の申請様式がほしい | answer ＋ send_reply |
 | escalate-keyword | 1 | 固定資産税の減免を個別に判断してほしい | escalate（減免・個別 × request） |
-| keyword-trap | 2 | 住民税の減免制度の概要を教えて／行政不服審査制度とは？ | answer（誤爆しない） |
+| keyword-trap | 2 | 住民税の減免制度の概要を教えて／行政不服審査制度とは？ | answer（誤発火しない） |
 
 **メトリクス**（定義: `eval/vertical/metrics.py`）: decision_accuracy / false_escalate_rate /
 forced_escalate_misfire_rate / escalate_recall / citation_rate / ungrounded_answer_rate /
 groundedness_neutral_rate / action_accuracy / identity_check_rate / mean_latency_ms。
-gov で特に重視するのは **false_escalate_rate = 0**（trap 誤爆なし）と **ungrounded_answer_rate = 0**（根拠なし回答ゼロ）。
+gov で特に重視するのは **false_escalate_rate = 0**（trap 誤発火なし）と **ungrounded_answer_rate = 0**（根拠なし回答ゼロ）。
 
 **実行**:
 
@@ -202,7 +202,7 @@ uv run python -m eval.vertical.run --vertical gov --no-web       # 内部 RAG �
 
 **直近計測**（2026-07-03・vertical_gov3。詳細: [`agent_support_verticals.md` §9.1](../grace/doc/agent_support_verticals.md)）:
 **7/7（decision_accuracy 1.000）**・escalate_recall 0.500 → **1.000**（「税制改正の予測」を
-force_judge＋将来予測基準で escalate）・keyword-trap 2/2 誤爆なし・mean_latency 41.0 秒/ケース。
+force_judge＋将来予測基準で escalate）・keyword-trap 2/2 誤発火なし・mean_latency 41.0 秒/ケース。
 
 ## 8. 変更履歴
 

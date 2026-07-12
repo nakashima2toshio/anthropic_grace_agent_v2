@@ -70,7 +70,7 @@ def main() -> None:
         process=(
             "_answer_gate(...) が 支持率≥notify かつ 出典≥1 → answer を判定\n"
             "_should_force_escalate(query, profile, classify): 第1段 _match_keyword で候補検出、\n"
-            "  一致時のみ classify（意図分類）。question は誤爆抑止、request/incident は強制エスカレ\n"
+            "  一致時のみ classify（意図分類）。question は誤発火抑止、request/incident は強制エスカレ\n"
             "_should_rescue_unaffirmed は decision!='escalate' のため今回は不発（救済不要）"
         ),
         out=(
@@ -82,7 +82,7 @@ def main() -> None:
     if forced:
         print(f"\n  [profile] エスカレ語 '{matched_kw}'（意図={intent or '不明'}）を検知 → 有人対応へ")
     elif matched_kw is not None:
-        print(f"\n  [profile] エスカレ語候補 '{matched_kw}' は FAQ 質問（意図=question）→ 誤爆抑止・通常フロー継続")
+        print(f"\n  [profile] エスカレ語候補 '{matched_kw}' は FAQ 質問（意図=question）→ 誤発火抑止・通常フロー継続")
     else:
         print("\n  [gate] エスカレ語なし → 意図分類 LLM は未実行（追加コスト 0）")
 

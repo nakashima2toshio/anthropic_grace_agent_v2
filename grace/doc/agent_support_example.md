@@ -258,13 +258,13 @@ sequenceDiagram
 | `_pick_groundedness(*results)` | 複数の `GroundednessResult` から `(支持率, 判定できた主張数)` を選ぶ純関数（同率なら decided 多を優先） |
 | `_should_rescue_unaffirmed(...)` | 出典付き・非「情報なし」・矛盾なしの内部回答を、支持率が弱いだけで escalate に落とさず救済すべきか判定（無駄な⑤・誤エスカレを回避） |
 
-### 7.2 二段判定（業界特化・誤爆抑止）
+### 7.2 二段判定（業界特化・誤発火抑止）
 
 | 関数 | 概要（実装） |
 |------|-------------|
 | `create_intent_classifier(config)` | 軽量 LLM（`claude-haiku-4-5-20251001`）で意図を `question/request/incident` に分類する関数を返す（第 2 段） |
 | `_match_keyword(query, keywords)` | キーワード候補の部分一致（第 1 段）。最初に一致した語を返す純関数 |
-| `_should_force_escalate(query, profile, classify)` | エスカレ語×意図分類の二段判定で強制エスカレ要否を決める（`question` は誤爆抑止） |
+| `_should_force_escalate(query, profile, classify)` | エスカレ語×意図分類の二段判定で強制エスカレ要否を決める（`question` は誤発火抑止） |
 | `_decide_action(query, decision, profile, classify)` | `action_map`（またはデモ既定）×意図分類でアクションを選ぶ（`question` は起票せず回答のみ） |
 
 ### 7.3 ④' 情報なし回答検知
@@ -566,7 +566,7 @@ if _should_rescue_unaffirmed(decision, forced_escalate, gres.has_contradiction,
     decision, warning = "answer", True
 ```
 
-#### 7.6.4 二段判定（業界特化・誤爆抑止）
+#### 7.6.4 二段判定（業界特化・誤発火抑止）
 
 ##### `create_intent_classifier`
 
@@ -629,7 +629,7 @@ matched = _match_keyword(query, profile.escalate_keywords)
 
 ##### `_should_force_escalate`
 
-**概要**: エスカレ語（第 1 段）×意図分類（第 2 段）で強制エスカレ要否を決める。`question` は誤爆とみなし通常フロー継続。
+**概要**: エスカレ語（第 1 段）×意図分類（第 2 段）で強制エスカレ要否を決める。`question` は誤発火とみなし通常フロー継続。
 
 ```python
 def _should_force_escalate(
@@ -653,7 +653,7 @@ def _should_force_escalate(
 **戻り値例**:
 ```python
 (True, "減免", "request")   # 「減免を個別に判断してほしい」
-(False, "減免", "question") # 「減免制度の概要を教えて」（誤爆抑止）
+(False, "減免", "question") # 「減免制度の概要を教えて」（誤発火抑止）
 ```
 
 ```python

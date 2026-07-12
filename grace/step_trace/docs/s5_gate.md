@@ -43,7 +43,7 @@
   `notify_th` / `confirm_th` を入力に、`_answer_gate()` で `answer` / `escalate` を第 1 段判定する。
 - `_should_force_escalate()` で **強制エスカレの二段判定**を行う。第 1 段は
   `_match_keyword(escalate_keywords)` の候補検出、第 2 段は意図分類。`request` / `incident` は
-  有人へ倒し、`question`（FAQ 質問）は誤爆として抑止する。
+  有人へ倒し、`question`（FAQ 質問）は誤発火として抑止する。
 - gov 代表例では意図分類が呼ばれないこと（第 1 段不一致 → 第 2 段スキップ）を可視化する。
 - `_should_rescue_unaffirmed()` の位置づけ（decision が escalate でないため今回は不発）を示す。
 
@@ -150,9 +150,9 @@ gov プロファイルのしきい値は `notify_th=0.8 / confirm_th=0.5`（conf
 **強制エスカレ二段判定**は上記ゲートの後段に重なる:
 
 - **第 1 段**: `_match_keyword(query, escalate_keywords)` でエスカレ語候補を検出（部分一致・最初の一致語を返す）。不一致なら第 2 段はスキップし、意図分類 LLM は呼ばれない（追加コスト 0）。
-- **第 2 段**: 候補一致時のみ意図分類器（`claude-haiku-4-5-20251001`）を実行。`request` / `incident` は `escalate`（法的／決済等の要対応クエリを有人へ倒す）、`question`（FAQ 質問）は誤爆として抑止し通常フローを継続する。分類器が無い／分類失敗（`None`）の場合は安全側＝従来どおり強制エスカレする。
+- **第 2 段**: 候補一致時のみ意図分類器（`claude-haiku-4-5-20251001`）を実行。`request` / `incident` は `escalate`（法的／決済等の要対応クエリを有人へ倒す）、`question`（FAQ 質問）は誤発火として抑止し通常フローを継続する。分類器が無い／分類失敗（`None`）の場合は安全側＝従来どおり強制エスカレする。
 
-> 設計意図: 根拠のない断定を構造的に出さない。加えて強制エスカレ二段判定で、支持率が高くても法的/決済等の要対応クエリは有人へ倒す（誤爆は意図分類で抑止）。
+> 設計意図: 根拠のない断定を構造的に出さない。加えて強制エスカレ二段判定で、支持率が高くても法的/決済等の要対応クエリは有人へ倒す（誤発火は意図分類で抑止）。
 
 ---
 
@@ -178,7 +178,7 @@ gov プロファイルのしきい値は `notify_th=0.8 / confirm_th=0.5`（conf
 **概要**: S5 のトレースエントリ。`get_config()` でしきい値とプロファイルを解決し、代表例に合わせた入力
 （内部 RAG が answer 可能・`verified=True`・出典 3 件）に対して `_answer_gate()`（第 1 段）と
 `_should_force_escalate()`（第 2 段）を実行し、IN/Process/OUT を標準出力へ示す。エスカレ語の有無に応じて、
-検知（強制エスカレ）／候補一致だが誤爆抑止（FAQ 質問）／エスカレ語なし（意図分類未実行）の 3 分岐を出力する。
+検知（強制エスカレ）／候補一致だが誤発火抑止（FAQ 質問）／エスカレ語なし（意図分類未実行）の 3 分岐を出力する。
 
 **シグネチャ**:
 
@@ -199,8 +199,8 @@ def main() -> None
 | 区分 | 内容 |
 |------|------|
 | **Input** | `support_rate`（`--support-rate`、既定 0.86）、`verified=True`、`citation_count=3`、`notify_th`／`confirm_th`（プロファイル値。gov=0.8/0.5、未指定時は config 既定 0.7/0.4）、`query`、`profile`（`PROFILES.get(vertical)`） |
-| **Process** | ① `_answer_gate(support_rate, verified, citation_count, notify_th, confirm_th)` で `(decision, warning)` を判定（第 1 段）。<br>② `_should_force_escalate(query, profile, classify)` で二段判定。第 1 段 `_match_keyword(escalate_keywords)` で候補検出、一致時のみ第 2 段 `classify`（意図分類）を実行。`request`/`incident` → `forced=True`、`question` → 誤爆抑止。<br>③ `forced` が真なら `decision, warning = "escalate", False` に上書き。<br>④ `_should_rescue_unaffirmed` は decision が escalate でないため今回は不発（救済不要）。 |
-| **Output** | `(decision, warning)`、`forced_escalate`（=`forced`）、`matched_kw`、`intent`。末尾に分岐メッセージ（強制エスカレ検知／誤爆抑止／エスカレ語なし・意図分類未実行）を print |
+| **Process** | ① `_answer_gate(support_rate, verified, citation_count, notify_th, confirm_th)` で `(decision, warning)` を判定（第 1 段）。<br>② `_should_force_escalate(query, profile, classify)` で二段判定。第 1 段 `_match_keyword(escalate_keywords)` で候補検出、一致時のみ第 2 段 `classify`（意図分類）を実行。`request`/`incident` → `forced=True`、`question` → 誤発火抑止。<br>③ `forced` が真なら `decision, warning = "escalate", False` に上書き。<br>④ `_should_rescue_unaffirmed` は decision が escalate でないため今回は不発（救済不要）。 |
+| **Output** | `(decision, warning)`、`forced_escalate`（=`forced`）、`matched_kw`、`intent`。末尾に分岐メッセージ（強制エスカレ検知／誤発火抑止／エスカレ語なし・意図分類未実行）を print |
 
 **戻り値例**（gov 代表例 `--support-rate 0.86`、query=「住民票の写しの取り方は？」）:
 
@@ -209,7 +209,7 @@ IN     : support_rate=0.86, verified=True, citation_count=3, notify_th=0.8, conf
          query='住民票の写しの取り方は？', profile=gov
 Process: _answer_gate(...) が 支持率≥notify かつ 出典≥1 → answer を判定
          _should_force_escalate(query, profile, classify): 第1段 _match_keyword で候補検出、
-           一致時のみ classify（意図分類）。question は誤爆抑止、request/incident は強制エスカレ
+           一致時のみ classify（意図分類）。question は誤発火抑止、request/incident は強制エスカレ
          _should_rescue_unaffirmed は decision!='escalate' のため今回は不発（救済不要）
 OUT    : (decision, warning) = ('answer', False)
          forced_escalate=False, matched_kw=None, intent=None
@@ -222,9 +222,9 @@ OUT    : (decision, warning) = ('answer', False)
 - **gov 強制エスカレ**: `--vertical gov "固定資産税の減免を個別に判断してほしい"` は
   エスカレ語「減免」「個別」が第 1 段で一致し、第 2 段の意図分類が `request`/`incident` を返せば
   `forced_escalate=True` → `decision='escalate'`（法的判断は有人対応へ）。
-- **誤爆抑止（keyword-trap）**: 同じくエスカレ語を含むが FAQ 質問である入力（例: saas「課金プランの違いを教えて」）は、
+- **誤発火抑止（keyword-trap）**: 同じくエスカレ語を含むが FAQ 質問である入力（例: saas「課金プランの違いを教えて」）は、
   第 1 段で「課金」が一致しても第 2 段の意図分類が `question` を返すため `forced=False`（`matched_kw` は非 None のまま）となり、
-  誤爆を抑止して通常フローを継続する。
+  誤発火を抑止して通常フローを継続する。
 
 ---
 
