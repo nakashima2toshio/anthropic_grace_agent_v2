@@ -12,7 +12,7 @@
 本人確認・方針（reasoning プロンプトへ注入）を切り替える。
 設計は grace/doc/agent_support_verticals.md を参照。
 
-**二段判定（誤発火抑止）**: `escalate_keywords` / `action_map` のキーワード一致は
+**二段判定（誤検知抑止）**: `escalate_keywords` / `action_map` のキーワード一致は
 **候補検出（第 1 段）**であり、一致時のみ軽量 LLM で意図を分類（第 2 段:
 question / request / incident）する。FAQ 質問（question。例:「課金プランの違いを
 教えて」「解約方法を教えて」）は強制エスカレ・アクション起票の対象外となる。
@@ -345,7 +345,7 @@ def _should_force_escalate(
     """強制エスカレの二段判定。
 
     第 1 段: `escalate_keywords` の部分一致（候補検出）。
-    第 2 段: 意図分類。intent が "question"（FAQ質問）なら誤発火とみなして
+    第 2 段: 意図分類。intent が "question"（FAQ質問）なら誤検知とみなして
     強制エスカレしない（例: SaaS「課金プランの違いを教えて」）。request /
     incident はエスカレ話題への依頼・報告なので設計どおり有人へ倒す
     （例: gov「減免を個別に判断してほしい」）。分類器が無い・分類失敗（None）
@@ -705,7 +705,7 @@ def run_support_agent(
               f"有人対応へ（{profile.name}）")
     elif matched_kw is not None:
         print(f"  [profile] エスカレ語候補 '{matched_kw}' は FAQ 質問（意図=question）→ "
-              "誤発火抑止・通常フローを継続")
+              "誤検知抑止・通常フローを継続")
 
     # ④-救済: 出典付き・非「情報なし」・矛盾なしの内部回答が、groundedness を
     # 「肯定できなかった」というだけで escalate に落ち、⑤ の Web 二次生成で

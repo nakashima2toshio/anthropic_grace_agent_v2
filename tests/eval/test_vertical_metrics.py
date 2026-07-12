@@ -54,7 +54,7 @@ class TestComputeMetrics:
         assert m["identity_check_rate"] == 1.0
 
     def test_keyword_trap_misfire_is_measured(self):
-        # trap 2 件中 1 件が強制エスカレで誤発火 → 誤エスカレ率 0.5・誤発火率 0.5
+        # trap 2 件中 1 件が強制エスカレで誤検知 → 誤エスカレ率 0.5・誤検知率 0.5
         results = [
             rec("keyword-trap", "answer", "escalate",
                 expected_action=None, action="escalate_to_human", forced=True),

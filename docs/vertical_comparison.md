@@ -44,7 +44,7 @@ GRACE-Support の業界特化 3 プロファイルを**横並びで対比**す�
 | 4 | アクション語彙（`action_map`） | 申請・手続・様式 → **send_reply**（案内返信） | エラー・不具合・バグ → **create_ticket** | 返品・交換・キャンセル・解約 → **create_ticket**（**4 語・最多**） |
 | 5 | 本人確認（`require_identity`） | False（個人情報を尋ねない方針） | False | **True（唯一）** |
 | 6 | 業務方針（`prompt_addendum`） | 断定回避・該当ページ/担当課明示・個人情報を尋ねない | バージョン明示・再現手順・公式 URL | 照会/変更は本人確認必須・規定の版に基づく |
-| 7 | 評価基準（KPI 重点） | false_escalate=0・ungrounded=0 | escalate_recall=1.0・誤発火=0 | **identity_check_rate=1.0**・誤起票=0 |
+| 7 | 評価基準（KPI 重点） | false_escalate=0・ungrounded=0 | escalate_recall=1.0・誤検知=0 | **identity_check_rate=1.0**・誤起票=0 |
 
 ※ コレクション名は `*_anthropic` を省略表記。
 
@@ -61,7 +61,7 @@ GRACE-Support の業界特化 3 プロファイルを**横並びで対比**す�
 
 ## 4. 二段判定の対比 — 何と何を区別する業界か
 
-判定ルール自体（第 1 段キーワード候補検出 → 第 2 段 haiku 意図分類、question=誤発火抑止・
+判定ルール自体（第 1 段キーワード候補検出 → 第 2 段 haiku 意図分類、question=誤検知抑止・
 request/incident=発動・分類失敗=安全側）は 3 業界共通。**業界ごとに違うのは「何と何が衝突するか」**である。
 
 **判定ルール（3 文書共通の正）** — `_should_force_escalate()` / `_decide_action()`。
@@ -71,7 +71,7 @@ request/incident=発動・分類失敗=安全側）は 3 業界共通。**業界
 | 第 1 段（キーワード候補） | 第 2 段（意図分類） | 結果 |
 |---|---|---|
 | 不一致 | （呼ばれない） | 通常フロー |
-| 一致 | `question` | **誤発火抑止** — 強制エスカレしない／起票しない（回答のみ） |
+| 一致 | `question` | **誤検知抑止** — 強制エスカレしない／起票しない（回答のみ） |
 | 一致 | `request` / `incident` | 強制エスカレ（`escalate_keywords`）／起票（`action_map`） |
 | 一致 | `None`（分類失敗） | **安全側** — 従来どおり強制エスカレ／起票 |
 

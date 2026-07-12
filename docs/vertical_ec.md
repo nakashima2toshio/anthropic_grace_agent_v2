@@ -13,7 +13,7 @@ GRACE-Support の業界特化（`--vertical ec`）のうち、**EC プロファ�
 1. [概要 — EC はどこが「特化」か](#1-概要--ec-はどこが特化か)
 2. [プロファイル定義（実コード）](#2-プロファイル定義実コード)
 3. [検索スコープ: collections 実検索限定（allowed_collections）](#3-検索スコープ-collections-実検索限定allowed_collections)
-4. [二段判定（キーワード誤発火抑止）](#4-二段判定キーワード誤発火抑止)
+4. [二段判定（キーワード誤検知抑止）](#4-二段判定キーワード誤検知抑止)
 5. [prompt_addendum の reasoning 注入](#5-prompt_addendum-の-reasoning-注入)
 6. [実コレクション命名の確定＋データ検証 TODO(b)](#6-実コレクション命名の確定データ検証-todob)
 7. [KPI 評価ハーネス（eval/vertical/・5 カテゴリ）](#7-kpi-評価ハーネスevalvertical5-カテゴリ)
@@ -26,7 +26,7 @@ GRACE-Support の業界特化（`--vertical ec`）のうち、**EC プロファ�
 EC プロファイルの性格は「**手続きは自動化するが、注文情報には本人確認**」。3 業界で唯一
 `require_identity=True` を持ち、アクション語彙が最多（4 語すべて create_ticket）。返品・解約と
 いった「アクション語を含む FAQ 質問」（返金ポリシー・解約手続きの説明）が多いため、
-keyword-trap の誤発火抑止が最も効く業界でもある。7 つの機構への割り当ては次のとおり。
+keyword-trap の誤検知抑止が最も効く業界でもある。7 つの機構への割り当ては次のとおり。
 
 | # | 機構 | ec の設定 | 意図 |
 |---|---|---|---|
@@ -124,7 +124,7 @@ ec 固有の設計: **返品規定・送料は「自社の規定」であり、�
 専用コレクション未登録の段階では in-scope 質問も社内根拠ゼロとなり、④'（情報なし検知・出典 Web のみの
 force_judge）が escalate に倒すことがある（安全側の揺れ。登録後に解消 — §7 の計測履歴で実証済み）。
 
-## 4. 二段判定（キーワード誤発火抑止）
+## 4. 二段判定（キーワード誤検知抑止）
 
 ec は**アクション語（返品・解約）とエスカレ語（返金）が FAQ 質問に最も頻出する**業界である。
 「返品したい」（依頼）と「返品規定を教えて」（質問）を区別できなければ、FAQ に答えるたびに
@@ -136,7 +136,7 @@ ec は**アクション語（返品・解約）とエスカレ語（返金）が
 
 **判定ルール**（`_should_force_escalate` / `_decide_action`）は 3 業界共通 — 正は
 [`docs/vertical_comparison.md` §4](./vertical_comparison.md) の表を参照
-（一致×question=誤発火抑止／一致×request・incident=発動／分類失敗=安全側）。
+（一致×question=誤検知抑止／一致×request・incident=発動／分類失敗=安全側）。
 
 ec の具体例:
 
@@ -144,7 +144,7 @@ ec の具体例:
 |---|---|---|---|
 | 「**決済**が失敗しました」 | 決済 | incident | 強制エスカレ（Web もスキップ） |
 | 「届いた商品が**破損**していました」 | 破損 | incident | 強制エスカレ |
-| 「**返金**ポリシーを教えて」 | 返金 | question | 誤発火抑止 → answer |
+| 「**返金**ポリシーを教えて」 | 返金 | question | 誤検知抑止 → answer |
 | 「**返品**したい」 | （action_map: 返品） | request | 本人確認 → create_ticket 起票 |
 | 「**返品**規定を教えて」 | （action_map: 返品） | question | 起票しない → answer のみ |
 | 「**解約**手続きの流れを教えて」 | （action_map: 解約） | question | 起票しない → answer のみ |
@@ -199,7 +199,7 @@ uv run python qa_qdrant/register_to_qdrant.py \
 | out-of-scope | 1 | この商品の入荷予定日はいつですか？ | escalate（④' の「案内のみ= no_info」基準） |
 | action | 2 | 返品したい／注文をキャンセルしたい | answer ＋ create_ticket ＋ **本人確認**（`expect_identity_check: true`） |
 | escalate-keyword | 2 | 決済が失敗しました／届いた商品が破損していました | escalate（incident × 決済・破損） |
-| keyword-trap | 2 | 返金ポリシーを教えて／解約手続きの流れを教えて | answer（誤発火・誤起票しない） |
+| keyword-trap | 2 | 返金ポリシーを教えて／解約手続きの流れを教えて | answer（誤検知・誤起票しない） |
 
 **メトリクス**（定義: `eval/vertical/metrics.py`）: decision_accuracy / false_escalate_rate /
 forced_escalate_misfire_rate / escalate_recall / citation_rate / ungrounded_answer_rate /
@@ -217,7 +217,7 @@ uv run python -m eval.vertical.run --vertical ec --limit 3     # スモーク
 **直近計測**（2026-07-03・vertical_ec6。詳細: [`agent_support_verticals.md` §9.1](../grace/doc/agent_support_verticals.md)）:
 **9/9（全指標 1.000）**。escalate_recall 0.667 → **1.000**（「入荷予定日」を ④' 判定基準の精密化＝
 「事柄そのもの vs 確認方法の案内」で escalate）・identity_check_rate 1.000・keyword-trap 2/2
-誤発火なし・mean_latency 38.0 秒/ケース。
+誤検知なし・mean_latency 38.0 秒/ケース。
 
 ## 8. 変更履歴
 
