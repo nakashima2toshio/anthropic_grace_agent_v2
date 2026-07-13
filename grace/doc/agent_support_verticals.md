@@ -151,6 +151,76 @@ style CORE fill:#1a1a1a,stroke:#fff,color:#fff
 style PROF fill:#1a1a1a,stroke:#fff,color:#fff
 ```
 
+### 2.1 プロファイル別の作用マップ（1 プロファイル → 各ステップ）
+
+**共通エンジンは 1 つのまま、`VerticalProfile` の 6 フィールドがそれぞれ実行時の別ステップへ作用する。**
+コード経路（作用点の行番号）は 3 業界で共通で、業界性は**フィールドの値**として注入される
+（S 番号は `SupportResult` 充填順＝[`agent_support_example_flow.md`](./agent_support_example_flow.md) の
+S3=Execute / S5=回答ゲート・強制エスカレ / S6=相互検証 / S8=アクションに対応）。
+行番号は `agent_support_example.py` と `grace/tools.py`。
+
+**gov（自治体）** — 正確性最優先。しきい値を既定より引き上げ、法的判断・個別事情は必ず有人へ。
+
+```text
+VerticalProfile("gov")
+ ├─ collections=[gov_faq_anthropic, gov_laws_anthropic, wikipedia_ja]
+ │                     → S3: RAGSearchTool の検索対象を自治体ナレッジへ限定（tools.py:165）
+ ├─ prompt_addendum="条例・公式案内に基づき、断定を避け、該当ページ・担当課を明示。個人情報は尋ねない。"
+ │                     → S3: ReasoningTool のプロンプトに遵守事項を注入（tools.py:526）
+ ├─ notify_th=0.8 / confirm_th=0.5（既定 0.7/0.4 より厳格）
+ │                     → S5/S6: 回答ゲート・相互検証の合格ラインを引き上げ（:699, :769）
+ ├─ escalate_keywords=[法的, 訴訟, 減免, 個別, 例外, 不服]
+ │                     → S5: 強制エスカレの第 1 段トリガ（:359）
+ ├─ action_map={申請/手続/様式 → send_reply}
+ │                     → S8: 案内返信（send_reply）のアクション種別を決定（:457。申請受付自体は人間）
+ └─ require_identity=False
+                       → S8: 本人確認は起動しない（identity_verifier=None。:827 が False → :489 をスキップ）
+```
+
+**saas（SaaS）** — 速い自己解決と正しい振り分け。障害・課金は起票／有人へ。しきい値は既定のまま。
+
+```text
+VerticalProfile("saas")
+ ├─ collections=[saas_docs_anthropic, saas_api_anthropic]
+ │                     → S3: RAGSearchTool の検索対象を製品ドキュメント／API へ限定（tools.py:165）
+ ├─ prompt_addendum="製品バージョンを明示し、再現手順と公式ドキュメント URL を添える。"
+ │                     → S3: ReasoningTool のプロンプトに遵守事項を注入（tools.py:526）
+ ├─ notify_th=None / confirm_th=None → config 既定 0.7/0.4 を使用
+ │                     → S5/S6: 回答ゲート・相互検証は既定ライン（上書きなし。:699, :769）
+ ├─ escalate_keywords=[障害, ダウン, 落ち, 課金, 請求, 情報漏, セキュリティ]
+ │                     → S5: 強制エスカレの第 1 段トリガ（:359。「課金プランの違いを教えて」等の
+ │                            FAQ 質問は第 2 段の意図分類=question で誤検知抑止）
+ ├─ action_map={エラー/不具合/バグ → create_ticket}
+ │                     → S8: 障害・不具合の起票（create_ticket）を決定（:457）
+ └─ require_identity=False
+                       → S8: 本人確認は起動しない（identity_verifier=None。:827 が False → :489 をスキップ）
+```
+
+**ec（EC）** — 安全な実行。返品・キャンセル等の副作用操作を本人確認 → CONFIRM の二段で守る。
+
+```text
+VerticalProfile("ec")
+ ├─ collections=[ec_policy_anthropic, ec_faq_anthropic]
+ │                     → S3: RAGSearchTool の検索対象を規定／注文 FAQ へ限定（tools.py:165）
+ ├─ prompt_addendum="注文情報の照会・変更は本人確認必須。返品・交換は規定の版に基づいて回答。"
+ │                     → S3: ReasoningTool のプロンプトに遵守事項を注入（tools.py:526）
+ ├─ notify_th=None / confirm_th=None → config 既定 0.7/0.4 を使用
+ │                     → S5/S6: 回答ゲート・相互検証は既定ライン（上書きなし。:699, :769）
+ ├─ escalate_keywords=[決済, 返金, 破損, クレーム, 不良品]
+ │                     → S5: 強制エスカレの第 1 段トリガ（:359）
+ ├─ action_map={返品/交換/キャンセル/解約 → create_ticket}
+ │                     → S8: 返品・交換受付の起票（create_ticket）を決定（:457）
+ └─ require_identity=True  ★ 3 業界で唯一 True
+                       → S8: アクション前に本人確認を必須化（:827 が True → :489 で照合。
+                              未確認なら実行せず有人へ引き継ぎ）
+```
+
+> **効き方の差の要点**: 作用**点**（行番号）は 3 業界共通で、差は値に集約される。
+> ①しきい値は gov のみ厳格化（0.8/0.5）、saas/ec は既定 0.7/0.4。
+> ②`require_identity` は **ec のみ True** で、`_perform_action`（:489）の本人確認ゲートが実際に働くのは EC だけ
+> （gov/saas は `identity_verifier=None` で :489 をスキップ）。
+> ③`action_map` の処理先は gov=`send_reply`（案内）に対し saas/ec=`create_ticket`（起票）。
+
 ---
 
 ## 3. 自治体（Local Government）
